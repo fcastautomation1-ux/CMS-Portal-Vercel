@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="CMS Portal — Campaign Management System" />
+    <title>CMS Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/sections.css" />
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<section id="loginSection" class="login-screen">
+    <div class="login-card">
+        <div class="login-brand">
+            <div class="login-logo">⚡</div>
+            <h1 class="login-title">CMS Portal</h1>
+            <p class="login-subtitle">Campaign Management System</p>
+        </div>
+        <form id="loginForm" class="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label class="form-label" for="usernameInput">Username</label>
+                <div class="input-wrapper">
+                    <span class="input-icon">👤</span>
+                    <input type="text" id="usernameInput" name="username" class="form-control" placeholder="Enter your username" autocomplete="username" required />
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="passwordInput">Password</label>
+                <div class="input-wrapper">
+                    <span class="input-icon">🔒</span>
+                    <input type="password" id="passwordInput" name="password" class="form-control" placeholder="Enter your password" autocomplete="current-password" required />
+                    <button type="button" class="input-toggle-pw" onclick="togglePasswordVisibility()">👁️</button>
+                </div>
+            </div>
+            <div id="loginError" class="login-error hidden"></div>
+            <button type="submit" id="loginBtn" class="btn btn-primary btn-full">Sign In</button>
+        </form>
+        <p class="login-footer">Secure · Private · Internal Use Only</p>
+    </div>
+    <div class="login-bg">
+        <div class="login-blob login-blob-1"></div>
+        <div class="login-blob login-blob-2"></div>
+        <div class="login-blob login-blob-3"></div>
+    </div>
+</section>
+
+<!-- MAIN APP -->
+<div id="mainApp" class="app-shell hidden">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-brand">
+                <span class="sidebar-logo">⚡</span>
+                <span class="sidebar-title">CMS Portal</span>
+            </div>
+            <button class="sidebar-close-btn" onclick="closeMobileSidebar()">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+            <ul id="sidebarNav" class="nav-list"></ul>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="sidebar-user" onclick="navigateTo('settings')">
+                <div class="sidebar-avatar" data-user-avatar>?</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-username" data-user-name>Loading...</div>
+                    <div class="sidebar-role" data-user-role></div>
+                </div>
+                <button class="sidebar-logout" onclick="event.stopPropagation(); handleLogout()">🚪</button>
+            </div>
+        </div>
+    </aside>
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
+    <!-- MAIN CONTENT -->
+    <div class="app-main">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button id="menuToggle" class="menu-toggle" onclick="toggleMobileSidebar()">☰</button>
+                <div class="topbar-breadcrumb" id="topbarBreadcrumb">Dashboard</div>
+            </div>
+            <div class="topbar-right">
+                <div class="notification-wrapper">
+                    <button class="topbar-icon-btn" onclick="openNotificationsPanel()" id="notificationBell">
+                        🔔
+                        <span class="notification-badge" id="notificationBadge" style="display:none">0</span>
+                    </button>
+                    <div id="notificationsPanel" class="notifications-panel">
+                        <div class="notifications-header">
+                            <span>Notifications</span>
+                            <button class="btn-link" onclick="markAllRead()">Mark all read</button>
+                        </div>
+                        <div id="notificationsList" class="notifications-list"><div class="loading-spinner"></div></div>
+                    </div>
+                </div>
+                <div class="topbar-avatar" data-user-avatar onclick="navigateTo('settings')">?</div>
+            </div>
+        </header>
+
+        <main class="app-content">
+
+            <!-- DASHBOARD -->
+            <section id="section-dashboard" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">🏠 Dashboard</h2>
+                </div>
+                <div id="dashboardAlerts"></div>
+                <div id="dashboardStats" class="stats-grid"></div>
+                <div class="dashboard-grid">
+                    <div class="dashboard-panel">
+                        <div class="panel-header">
+                            <h3 class="panel-title">📋 My Active Tasks</h3>
+                            <button class="btn btn-sm btn-ghost" onclick="navigateTo('todos')">View All →</button>
+                        </div>
+                        <div id="dashboardRecentTasks"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TASKS -->
+            <section id="section-todos" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">✅ Tasks</h2>
+                    <div class="section-actions">
+                        <button class="btn btn-primary" onclick="openNewTodoModal()">+ New Task</button>
+                    </div>
+                </div>
+                <div class="todos-toolbar">
+                    <div class="todos-filters">
+                        <input type="search" class="form-control search-input" placeholder="🔍 Search tasks..." oninput="searchTodos(this.value)" />
+                        <select class="form-control filter-select" onchange="setTodosFilter('scope', this.value)">
+                            <option value="all">All Tasks</option>
+                            <option value="mine">My Tasks</option>
+                            <option value="assigned">Assigned to Me</option>
+                            <option value="created">Created by Me</option>
+                            <option value="team">My Team</option>
+                        </select>
+                        <select class="form-control filter-select" onchange="setTodosFilter('priority', this.value)">
+                            <option value="all">All Priorities</option>
+                            <option value="high">🔴 High</option>
+                            <option value="medium">🟡 Medium</option>
+                            <option value="low">🟢 Low</option>
+                        </select>
+                    </div>
+                    <div class="view-toggles">
+                        <button class="view-toggle-btn active" data-view="kanban" onclick="setTodosView('kanban')">⬜ Board</button>
+                        <button class="view-toggle-btn" data-view="list" onclick="setTodosView('list')">☰ List</button>
+                    </div>
+                </div>
+                <div class="todos-counter-row">
+                    <span class="counter-item"><span id="todoCountAll">0</span> active</span>·
+                    <span class="counter-item">Backlog: <span id="todoCountBacklog">0</span></span>·
+                    <span class="counter-item">To Do: <span id="todoCountTodo">0</span></span>·
+                    <span class="counter-item">In Progress: <span id="todoCountInProgress">0</span></span>·
+                    <span class="counter-item">Done: <span id="todoCountDone">0</span></span>
+                </div>
+                <div id="todosLoadingOverlay" class="section-loading hidden"><div class="loading-spinner"></div></div>
+                <div id="kanbanBoard" class="kanban-board"></div>
+                <div id="todosList" class="todos-list hidden"></div>
+            </section>
+
+            <!-- ACCOUNTS -->
+            <section id="section-accounts" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">📊 Accounts</h2>
+                    <div class="section-actions">
+                        <input type="search" class="form-control search-input" placeholder="🔍 Search..." oninput="filterAccounts(this.value)" />
+                        <button class="btn btn-primary" onclick="showAccountModal()">+ Add Account</button>
+                    </div>
+                </div>
+                <div id="bulkActionsBar" class="bulk-bar hidden">
+                    <span class="bulk-count">0 selected</span>
+                    <button class="btn btn-sm btn-success" onclick="bulkToggleAccounts(true)">Enable</button>
+                    <button class="btn btn-sm btn-danger" onclick="bulkToggleAccounts(false)">Disable</button>
+                </div>
+                <div class="table-wrapper" id="accountsContainer">
+                    <table class="data-table" id="accountsTable">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="selectAllAccounts" onclick="document.querySelectorAll('.account-checkbox').forEach(cb=>{cb.checked=this.checked; toggleAccountSelection(cb.value,this.checked);})" /></th>
+                                <th>Customer ID</th><th>Sheet</th><th>Status</th><th>Enabled</th><th>Last Run</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody><tr><td colspan="7" class="loading-cell"><div class="loading-spinner"></div></td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- CAMPAIGNS -->
+            <section id="section-campaigns" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">📈 Campaigns</h2>
+                    <div class="section-actions">
+                        <input type="search" class="form-control search-input" placeholder="🔍 Search campaigns..." oninput="searchCampaigns(this.value)" />
+                    </div>
+                </div>
+                <div id="campaignsContainer"></div>
+            </section>
+
+            <!-- REPORTS -->
+            <section id="section-looker" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">📉 Looker Studio Reports</h2>
+                    <div class="section-actions" id="lookerManagerActions" style="display:none">
+                        <button class="btn btn-primary" onclick="showLookerReportModal()">+ Add Report</button>
+                    </div>
+                </div>
+                <div id="lookerReportViewer" class="looker-viewer hidden">
+                    <div class="looker-viewer-header">
+                        <span id="lookerReportTitle" class="looker-viewer-title"></span>
+                        <div class="looker-viewer-actions">
+                            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('lookerIframe').src=document.getElementById('lookerIframe').src">🔄</button>
+                            <button class="btn btn-ghost btn-sm" onclick="closeLookerViewer()">✕ Close</button>
+                        </div>
+                    </div>
+                    <iframe id="lookerIframe" class="looker-iframe" src="" allowfullscreen></iframe>
+                </div>
+                <div id="lookerReportsGrid" class="reports-grid"></div>
+            </section>
+
+            <!-- WORKFLOWS -->
+            <section id="section-workflows" class="app-section hidden">
+                <div class="section-header"><h2 class="section-title">⚙️ Workflows</h2></div>
+                <div class="workflows-layout" id="workflowsContainer">
+                    <div class="workflows-col">
+                        <div class="panel-header"><h3 class="panel-title">Scheduled Workflows</h3></div>
+                        <div id="workflowsList"></div>
+                    </div>
+                    <div class="workflows-col">
+                        <div class="panel-header">
+                            <h3 class="panel-title">Removal Conditions</h3>
+                            <button class="btn btn-sm btn-primary" onclick="showAddConditionModal?.()">+ Add</button>
+                        </div>
+                        <div id="removalConditionsList"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- USERS -->
+            <section id="section-users" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">👤 Users</h2>
+                    <div class="section-actions">
+                        <input type="search" class="form-control search-input" placeholder="🔍 Search users..." oninput="filterUsers(this.value)" />
+                        <button class="btn btn-primary" onclick="showUserModal()">+ Add User</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table" id="usersTable">
+                        <thead>
+                            <tr><th>User</th><th>Role</th><th>Department</th><th>Accounts</th><th>Manager</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- DEPARTMENTS -->
+            <section id="section-departments" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">🏢 Departments</h2>
+                    <div class="section-actions">
+                        <button class="btn btn-primary" onclick="showDepartmentModal()">+ Add Department</button>
+                    </div>
+                </div>
+                <div id="departmentsContainer"></div>
+            </section>
+
+            <!-- PACKAGES -->
+            <section id="section-packages" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">📦 Packages</h2>
+                    <div id="packagesSectionHeader"></div>
+                </div>
+                <div id="packagesContainer"><div class="loading-spinner"></div></div>
+            </section>
+
+            <!-- DRIVE -->
+            <section id="section-drive" class="app-section hidden">
+                <div class="section-header">
+                    <h2 class="section-title">📁 Google Drive</h2>
+                    <div class="section-actions">
+                        <button class="btn btn-ghost btn-sm" onclick="loadDriveSection()">🔄 Refresh</button>
+                    </div>
+                </div>
+                <div id="driveContainer" class="drive-container"></div>
+            </section>
+
+            <!-- SETTINGS -->
+            <section id="section-settings" class="app-section hidden">
+                <div class="section-header"><h2 class="section-title">⚙️ Settings</h2></div>
+                <div id="settingsContent" class="settings-layout"></div>
+            </section>
+
+        </main>
+    </div>
+</div>
+
+<!-- MODALS -->
+
+<!-- Task Form Modal -->
+<div id="todoFormModal" class="modal-backdrop" onclick="if(event.target===this)closeTodoFormModal()">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <h3 class="modal-title" id="todoFormTitle">New Task</h3>
+            <button class="modal-close" onclick="closeTodoFormModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editingTodoId" />
+            <div class="form-grid-2">
+                <div class="form-group col-2">
+                    <label class="form-label required">Title</label>
+                    <input type="text" id="todoTitle" class="form-control" placeholder="Task title..." maxlength="200" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label required">KPI Type</label>
+                    <select id="todoKpiType" class="form-control">
+                        <option value="">Select KPI...</option>
+                        <option>CPC</option><option>CPA</option><option>ROAS</option>
+                        <option>CTR</option><option>Impressions</option><option>Conversions</option>
+                        <option>Spend</option><option>General</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Department</label>
+                    <select id="todoCategory" class="form-control"><option value="">Select Department...</option></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select id="todoPriority" class="form-control">
+                        <option value="low">🟢 Low</option>
+                        <option value="medium" selected>🟡 Medium</option>
+                        <option value="high">🔴 High</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select id="todoTaskStatus" class="form-control">
+                        <option value="backlog">📦 Backlog</option>
+                        <option value="todo" selected>📋 To Do</option>
+                        <option value="in_progress">⚡ In Progress</option>
+                        <option value="done">✅ Done</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Due Date</label>
+                    <input type="date" id="todoDueDate" class="form-control" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Package</label>
+                    <select id="todoPackage" class="form-control"><option value="">Select Package...</option></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">App Name</label>
+                    <select id="todoAppName" class="form-control"><option value="">Select App...</option></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Assign To</label>
+                    <select id="todoDirectAssignee" class="form-control"><option value="">Assign to user...</option></select>
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Description</label>
+                    <textarea id="todoDescription" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Our Goal</label>
+                    <textarea id="todoOurGoal" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Notes</label>
+                    <textarea id="todoNotes" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeTodoFormModal()">Cancel</button>
+            <button class="btn btn-primary" id="saveTodoBtn" onclick="saveTodoFromForm()">Save Task</button>
+        </div>
+    </div>
+</div>
+
+<!-- Task Detail Modal -->
+<div id="todoDetailModal" class="modal-backdrop" onclick="if(event.target===this)closeTodoDetail()">
+    <div class="modal modal-xl">
+        <div class="modal-header">
+            <h3 class="modal-title" id="todoDetailTitle">Task Details</h3>
+            <button class="modal-close" onclick="closeTodoDetail()">✕</button>
+        </div>
+        <div class="modal-body" id="todoDetailBody"><div class="loading-spinner"></div></div>
+    </div>
+</div>
+
+<!-- Share Task Modal -->
+<div id="shareTodoModal" class="modal-backdrop" onclick="if(event.target===this)closeShareTodoModal()">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3 class="modal-title">Assign / Share Task</h3>
+            <button class="modal-close" onclick="closeShareTodoModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="shareTodoId" />
+            <div class="form-group">
+                <label class="form-label required">Assign to User</label>
+                <select id="shareUserSelect" class="form-control"><option value="">Select user...</option></select>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="shareCanEdit" />
+                    <span>Allow user to edit task details</span>
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeShareTodoModal()">Cancel</button>
+            <button class="btn btn-primary" id="confirmShareBtn" onclick="executeTodoShare()">Share / Assign</button>
+        </div>
+    </div>
+</div>
+
+<!-- Queue Task Modal -->
+<div id="queueTodoModal" class="modal-backdrop" onclick="if(event.target===this)closeQueueTodoModal()">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3 class="modal-title">Send to Department Queue</h3>
+            <button class="modal-close" onclick="closeQueueTodoModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="queueTodoId" />
+            <div class="form-group">
+                <label class="form-label required">Department</label>
+                <select id="deptQueuePickerSelect" class="form-control"><option value="">Select Department...</option></select>
+            </div>
+            <p class="form-hint">Task will be auto-assigned to the least-loaded member of that department.</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeQueueTodoModal()">Cancel</button>
+            <button class="btn btn-primary" id="confirmQueueBtn" onclick="executeQueueTask()">Send to Queue</button>
+        </div>
+    </div>
+</div>
+
+<!-- Account Modal -->
+<div id="accountModal" class="modal-backdrop" onclick="if(event.target===this)closeAccountModal()">
+    <div class="modal modal-md">
+        <div class="modal-header">
+            <h3 class="modal-title" id="accountModalTitle">Add Account</h3>
+            <button class="modal-close" onclick="closeAccountModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="existingAccountCustomerId" />
+            <div class="form-group">
+                <label class="form-label required">Customer ID</label>
+                <input type="text" id="accountCustomerId" class="form-control" placeholder="e.g. 123-456-7890" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Google Sheet Link</label>
+                <input type="url" id="accountSheetLink" class="form-control" placeholder="https://docs.google.com/spreadsheets/..." />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Drive Code / Notes</label>
+                <textarea id="accountDriveComments" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Workflow</label>
+                <select id="accountWorkflow" class="form-control">
+                    <option value="workflow-0">Workflow 0 (Default)</option>
+                    <option value="workflow-1">Workflow 1</option>
+                    <option value="workflow-2">Workflow 2</option>
+                    <option value="workflow-3">Workflow 3</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label"><input type="checkbox" id="accountEnabled" checked /><span>Account Enabled</span></label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeAccountModal()">Cancel</button>
+            <button class="btn btn-primary" id="saveAccountBtn" onclick="saveAccountFromModal()">Save Account</button>
+        </div>
+    </div>
+</div>
+
+<!-- User Modal -->
+<div id="userModal" class="modal-backdrop" onclick="if(event.target===this)closeUserModal()">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <h3 class="modal-title" id="userModalTitle">Add User</h3>
+            <button class="modal-close" onclick="closeUserModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editingUsername" />
+            <div class="form-grid-2">
+                <div class="form-group">
+                    <label class="form-label required">Username</label>
+                    <input type="text" id="userUsername" class="form-control" placeholder="lowercase username" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password <small>(blank = keep current)</small></label>
+                    <input type="password" id="userPassword" class="form-control" placeholder="New password..." />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Role</label>
+                    <select id="userRole" class="form-control">
+                        <option>Employee</option><option>Supervisor</option>
+                        <option>Manager</option><option>Super Manager</option><option>Admin</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Department</label>
+                    <input type="text" id="userDepartment" class="form-control" placeholder="e.g. App Growth" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Manager ID</label>
+                    <input type="text" id="userManagerId" class="form-control" placeholder="manager_username" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Drive Access Level</label>
+                    <select id="userDriveAccessLevel" class="form-control">
+                        <option value="view">View</option>
+                        <option value="edit">Edit</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Allowed Accounts <small>(comma-separated or "All")</small></label>
+                    <input type="text" id="userAllowedAccounts" class="form-control" placeholder="123-456,789-012 or All" />
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="userEmail" class="form-control" placeholder="user@example.com" />
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Team Members <small>(comma-separated usernames)</small></label>
+                    <input type="text" id="userTeamMembers" class="form-control" placeholder="alice,bob,charlie" />
+                </div>
+                <div class="form-group col-2">
+                    <label class="form-label">Module Access <small>(JSON or comma-separated)</small></label>
+                    <textarea id="userModuleAccess" class="form-control" rows="3" placeholder='{"todos":{"enabled":true},"accounts":{"enabled":false}}'></textarea>
+                </div>
+                <div class="form-group col-2">
+                    <label class="checkbox-label"><input type="checkbox" id="userEnabled" checked /><span>Account Active</span></label>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeUserModal()">Cancel</button>
+            <button class="btn btn-primary" id="saveUserBtn" onclick="saveUserFromModal()">Save User</button>
+        </div>
+    </div>
+</div>
+
+<!-- Department Modal -->
+<div id="departmentModal" class="modal-backdrop" onclick="if(event.target===this)closeDepartmentModal()">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3 class="modal-title" id="departmentModalTitle">Add Department</h3>
+            <button class="modal-close" onclick="closeDepartmentModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editingDepartmentId" />
+            <div class="form-group">
+                <label class="form-label required">Department Name</label>
+                <input type="text" id="departmentName" class="form-control" placeholder="e.g. App Growth" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea id="departmentDescription" class="form-control" rows="3"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeDepartmentModal()">Cancel</button>
+            <button class="btn btn-primary" id="saveDepartmentBtn" onclick="saveDepartmentFromModal()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Looker Report Modal -->
+<div id="lookerReportModal" class="modal-backdrop" onclick="if(event.target===this)closeLookerReportModal()">
+    <div class="modal modal-md">
+        <div class="modal-header">
+            <h3 class="modal-title" id="lookerModalTitle">Add Report</h3>
+            <button class="modal-close" onclick="closeLookerReportModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="lookerReportId" />
+            <div class="form-group">
+                <label class="form-label required">Report Name</label>
+                <input type="text" id="lookerReportName" class="form-control" placeholder="e.g. Q1 Performance Dashboard" />
+            </div>
+            <div class="form-group">
+                <label class="form-label required">Looker Studio URL</label>
+                <input type="url" id="lookerReportUrl" class="form-control" placeholder="https://lookerstudio.google.com/reporting/..." />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea id="lookerReportDescription" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Allowed Users <small>(comma-sep, blank = all)</small></label>
+                <input type="text" id="lookerReportAllowedUsers" class="form-control" placeholder="john,jane,ahmed..." />
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label"><input type="checkbox" id="lookerReportActive" checked /><span>Report Active</span></label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeLookerReportModal()">Cancel</button>
+            <button class="btn btn-primary" id="saveLookerReportBtn" onclick="saveLookerReportFromModal()">Save Report</button>
+        </div>
+    </div>
+</div>
+
+<!-- Package Modal -->
+<div id="packageModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('packageModal')">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <h3 class="modal-title" id="packageModalTitle">Add Package</h3>
+            <button class="modal-close" onclick="closeModal('packageModal')">✕</button>
+        </div>
+        <div class="modal-body" id="packageModalBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('packageModal')">Cancel</button>
+            <button class="btn btn-primary" id="packageSaveBtn" onclick="submitPackageForm()">Save Package</button>
+        </div>
+    </div>
+</div>
+
+<!-- Approve / Decline Modal -->
+<div id="approveDeclineModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('approveDeclineModal')">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3 class="modal-title">Review Task Submission</h3>
+            <button class="modal-close" onclick="closeModal('approveDeclineModal')">✕</button>
+        </div>
+        <div class="modal-body" id="approveDeclineBody"></div>
+    </div>
+</div>
+
+<!-- Multi-Assignment Chain Modal -->
+<div id="chainModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('chainModal')">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3 class="modal-title">Multi-User Assignment Chain</h3>
+            <button class="modal-close" onclick="closeModal('chainModal')">✕</button>
+        </div>
+        <div class="modal-body" id="chainModalBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('chainModal')">Cancel</button>
+            <button class="btn btn-primary" id="chainSaveBtn" onclick="saveChainModal()">Assign Chain</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer"></div>
+
+<!-- SCRIPTS — order matters -->
+<script src="js/security.js"></script>
+<script src="js/config.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/permissions.js"></script>
+<script src="js/ui-helpers.js"></script>
+<script src="js/departments.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/accounts.js"></script>
+<script src="js/campaigns.js"></script>
+<script src="js/looker.js"></script>
+<script src="js/workflows.js"></script>
+<script src="js/users.js"></script>
+<script src="js/packages.js"></script>
+<script src="js/multi-assignment.js"></script>
+<script src="js/db-migrations.js"></script>
+<script src="js/todos.js"></script>
+<script src="js/todo-detail.js"></script>
+<script src="js/todo-forms.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/drive.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/navigation.js"></script>
+
+<script>
+function togglePasswordVisibility() {
+    const i = document.getElementById('passwordInput');
+    if (i) i.type = i.type === 'password' ? 'text' : 'password';
+}
+
+/* Departments section (inline, lightweight) */
+let _departmentsData = [];
+async function loadDepartmentsSection() {
+    const token = getStoredToken();
+    if (!token) return;
+    const c = document.getElementById('departmentsContainer');
+    if (!c) return;
+    c.innerHTML = '<div class="loading-spinner"></div>';
+    try {
+        _departmentsData = await departmentsAPI.getAllDepartments(token);
+        if (!_departmentsData.length) {
+            c.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><div class="empty-title">No departments yet</div></div>';
+            return;
+        }
+        c.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead><tbody>
+            ${_departmentsData.map(d=>`<tr>
+                <td><strong>${escapeHtml(d.name||d)}</strong></td>
+                <td class="text-muted">${escapeHtml(d.description||'—')}</td>
+                <td class="actions-cell">
+                    <button class="btn-icon" onclick="showDepartmentModal('${d.id||d.name}')">✏️</button>
+                    <button class="btn-icon btn-danger" onclick="deleteDeptPrompt('${d.id||d.name}')">🗑️</button>
+                </td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    } catch(e) { c.innerHTML=`<div class="error-message">${e.message}</div>`; }
+}
+function showDepartmentModal(id=null) {
+    const m = document.getElementById('departmentModal');
+    if (!m) return;
+    const d = id ? _departmentsData.find(x=>(x.id||x.name)===id) : null;
+    document.getElementById('departmentModalTitle').textContent = d ? 'Edit Department' : 'Add Department';
+    document.getElementById('editingDepartmentId').value = id||'';
+    document.getElementById('departmentName').value = d?.name||'';
+    document.getElementById('departmentDescription').value = d?.description||'';
+    m.classList.add('open');
+}
+function closeDepartmentModal() { document.getElementById('departmentModal')?.classList.remove('open'); }
+async function saveDepartmentFromModal() {
+    const token = getStoredToken();
+    if (!token) return;
+    const data = { id: document.getElementById('editingDepartmentId').value||null, name: document.getElementById('departmentName').value.trim(), description: document.getElementById('departmentDescription').value.trim() };
+    if (!data.name) { showToast('Name is required','error'); return; }
+    const btn = document.getElementById('saveDepartmentBtn');
+    if (btn) { btn.disabled=true; btn.textContent='Saving...'; }
+    try {
+        await departmentsAPI.saveDepartment(data, token);
+        closeDepartmentModal();
+        showToast('Saved','success');
+        loadDepartmentsSection();
+    } catch(e) { showToast('Error: '+e.message,'error'); }
+    finally { if(btn){ btn.disabled=false; btn.textContent='Save'; } }
+}
+async function deleteDeptPrompt(id) {
+    if (!confirm('Delete this department?')) return;
+    const token = getStoredToken();
+    if (!token) return;
+    try { await departmentsAPI.deleteDepartment(id, token); showToast('Deleted','success'); loadDepartmentsSection(); }
+    catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+/* Show Looker actions for managers */
+setTimeout(()=>{
+    const r=currentUser?.role; const isA=currentUser?.username==='admin';
+    const el=document.getElementById('lookerManagerActions');
+    if(el&&(isA||r==='Manager'||r==='Super Manager')) el.style.display='flex';
+},1500);
+</script>
+</body>
+</html>

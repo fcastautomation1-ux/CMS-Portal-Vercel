@@ -1,0 +1,754 @@
+<!-- 
+  Google Drive Manager Frontend
+  This file is included in frontend.html and works with DriveManager.gs
+  
+  To include this in frontend.html, use:
+  <?!= HtmlService.createHtmlOutputFromFile('drive').getContent(); ?>
+  
+  Or copy the content directly into the appropriate sections of frontend.html
+-->
+
+<!-- ========================================== -->
+<!-- ADD THIS TO SIDEBAR NAVIGATION (nav-menu) -->
+<!-- ========================================== -->
+<!-- 
+<div class="nav-item" onclick="showSection('drive')" data-section="drive" id="driveNavItem" style="display: none;">
+  <span class="icon">📂</span>
+  <span>Drive Manager</span>
+</div>
+-->
+
+<!-- ========================================== -->
+<!-- DRIVE MANAGER SECTION (add after workflowsSection) -->
+<!-- ========================================== -->
+<div id="driveSection" class="content-section" style="display: none;">
+    <div class="page-header">
+        <div class="page-header-content">
+            <div>
+                <h1>📂 Drive Manager</h1>
+                <p>Browse and manage your Google Drive files and folders</p>
+            </div>
+            <div class="header-actions">
+                <div class="user-info">
+                    <div class="avatar" id="userAvatarDrive">A</div>
+                    <span id="userInfoDisplayDrive">Loading...</span>
+                </div>
+                <button onclick="logout()" class="btn btn-danger">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drive Storage Info -->
+    <div id="driveStorageInfo"
+        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 20px 28px; margin-bottom: 24px; color: white; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 32px;">💾</span>
+            <div>
+                <div style="font-weight: 700; font-size: 18px;">Storage</div>
+                <div id="driveStorageText" style="font-size: 14px; opacity: 0.9;">Loading...</div>
+            </div>
+        </div>
+        <div style="flex: 1; min-width: 200px; max-width: 400px;">
+            <div style="background: rgba(255,255,255,0.3); border-radius: 10px; height: 10px; overflow: hidden;">
+                <div id="driveStorageBar"
+                    style="background: white; height: 100%; width: 0%; transition: width 0.5s ease; border-radius: 10px;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Breadcrumb Navigation -->
+    <div id="driveBreadcrumb"
+        style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding: 16px 20px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); flex-wrap: wrap;">
+        <span style="color: #64748b; font-weight: 600;">📍 Location:</span>
+        <span id="breadcrumbItems" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;"></span>
+    </div>
+
+    <!-- Action Toolbar -->
+    <div class="section-header" style="flex-wrap: wrap; gap: 12px;">
+        <div>
+            <h2>Files & Folders <span id="driveRefreshIndicator" class="refresh-indicator"></span></h2>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <!-- Search -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="text" id="driveSearchInput" placeholder="🔍 Search Drive..."
+                    style="padding: 10px 16px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 14px; min-width: 200px;"
+                    onkeydown="if(event.key === 'Enter') searchDriveFiles();" />
+                <button onclick="searchDriveFiles()" class="btn btn-secondary"
+                    style="padding: 10px 16px;">Search</button>
+                <button onclick="clearDriveSearch()" class="btn btn-secondary" style="padding: 10px 16px;"
+                    title="Clear search">✕</button>
+            </div>
+
+            <!-- Create Dropdown -->
+            <div style="position: relative; display: inline-block;" id="driveCreateDropdown">
+                <button onclick="toggleDriveCreateMenu()" class="btn btn-success"
+                    style="display: flex; align-items: center; gap: 6px;">
+                    ➕ Create New <span style="font-size: 10px;">▼</span>
+                </button>
+                <div id="driveCreateMenu"
+                    style="display: none; position: absolute; top: 100%; right: 0; margin-top: 8px; background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); min-width: 200px; z-index: 100; overflow: hidden;">
+                    <div onclick="showCreateFolderModal()"
+                        style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.2s;"
+                        onmouseover="this.style.background='#f0f9ff';" onmouseout="this.style.background='white';">
+                        <span style="font-size: 20px;">📁</span>
+                        <span style="font-weight: 600; color: #0f172a;">New Folder</span>
+                    </div>
+                    <div onclick="showCreateSheetModal()"
+                        style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.2s; border-top: 1px solid #f1f5f9;"
+                        onmouseover="this.style.background='#f0f9ff';" onmouseout="this.style.background='white';">
+                        <span style="font-size: 20px;">📊</span>
+                        <span style="font-weight: 600; color: #0f172a;">Google Sheets</span>
+                    </div>
+                    <div onclick="showCreateDocModal()"
+                        style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.2s; border-top: 1px solid #f1f5f9;"
+                        onmouseover="this.style.background='#f0f9ff';" onmouseout="this.style.background='white';">
+                        <span style="font-size: 20px;">📝</span>
+                        <span style="font-weight: 600; color: #0f172a;">Google Docs</span>
+                    </div>
+                    <div onclick="showCreateSlidesModal()"
+                        style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.2s; border-top: 1px solid #f1f5f9;"
+                        onmouseover="this.style.background='#f0f9ff';" onmouseout="this.style.background='white';">
+                        <span style="font-size: 20px;">📑</span>
+                        <span style="font-weight: 600; color: #0f172a;">Google Slides</span>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="loadDriveContents(currentDriveFolderId, true)" class="btn btn-secondary">🔄
+                Refresh</button>
+        </div>
+    </div>
+
+    <!-- Files Grid -->
+    <div id="driveFilesContainer" style="min-height: 400px;">
+        <div id="driveFilesGrid"
+            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+            <!-- Files/Folders will be loaded here -->
+            <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #64748b;">
+                <div style="font-size: 48px; margin-bottom: 16px;">📂</div>
+                <p>Click "Drive Manager" tab to load your files</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- DRIVE MODALS (add before </body>) -->
+<!-- ========================================== -->
+
+<!-- Drive Action Modal (Create Folder, Create File, Rename) -->
+<div id="driveModal" class="modal">
+    <div class="modal-content" style="max-width: 500px; width: 90%;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+            <h3 id="driveModalTitle"
+                style="margin: 0; color: white; font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 12px;">
+                <span id="driveModalIcon">📁</span>
+                <span id="driveModalTitleText">Create Folder</span>
+            </h3>
+            <button class="close-btn" onclick="closeDriveModal()">&times;</button>
+        </div>
+
+        <form id="driveModalForm" onsubmit="handleDriveModalSubmit(event)" style="padding: 32px;">
+            <div class="form-group">
+                <label id="driveModalInputLabel" for="driveModalInput"
+                    style="display: block; margin-bottom: 12px; color: #0f172a; font-size: 15px; font-weight: 700;">
+                    Folder Name
+                </label>
+                <input type="text" id="driveModalInput" required placeholder="Enter name..."
+                    style="width: 100%; padding: 14px 18px; font-size: 15px; border: 2px solid #e2e8f0; border-radius: 12px; transition: all 0.2s;"
+                    onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 3px rgba(59, 130, 246, 0.1)';"
+                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none';" />
+                <div id="driveModalHint" style="color: #64748b; font-size: 13px; margin-top: 8px;"></div>
+            </div>
+
+            <input type="hidden" id="driveModalAction" value="">
+            <input type="hidden" id="driveModalItemId" value="">
+
+            <div style="display: flex; gap: 16px; margin-top: 28px;">
+                <button type="submit" id="driveModalSubmitBtn" class="btn btn-success"
+                    style="flex: 1; padding: 14px 28px; font-size: 16px; font-weight: 700; border-radius: 12px;">
+                    💾 Create
+                </button>
+                <button type="button" onclick="closeDriveModal()" class="btn btn-secondary"
+                    style="flex: 1; padding: 14px 28px; font-size: 16px; border-radius: 12px; background: white; border: 2px solid #e2e8f0; color: #475569;">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Drive Share Modal -->
+<div id="driveShareModal" class="modal">
+    <div class="modal-content" style="max-width: 500px; width: 90%;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+            <h3
+                style="margin: 0; color: white; font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 12px;">
+                🔗 Share Link
+            </h3>
+            <button class="close-btn" onclick="closeDriveShareModal()">&times;</button>
+        </div>
+
+        <div style="padding: 32px;">
+            <div id="driveShareContent">
+                <!-- Share link will appear here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- DRIVE MANAGER JAVASCRIPT (add to <script>) -->
+<!-- ========================================== -->
+<script>
+    // ============================================================================
+    // GOOGLE DRIVE MANAGER - Frontend JavaScript
+    // ============================================================================
+
+    // Current folder state
+    let currentDriveFolderId = 'root';
+    let driveSearchMode = false;
+
+    // Toggle create menu dropdown
+    function toggleDriveCreateMenu() {
+        const menu = document.getElementById('driveCreateMenu');
+        if (menu.style.display === 'none') {
+            menu.style.display = 'block';
+            // Close when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', closeDriveCreateMenuOnClickOutside);
+            }, 10);
+        } else {
+            menu.style.display = 'none';
+        }
+    }
+
+    function closeDriveCreateMenuOnClickOutside(e) {
+        const dropdown = document.getElementById('driveCreateDropdown');
+        if (dropdown && !dropdown.contains(e.target)) {
+            document.getElementById('driveCreateMenu').style.display = 'none';
+            document.removeEventListener('click', closeDriveCreateMenuOnClickOutside);
+        }
+    }
+
+    // Load Drive folder contents
+    function loadDriveContents(folderId, forceRefresh = false) {
+        driveSearchMode = false;
+        currentDriveFolderId = folderId || 'root';
+
+        const indicator = document.getElementById('driveRefreshIndicator');
+        const grid = document.getElementById('driveFilesGrid');
+
+        if (indicator) {
+            indicator.classList.add('loading');
+            indicator.textContent = 'Loading...';
+        }
+
+        // Show loading state
+        grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #64748b;">
+        <div style="font-size: 48px; margin-bottom: 16px; animation: pulse 1.5s infinite;">📂</div>
+        <p>Loading files...</p>
+      </div>
+    `;
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (indicator) {
+                    indicator.classList.remove('loading');
+                    indicator.textContent = '';
+                }
+
+                if (result.success) {
+                    renderDriveContents(result);
+                } else {
+                    grid.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #ef4444;">
+              <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+              <p>Error: ${result.error}</p>
+              <button onclick="loadDriveContents('root')" class="btn btn-secondary" style="margin-top: 16px;">Go to My Drive</button>
+            </div>
+          `;
+                }
+            })
+            .withFailureHandler(function (error) {
+                if (indicator) {
+                    indicator.classList.remove('loading');
+                    indicator.textContent = '';
+                }
+                grid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #ef4444;">
+            <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
+            <p>Error loading Drive: ${error.message}</p>
+            <button onclick="loadDriveContents('root')" class="btn btn-secondary" style="margin-top: 16px;">Retry</button>
+          </div>
+        `;
+            })
+            .getDriveFolderContents(folderId, authToken);
+    }
+
+    // Load storage quota
+    function loadDriveStorageQuota() {
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    const quota = result.quota;
+                    const usedGB = (quota.used / (1024 * 1024 * 1024)).toFixed(2);
+                    const limitGB = (quota.limit / (1024 * 1024 * 1024)).toFixed(2);
+
+                    document.getElementById('driveStorageText').textContent = `${usedGB} GB of ${limitGB} GB used`;
+                    document.getElementById('driveStorageBar').style.width = `${Math.min(quota.percentUsed, 100)}%`;
+                }
+            })
+            .withFailureHandler(function (error) {
+                document.getElementById('driveStorageText').textContent = 'Unable to load storage info';
+            })
+            .getDriveStorageQuota(authToken);
+    }
+
+    // Render Drive contents
+    function renderDriveContents(data) {
+        const grid = document.getElementById('driveFilesGrid');
+        const breadcrumbItems = document.getElementById('breadcrumbItems');
+
+        // Render breadcrumbs
+        breadcrumbItems.innerHTML = data.breadcrumbs.map((crumb, idx) => {
+            const isLast = idx === data.breadcrumbs.length - 1;
+            const separator = idx < data.breadcrumbs.length - 1 ? '<span style="color: #cbd5e1;">›</span>' : '';
+
+            if (isLast) {
+                return `<span style="font-weight: 700; color: #0f172a;">${crumb.name}</span>`;
+            } else {
+                return `<span onclick="loadDriveContents('${crumb.id}')" style="color: #3b82f6; cursor: pointer; font-weight: 600;" onmouseover="this.style.textDecoration='underline';" onmouseout="this.style.textDecoration='none';">${crumb.name}</span>${separator}`;
+            }
+        }).join(' ');
+
+        // Empty state
+        if (!data.items || data.items.length === 0) {
+            grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 80px 40px; background: white; border-radius: 16px; border: 2px dashed #e2e8f0;">
+          <div style="font-size: 64px; margin-bottom: 20px; filter: grayscale(0.3);">📂</div>
+          <h3 style="color: #0f172a; margin-bottom: 12px; font-size: 24px;">This folder is empty</h3>
+          <p style="color: #64748b; margin-bottom: 24px;">Create a new folder or file to get started</p>
+          <button onclick="showCreateFolderModal()" class="btn btn-success" style="margin-right: 12px;">📁 New Folder</button>
+          <button onclick="showCreateSheetModal()" class="btn btn-primary">📊 New Sheet</button>
+        </div>
+      `;
+            return;
+        }
+
+        // Render files and folders
+        grid.innerHTML = data.items.map(item => `
+      <div class="drive-item" style="background: white; border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: all 0.2s; cursor: pointer; border: 2px solid transparent;" 
+           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.1)'; this.style.borderColor='#667eea';" 
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'; this.style.borderColor='transparent';">
+        
+        <!-- Item Header -->
+        <div onclick="${item.type === 'folder' ? `loadDriveContents('${item.id}')` : `window.open('${item.url}', '_blank')`}" style="display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px;">
+          <div style="font-size: 40px; flex-shrink: 0;">${item.icon}</div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 15px; word-break: break-word; line-height: 1.4;">${item.name}</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
+              ${item.type === 'folder' ? 'Folder' : formatFileSizeFrontend(item.size)}
+              • Modified ${formatDateFrontend(item.modifiedDate)}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Item Actions -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid #f1f5f9; padding-top: 14px;">
+          <button onclick="window.open('${item.url}', '_blank')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; flex: 1;">
+            🔗 Open
+          </button>
+          <button onclick="showRenameModal('${item.id}', '${item.name.replace(/'/g, "\\'")}')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; flex: 1;">
+            ✏️ Rename
+          </button>
+          ${item.type === 'file' ? `
+            <button onclick="copyDriveItem('${item.id}')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; flex: 1;">
+              📋 Copy
+            </button>
+          ` : ''}
+          <button onclick="shareDriveItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; flex: 1;">
+            📤 Share
+          </button>
+          <button onclick="deleteDriveItemConfirm('${item.id}', '${item.name.replace(/'/g, "\\'")}')" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;">
+            🗑️
+          </button>
+        </div>
+      </div>
+    `).join('');
+    }
+
+    // Search Drive files
+    function searchDriveFiles() {
+        const query = document.getElementById('driveSearchInput').value.trim();
+        if (!query) {
+            loadDriveContents(currentDriveFolderId);
+            return;
+        }
+
+        driveSearchMode = true;
+        const indicator = document.getElementById('driveRefreshIndicator');
+        const grid = document.getElementById('driveFilesGrid');
+
+        if (indicator) {
+            indicator.classList.add('loading');
+            indicator.textContent = 'Searching...';
+        }
+
+        grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #64748b;">
+        <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+        <p>Searching for "${query}"...</p>
+      </div>
+    `;
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (indicator) {
+                    indicator.classList.remove('loading');
+                    indicator.textContent = '';
+                }
+
+                if (result.success) {
+                    // Update breadcrumb to show search mode
+                    document.getElementById('breadcrumbItems').innerHTML = `
+            <span style="color: #3b82f6; cursor: pointer;" onclick="loadDriveContents('root')">My Drive</span>
+            <span style="color: #cbd5e1;">›</span>
+            <span style="font-weight: 700; color: #0f172a;">🔍 Search: "${result.query}"</span>
+          `;
+
+                    if (result.items.length === 0) {
+                        grid.innerHTML = `
+              <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: #64748b;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+                <p>No results found for "${result.query}"</p>
+                <button onclick="clearDriveSearch()" class="btn btn-secondary" style="margin-top: 16px;">Clear Search</button>
+              </div>
+            `;
+                    } else {
+                        renderDriveContents({ items: result.items, breadcrumbs: [] });
+                    }
+                }
+            })
+            .withFailureHandler(function (error) {
+                if (indicator) {
+                    indicator.classList.remove('loading');
+                    indicator.textContent = '';
+                }
+                alert('Search failed: ' + error.message);
+            })
+            .searchDrive(query, authToken);
+    }
+
+    // Clear search and go back
+    function clearDriveSearch() {
+        document.getElementById('driveSearchInput').value = '';
+        driveSearchMode = false;
+        loadDriveContents(currentDriveFolderId);
+    }
+
+    // ============ CREATE MODALS ============
+
+    function showCreateFolderModal() {
+        document.getElementById('driveCreateMenu').style.display = 'none';
+        document.getElementById('driveModalIcon').textContent = '📁';
+        document.getElementById('driveModalTitleText').textContent = 'Create New Folder';
+        document.getElementById('driveModalInputLabel').textContent = 'Folder Name';
+        document.getElementById('driveModalInput').placeholder = 'Enter folder name...';
+        document.getElementById('driveModalInput').value = '';
+        document.getElementById('driveModalHint').textContent = 'The folder will be created in the current location.';
+        document.getElementById('driveModalAction').value = 'createFolder';
+        document.getElementById('driveModalSubmitBtn').textContent = '📁 Create Folder';
+        document.getElementById('driveModal').classList.add('active');
+        setTimeout(() => document.getElementById('driveModalInput').focus(), 100);
+    }
+
+    function showCreateSheetModal() {
+        document.getElementById('driveCreateMenu').style.display = 'none';
+        document.getElementById('driveModalIcon').textContent = '📊';
+        document.getElementById('driveModalTitleText').textContent = 'Create Google Sheets';
+        document.getElementById('driveModalInputLabel').textContent = 'Spreadsheet Name';
+        document.getElementById('driveModalInput').placeholder = 'Enter spreadsheet name...';
+        document.getElementById('driveModalInput').value = '';
+        document.getElementById('driveModalHint').textContent = 'A new Google Sheets spreadsheet will be created.';
+        document.getElementById('driveModalAction').value = 'createSheet';
+        document.getElementById('driveModalSubmitBtn').textContent = '📊 Create Spreadsheet';
+        document.getElementById('driveModal').classList.add('active');
+        setTimeout(() => document.getElementById('driveModalInput').focus(), 100);
+    }
+
+    function showCreateDocModal() {
+        document.getElementById('driveCreateMenu').style.display = 'none';
+        document.getElementById('driveModalIcon').textContent = '📝';
+        document.getElementById('driveModalTitleText').textContent = 'Create Google Docs';
+        document.getElementById('driveModalInputLabel').textContent = 'Document Name';
+        document.getElementById('driveModalInput').placeholder = 'Enter document name...';
+        document.getElementById('driveModalInput').value = '';
+        document.getElementById('driveModalHint').textContent = 'A new Google Docs document will be created.';
+        document.getElementById('driveModalAction').value = 'createDoc';
+        document.getElementById('driveModalSubmitBtn').textContent = '📝 Create Document';
+        document.getElementById('driveModal').classList.add('active');
+        setTimeout(() => document.getElementById('driveModalInput').focus(), 100);
+    }
+
+    function showCreateSlidesModal() {
+        document.getElementById('driveCreateMenu').style.display = 'none';
+        document.getElementById('driveModalIcon').textContent = '📑';
+        document.getElementById('driveModalTitleText').textContent = 'Create Google Slides';
+        document.getElementById('driveModalInputLabel').textContent = 'Presentation Name';
+        document.getElementById('driveModalInput').placeholder = 'Enter presentation name...';
+        document.getElementById('driveModalInput').value = '';
+        document.getElementById('driveModalHint').textContent = 'A new Google Slides presentation will be created.';
+        document.getElementById('driveModalAction').value = 'createSlides';
+        document.getElementById('driveModalSubmitBtn').textContent = '📑 Create Presentation';
+        document.getElementById('driveModal').classList.add('active');
+        setTimeout(() => document.getElementById('driveModalInput').focus(), 100);
+    }
+
+    function showRenameModal(itemId, currentName) {
+        document.getElementById('driveModalIcon').textContent = '✏️';
+        document.getElementById('driveModalTitleText').textContent = 'Rename Item';
+        document.getElementById('driveModalInputLabel').textContent = 'New Name';
+        document.getElementById('driveModalInput').placeholder = 'Enter new name...';
+        document.getElementById('driveModalInput').value = currentName;
+        document.getElementById('driveModalHint').textContent = '';
+        document.getElementById('driveModalAction').value = 'rename';
+        document.getElementById('driveModalItemId').value = itemId;
+        document.getElementById('driveModalSubmitBtn').textContent = '✏️ Rename';
+        document.getElementById('driveModal').classList.add('active');
+        setTimeout(() => {
+            const input = document.getElementById('driveModalInput');
+            input.focus();
+            input.select();
+        }, 100);
+    }
+
+    function closeDriveModal() {
+        document.getElementById('driveModal').classList.remove('active');
+        document.getElementById('driveModalForm').reset();
+    }
+
+    // Handle modal form submit
+    function handleDriveModalSubmit(event) {
+        event.preventDefault();
+
+        const action = document.getElementById('driveModalAction').value;
+        const name = document.getElementById('driveModalInput').value.trim();
+        const itemId = document.getElementById('driveModalItemId').value;
+        const btn = document.getElementById('driveModalSubmitBtn');
+
+        if (!name) {
+            alert('Please enter a name');
+            return;
+        }
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = 'Processing...';
+
+        let handler;
+
+        if (action === 'createFolder') {
+            handler = google.script.run
+                .withSuccessHandler(handleDriveActionSuccess)
+                .withFailureHandler(handleDriveActionError)
+                .createDriveFolder(name, currentDriveFolderId, authToken);
+        } else if (action === 'createSheet') {
+            handler = google.script.run
+                .withSuccessHandler(handleDriveActionSuccess)
+                .withFailureHandler(handleDriveActionError)
+                .createDriveSheet(name, currentDriveFolderId, authToken);
+        } else if (action === 'createDoc') {
+            handler = google.script.run
+                .withSuccessHandler(handleDriveActionSuccess)
+                .withFailureHandler(handleDriveActionError)
+                .createDriveDoc(name, currentDriveFolderId, authToken);
+        } else if (action === 'createSlides') {
+            handler = google.script.run
+                .withSuccessHandler(handleDriveActionSuccess)
+                .withFailureHandler(handleDriveActionError)
+                .createDriveSlides(name, currentDriveFolderId, authToken);
+        } else if (action === 'rename') {
+            handler = google.script.run
+                .withSuccessHandler(handleDriveActionSuccess)
+                .withFailureHandler(handleDriveActionError)
+                .renameDriveItem(itemId, name, authToken);
+        }
+
+        function handleDriveActionSuccess(result) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+
+            if (result.success) {
+                closeDriveModal();
+                loadDriveContents(currentDriveFolderId, true);
+            } else {
+                alert('Error: ' + result.error);
+            }
+        }
+
+        function handleDriveActionError(error) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            alert('Error: ' + error.message);
+        }
+    }
+
+    // ============ ITEM ACTIONS ============
+
+    function copyDriveItem(fileId) {
+        if (!confirm('Create a copy of this file in the current folder?')) return;
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    loadDriveContents(currentDriveFolderId, true);
+                } else {
+                    alert('Error copying file: ' + result.error);
+                }
+            })
+            .withFailureHandler(function (error) {
+                alert('Error: ' + error.message);
+            })
+            .copyDriveFile(fileId, currentDriveFolderId, null, authToken);
+    }
+
+    function deleteDriveItemConfirm(itemId, itemName) {
+        if (!confirm(`Are you sure you want to move "${itemName}" to trash?`)) return;
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    loadDriveContents(currentDriveFolderId, true);
+                } else {
+                    alert('Error deleting item: ' + result.error);
+                }
+            })
+            .withFailureHandler(function (error) {
+                alert('Error: ' + error.message);
+            })
+            .deleteDriveItem(itemId, authToken);
+    }
+
+    function shareDriveItem(itemId, itemName) {
+        const modal = document.getElementById('driveShareModal');
+        const content = document.getElementById('driveShareContent');
+
+        content.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <div style="font-size: 32px; margin-bottom: 16px;">🔗</div>
+        <p style="color: #64748b;">Generating share link...</p>
+      </div>
+    `;
+
+        modal.classList.add('active');
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result.success) {
+                    content.innerHTML = `
+            <div style="margin-bottom: 20px;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 8px;">${itemName}</div>
+              <div style="font-size: 14px; color: #64748b;">Anyone with this link can view</div>
+            </div>
+            <div style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 10px; padding: 14px; display: flex; gap: 10px; align-items: center;">
+              <input type="text" value="${result.url}" readonly 
+                style="flex: 1; border: none; background: transparent; font-size: 14px; color: #0f172a;" 
+                id="driveShareLinkInput" onclick="this.select();" />
+              <button onclick="copyShareLink()" class="btn btn-primary" style="padding: 8px 16px; white-space: nowrap;">
+                📋 Copy
+              </button>
+            </div>
+            <div style="margin-top: 20px; display: flex; gap: 12px;">
+              <button onclick="closeDriveShareModal()" class="btn btn-secondary" style="flex: 1;">Close</button>
+            </div>
+          `;
+                } else {
+                    content.innerHTML = `
+            <div style="text-align: center; color: #ef4444;">
+              <p>Error: ${result.error}</p>
+              <button onclick="closeDriveShareModal()" class="btn btn-secondary" style="margin-top: 16px;">Close</button>
+            </div>
+          `;
+                }
+            })
+            .withFailureHandler(function (error) {
+                content.innerHTML = `
+          <div style="text-align: center; color: #ef4444;">
+            <p>Error: ${error.message}</p>
+            <button onclick="closeDriveShareModal()" class="btn btn-secondary" style="margin-top: 16px;">Close</button>
+          </div>
+        `;
+            })
+            .getDriveShareLink(itemId, 'view', authToken);
+    }
+
+    function copyShareLink() {
+        const input = document.getElementById('driveShareLinkInput');
+        input.select();
+        document.execCommand('copy');
+
+        const btn = event.target;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = '📋 Copy', 2000);
+    }
+
+    function closeDriveShareModal() {
+        document.getElementById('driveShareModal').classList.remove('active');
+    }
+
+    // ============ HELPER FUNCTIONS ============
+
+    function formatFileSizeFrontend(bytes) {
+        if (bytes === null || bytes === undefined) return '—';
+        if (bytes === 0) return '0 Bytes';
+
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function formatDateFrontend(isoDate) {
+        if (!isoDate) return '—';
+        const date = new Date(isoDate);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) return 'Today';
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+
+        return date.toLocaleDateString();
+    }
+</script>
+
+<!-- ========================================== -->
+<!-- REQUIRED CSS (add to <style> section) -->
+<!-- ========================================== -->
+<style>
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    .drive-item {
+        position: relative;
+    }
+
+    .drive-item:hover {
+        z-index: 1;
+    }
+</style>
