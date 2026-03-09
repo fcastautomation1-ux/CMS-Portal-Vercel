@@ -188,3 +188,85 @@ async function deleteRemovalCondition(id) {
         showToast('Error: ' + e.message, 'error');
     }
 }
+
+// ----------------------------------------------------------------
+// EDIT / ADD REMOVAL CONDITION MODAL
+// ----------------------------------------------------------------
+window.editRemovalCondition = function(id) {
+    const cond = _availableConditions.find(c => c.id === id);
+    if (!cond) return;
+    _showConditionModal(cond);
+};
+
+window.showAddConditionModal = function() {
+    _showConditionModal(null);
+};
+
+function _showConditionModal(existing) {
+    if (!document.getElementById('conditionEditModal')) {
+        const div = document.createElement('div');
+        div.innerHTML = `
+            <div id="conditionEditModal" class="modal-backdrop" onclick="if(event.target===this)closeModal('conditionEditModal')">
+                <div class="modal-content" style="max-width:540px">
+                    <div class="modal-header">
+                        <h3 class="modal-title" id="conditionEditTitle">Add Removal Condition</h3>
+                        <button class="modal-close" onclick="closeModal('conditionEditModal')">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="form-label">ID <span style="color:var(--text-muted);font-size:.8rem">(unique key, no spaces)</span></label>
+                            <input type="text" id="condEditId" class="form-control" placeholder="e.g. LOW_24H_LOW_SPEND">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" id="condEditName" class="form-control" placeholder="Human-readable label">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <textarea id="condEditDesc" class="form-control" rows="3" placeholder="Explain when this condition triggers…"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-ghost" onclick="closeModal('conditionEditModal')">Cancel</button>
+                        <button class="btn btn-primary" id="condEditSaveBtn" onclick="saveConditionModal()">Save</button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(div.firstElementChild);
+    }
+
+    document.getElementById('conditionEditTitle').textContent = existing ? 'Edit Removal Condition' : 'Add Removal Condition';
+    document.getElementById('condEditId').value   = existing?.id          || '';
+    document.getElementById('condEditName').value = existing?.name        || '';
+    document.getElementById('condEditDesc').value = existing?.description || '';
+    document.getElementById('condEditId').disabled = !!existing; // can't change the PK
+
+    window._condEditOriginalId = existing?.id || null;
+    openModal('conditionEditModal');
+}
+
+window.saveConditionModal = async function() {
+    const token = getStoredToken();
+    if (!token) return;
+
+    const id   = document.getElementById('condEditId')?.value?.trim();
+    const name = document.getElementById('condEditName')?.value?.trim();
+    const desc = document.getElementById('condEditDesc')?.value?.trim();
+
+    if (!id)   { showToast('ID is required', 'error');   return; }
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const btn = document.getElementById('condEditSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    try {
+        await workflowsAPI.saveRemovalCondition({ id, name, description: desc }, token);
+        showToast('Condition saved ✅', 'success');
+        closeModal('conditionEditModal');
+        await loadWorkflowsSection();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    }
+};

@@ -75,8 +75,10 @@ function navigateTo(sectionId) {
     // Lazy-load section data
     _onSectionEnter(sectionId);
 
-    // Update page title
+    // Update topbar breadcrumb text and page title
     const section = NAV_SECTIONS.find(s => s.id === sectionId);
+    const breadcrumb = document.getElementById('topbarBreadcrumb');
+    if (breadcrumb && section) breadcrumb.textContent = section.label;
     if (section) document.title = `${section.label} — CMS Portal`;
 
     // Mobile: close sidebar

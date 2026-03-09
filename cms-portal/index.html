@@ -661,6 +661,21 @@
 <div id="toastContainer"></div>
 
 <!-- SCRIPTS — order matters -->
+<!--
+  ════════════════════════════════════════════════════════
+  LOCAL DEV ONLY — do NOT push real credentials to GitHub
+  For Vercel production: set SUPABASE_URL and SUPABASE_ANON_KEY
+  in Vercel Dashboard > Project Settings > Environment Variables.
+  The app fetches them from /api/config at runtime automatically.
+  ════════════════════════════════════════════════════════
+-->
+<script>
+// LOCAL DEVELOPMENT OVERRIDE — leave empty for Vercel deployment
+window.__ENV_LOCAL = {
+    SUPABASE_URL:      '',  // fill only for local dev, never commit real values
+    SUPABASE_ANON_KEY: ''
+};
+</script>
 <script src="js/security.js"></script>
 <script src="js/config.js"></script>
 <script src="js/supabase-client.js"></script>

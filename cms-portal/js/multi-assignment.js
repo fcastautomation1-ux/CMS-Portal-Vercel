@@ -497,6 +497,124 @@ function renderChainDetails(task) {
 window.renderChainBadge   = renderChainBadge;
 window.renderChainDetails = renderChainDetails;
 
+// ── CHAIN MODAL (open + save) ────────────────────────────────────
+
+/**
+ * Open the chainModal for a given task, letting a manager build an
+ * ordered list of assignees then call saveChainModal().
+ */
+window.openChainModal = async function(taskId) {
+    if (!taskId) return;
+    const token = getStoredToken();
+    if (!token) return;
+
+    const modal = document.getElementById('chainModal');
+    const body  = document.getElementById('chainModalBody');
+    if (!modal || !body) return;
+
+    window._chainTaskId = taskId;
+
+    // Load current users for the dropdown
+    let users = [];
+    try {
+        const client = getSupabase();
+        if (client) {
+            const { data } = await client.from('users').select('username,role,department').order('username');
+            users = data || [];
+        }
+    } catch { /* non-critical */ }
+
+    body.innerHTML = `
+        <div style="margin-bottom:14px">
+            <label class="form-label">Add Assignees in Order</label>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+                <select id="chainUserSelect" class="form-control" style="flex:1">
+                    <option value="">— select user —</option>
+                    ${users.map(u => `<option value="${u.username}">${escapeHtml(u.username)} (${escapeHtml(u.role||'?')})</option>`).join('')}
+                </select>
+                <button class="btn btn-secondary btn-sm" onclick="addChainUser()">Add ↓</button>
+            </div>
+            <div id="chainAssigneeList" style="display:flex;flex-direction:column;gap:6px;min-height:40px;padding:8px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border)">
+                <div style="font-size:.78rem;color:var(--text-muted);text-align:center" id="chainEmptyMsg">No assignees yet — add at least one</div>
+            </div>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-muted)">
+            Tasks will be assigned in sequence: step 1 → step 2 → … Each person must complete their step before the next begins.
+        </div>
+    `;
+
+    window._chainAssignees = [];
+    openModal('chainModal');
+};
+
+window.addChainUser = function() {
+    const sel = document.getElementById('chainUserSelect');
+    const username = sel?.value;
+    if (!username) return;
+
+    if (!window._chainAssignees) window._chainAssignees = [];
+    if (window._chainAssignees.includes(username)) {
+        showToast('User already in chain', 'warning');
+        return;
+    }
+
+    window._chainAssignees.push(username);
+    _renderChainList();
+    sel.value = '';
+};
+
+window.removeChainUser = function(index) {
+    if (!window._chainAssignees) return;
+    window._chainAssignees.splice(index, 1);
+    _renderChainList();
+};
+
+function _renderChainList() {
+    const list = document.getElementById('chainAssigneeList');
+    if (!list) return;
+
+    const assignees = window._chainAssignees || [];
+    if (!assignees.length) {
+        list.innerHTML = '<div style="font-size:.78rem;color:var(--text-muted);text-align:center" id="chainEmptyMsg">No assignees yet — add at least one</div>';
+        return;
+    }
+
+    list.innerHTML = assignees.map((u, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg-primary);border-radius:8px;border:1px solid var(--border)">
+            <span style="font-size:.78rem;color:var(--text-muted);width:20px;text-align:right">${i + 1}.</span>
+            <span style="flex:1;font-size:.84rem;font-weight:600">${escapeHtml(u)}</span>
+            <button class="btn-icon btn-danger" onclick="removeChainUser(${i})" title="Remove">✕</button>
+        </div>
+    `).join('');
+}
+
+/**
+ * Called by the "Assign Chain" button in chainModal.
+ */
+window.saveChainModal = async function() {
+    const taskId   = window._chainTaskId;
+    const assignees = window._chainAssignees || [];
+    const me       = window.currentUser;
+
+    if (!taskId) { showToast('No task selected', 'error'); return; }
+    if (!assignees.length) { showToast('Add at least one assignee', 'error'); return; }
+    if (!me) { showToast('Not logged in', 'error'); return; }
+
+    const btn = document.getElementById('chainSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    try {
+        await MultiAssignmentAPI.createChain(taskId, assignees, me.username);
+        showToast('Assignment chain created ✅', 'success');
+        closeModal('chainModal');
+        if (window.loadTodos) await window.loadTodos();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Assign Chain'; }
+    }
+};
+
 // ── APPROVE / DECLINE MODAL ───────────────────────────────────────
 
 window.showApproveDeclineModal = function(task) {

@@ -287,3 +287,14 @@ function formatRelativeTime(isoString) {
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
 }
+
+// ----------------------------------------------------------------
+// GLOBAL SHIM — called as bare `createNotification(data)` throughout
+// multi-assignment.js, todos.js, todo-forms.js, etc.
+// ----------------------------------------------------------------
+window.createNotification = function(data) {
+    return notificationsAPI.createNotification(data);
+};
+
+// Expose the full API globally so other modules can use it
+window.notificationsAPI = notificationsAPI;

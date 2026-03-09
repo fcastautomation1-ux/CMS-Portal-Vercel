@@ -1,0 +1,29 @@
+# ── Build outputs ──────────────────────────────────────────────
+.vercel/
+node_modules/
+dist/
+.next/
+
+# ── Secrets & local env files ──────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── OS / Editor junk ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+*.swp
+*.swo
+
+# ── Old GAS source files (not needed on Vercel) ────────────────
+Code.gs
+DriveManager.gs
+Supabase.gs
+appsscript.json
+drive.html
+frontend.html
+missing_functions.txt
