@@ -1,9 +1,13 @@
 {
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/api/config", "destination": "/api/config.js" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store" }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
       ]
     }
   ]

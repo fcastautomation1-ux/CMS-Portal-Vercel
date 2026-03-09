@@ -4,7 +4,7 @@
 // These are set in Vercel Dashboard, never stored in code.
 // ================================================================
 
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
     // Only allow GET requests
     if (req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -20,9 +20,9 @@ export default function handler(req, res) {
         });
     }
 
-    // Never cache credentials
+    // Allow browser to call this from same origin only
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
 
     return res.status(200).json({ url, key });
-}
+};
