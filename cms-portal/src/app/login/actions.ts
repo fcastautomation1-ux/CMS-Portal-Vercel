@@ -23,15 +23,10 @@ export async function loginAction(
 
   const supabase = createServerClient()
 
-  // Fetch user — exclude avatar_data for performance
+  // Fetch user — use * to avoid errors when optional columns don't exist
   const { data: users, error } = await supabase
     .from('users')
-    .select(
-      'username,email,role,department,password,password_hash,password_salt,' +
-      'allowed_accounts,allowed_campaigns,allowed_drive_folders,' +
-      'allowed_looker_reports,drive_access_level,module_access,' +
-      'manager_id,team_members,theme_preference'
-    )
+    .select('*')
     .eq('username', username)
     .limit(1)
 

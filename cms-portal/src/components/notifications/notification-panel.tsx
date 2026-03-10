@@ -1,13 +1,19 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Bell, Check, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import {
+  Bell, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle,
+  X, BellOff, ArrowRight, Check,
+} from 'lucide-react'
 import {
   getNotifications,
   markNotificationRead,
   markAllNotificationsRead,
 } from '@/app/dashboard/notifications/actions'
 import type { Notification } from '@/types'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -17,25 +23,46 @@ function timeAgo(dateStr: string): string {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
+  if (days === 1) return 'yesterday'
   if (days < 7) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString()
+  return new Date(dateStr).toLocaleDateString('en', { month: 'short', day: 'numeric' })
 }
 
-function NotifIcon({ type }: { type: string | null }) {
-  if (type === 'success') return <CheckCircle size={14} className="text-emerald-500" />
-  if (type === 'warning') return <AlertTriangle size={14} className="text-amber-500" />
-  if (type === 'error') return <XCircle size={14} className="text-red-500" />
-  return <Info size={14} className="text-blue-500" />
+function groupByDate(notifications: Notification[]): Array<{ label: string; items: Notification[] }> {
+  const today = new Date().toDateString()
+  const yesterday = new Date(Date.now() - 86400000).toDateString()
+  const groups: Record<string, Notification[]> = {}
+  for (const n of notifications) {
+    const d = new Date(n.created_at).toDateString()
+    const label = d === today ? 'Today' : d === yesterday ? 'Yesterday' : new Date(n.created_at).toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })
+    if (!groups[label]) groups[label] = []
+    groups[label].push(n)
+  }
+  return Object.entries(groups).map(([label, items]) => ({ label, items }))
 }
 
-function notifColor(type: string | null): string {
-  if (type === 'success') return 'var(--emerald-500)'
-  if (type === 'warning') return 'var(--amber-500)'
-  if (type === 'error') return 'var(--rose-500)'
-  return 'var(--blue-600)'
+/** Derive a navigation URL from notification content */
+function getNotifLink(notif: Notification): string {
+  const text = `${notif.title} ${notif.body ?? ''}`.toLowerCase()
+  if (text.includes('task') || text.includes('todo')) return '/dashboard/tasks'
+  if (text.includes('campaign')) return '/dashboard/campaigns'
+  if (text.includes('account')) return '/dashboard/accounts'
+  if (text.includes('workflow')) return '/dashboard/workflows'
+  if (text.includes('package')) return '/dashboard/packages'
+  if (text.includes('user')) return '/dashboard/users'
+  if (text.includes('department')) return '/dashboard/departments'
+  if (text.includes('team')) return '/dashboard/team'
+  return '/dashboard'
 }
 
-// ── Desktop Notification Helper ────────────────────────────────────────────────
+const TYPE_CONFIG: Record<string, { icon: typeof Info; color: string; bg: string }> = {
+  success: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
+  warning: { icon: AlertTriangle, color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' },
+  error:   { icon: XCircle, color: '#EF4444', bg: 'rgba(239,68,68,0.1)' },
+  info:    { icon: Info, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)' },
+}
+
+// ── Desktop notification helpers ──────────────────────────────────────────────
 
 async function requestDesktopPermission(): Promise<boolean> {
   if (typeof window === 'undefined' || !('Notification' in window)) return false
@@ -52,87 +79,62 @@ function fireDesktopNotification(notif: Notification) {
     const n = new window.Notification(notif.title, {
       body: notif.body ?? undefined,
       icon: '/favicon.ico',
-      tag: notif.id, // deduplicate
-      silent: false,
+      tag: notif.id,
     })
-    // Auto-close after 6 seconds
     setTimeout(() => n.close(), 6000)
-    n.onclick = () => {
-      window.focus()
-      n.close()
-    }
-  } catch {
-    // Silently fail if notifications aren't supported in this context
-  }
+    n.onclick = () => { window.focus(); n.close() }
+  } catch { /* ignore */ }
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface NotificationPanelProps {
   initialCount?: number
 }
 
 export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<'all' | 'unread'>('all')
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(initialCount)
   const [loading, setLoading] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
-  // Track IDs we've already fired desktop notifs for (to avoid dupes)
   const seenIdsRef = useRef<Set<string>>(new Set())
-  // Track previous unread count to detect new arrivals
   const prevUnreadRef = useRef(initialCount)
 
   // Request desktop notification permission once on mount
-  useEffect(() => {
-    requestDesktopPermission()
-  }, [])
+  useEffect(() => { requestDesktopPermission() }, [])
 
-  // Close on outside click
+  // Lock body scroll when panel is open
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    if (open) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.body.style.overflow = open ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
   }, [open])
 
-  // Fetch notifications when opened
+  // Fetch when opened
   useEffect(() => {
     if (!open) return
     setLoading(true)
     getNotifications().then(data => {
       setNotifications(data)
-      const unread = data.filter(n => !n.is_read).length
-      setUnreadCount(unread)
-      // Mark all fetched IDs as seen (don't re-fire desktop notif for existing)
+      setUnreadCount(data.filter(n => !n.is_read).length)
       data.forEach(n => seenIdsRef.current.add(n.id))
       setLoading(false)
     })
   }, [open])
 
-  // Poll for new notifications every 30 seconds, fire desktop notif on new ones
+  // Poll every 30 s for new notifications
   const pollNotifications = useCallback(async () => {
     const data = await getNotifications()
     const unreadItems = data.filter(n => !n.is_read)
-    const newCount = unreadItems.length
-
-    // Fire desktop notifications for brand-new unread items we haven't seen yet
     const unseen = unreadItems.filter(n => !seenIdsRef.current.has(n.id))
     for (const notif of unseen) {
       seenIdsRef.current.add(notif.id)
       fireDesktopNotification(notif)
     }
-
-    setUnreadCount(newCount)
-    prevUnreadRef.current = newCount
-
-    // If panel is already open, refresh the list
-    if (open) {
-      setNotifications(data)
-    }
+    setUnreadCount(unreadItems.length)
+    prevUnreadRef.current = unreadItems.length
+    if (open) setNotifications(data)
   }, [open])
 
   useEffect(() => {
@@ -140,13 +142,14 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     return () => clearInterval(id)
   }, [pollNotifications])
 
-  async function handleMarkRead(notif: Notification) {
-    if (notif.is_read) return
-    await markNotificationRead(notif.id)
-    setNotifications(prev =>
-      prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
-    )
-    setUnreadCount(prev => Math.max(0, prev - 1))
+  async function handleNotifClick(notif: Notification) {
+    setOpen(false)
+    if (!notif.is_read) {
+      await markNotificationRead(notif.id)
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
+      setUnreadCount(prev => Math.max(0, prev - 1))
+    }
+    router.push(getNotifLink(notif))
   }
 
   async function handleMarkAllRead() {
@@ -155,12 +158,15 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     setUnreadCount(0)
   }
 
+  const displayed = tab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
+  const grouped = groupByDate(displayed)
+
   return (
-    <div className="relative" ref={panelRef}>
+    <>
       {/* Bell button */}
       <button
         type="button"
-        onClick={() => setOpen(prev => !prev)}
+        onClick={() => setOpen(true)}
         className="relative w-9 h-9 flex items-center justify-center rounded-lg transition-all hover:bg-slate-100 dark:hover:bg-slate-700"
         aria-label="Notifications"
         style={{ color: 'var(--color-text-muted)' }}
@@ -169,151 +175,225 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
         {unreadCount > 0 && (
           <span
             className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full text-[10px] font-bold text-white leading-none"
-            style={{ background: 'var(--rose-500)' }}
+            style={{ background: '#EF4444' }}
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown panel */}
+      {/* Backdrop */}
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl overflow-hidden animate-slide-up z-50"
-          style={{
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-          }}
+          className="fixed inset-0 z-40"
+          style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(2px)' }}
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* Slide-over panel */}
+      <div
+        className="fixed top-0 right-0 h-full z-50 flex flex-col"
+        style={{
+          width: '380px',
+          maxWidth: '100vw',
+          background: 'var(--color-surface)',
+          borderLeft: '1px solid var(--color-border)',
+          boxShadow: '-8px 0 40px rgba(0,0,0,0.15)',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--color-border)' }}
         >
-          {/* Header */}
-          <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{ borderBottom: '1px solid var(--color-border)' }}
-          >
-            <div className="flex items-center gap-2">
-              <Bell size={15} style={{ color: 'var(--blue-600)' }} />
-              <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: 'rgba(59,130,246,0.1)' }}
+            >
+              <Bell size={15} style={{ color: '#3B82F6' }} />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>
                 Notifications
-              </span>
+              </h2>
               {unreadCount > 0 && (
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {unreadCount} unread
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllRead}
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                style={{ color: '#3B82F6', background: 'rgba(59,130,246,0.08)' }}
+                title="Mark all as read"
+              >
+                <CheckCheck size={13} /> All read
+              </button>
+            )}
+            <button
+              onClick={() => setOpen(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex px-5 pt-3 pb-0 gap-1 shrink-0">
+          {(['all', 'unread'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all"
+              style={{
+                background: tab === t ? '#3B82F6' : 'transparent',
+                color: tab === t ? 'white' : 'var(--color-text-muted)',
+              }}
+            >
+              {t}
+              {t === 'unread' && unreadCount > 0 && (
                 <span
-                  className="text-[11px] font-bold px-1.5 py-0.5 rounded-full text-white"
-                  style={{ background: 'var(--rose-500)' }}
+                  className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                  style={{ background: tab === t ? 'rgba(255,255,255,0.25)' : 'rgba(239,68,68,0.15)', color: tab === t ? 'white' : '#EF4444' }}
                 >
                   {unreadCount}
                 </span>
               )}
-            </div>
-            <div className="flex items-center gap-1">
-              {unreadCount > 0 && (
-                <button
-                  onClick={handleMarkAllRead}
-                  className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                  style={{ color: 'var(--blue-600)' }}
-                >
-                  <CheckCheck size={12} /> Mark all read
-                </button>
-              )}
-              <button
-                onClick={() => setOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                style={{ color: 'var(--color-text-muted)' }}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>
+            </button>
+          ))}
+        </div>
 
-          {/* List */}
-          <div className="max-h-[400px] overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        {/* Notification list */}
+        <div className="flex-1 overflow-y-auto py-3">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="w-6 h-6 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+            </div>
+          ) : displayed.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 px-6">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{ background: 'rgba(59,130,246,0.08)' }}
+              >
+                <BellOff size={22} style={{ color: '#3B82F6' }} />
               </div>
-            ) : notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 gap-2">
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ background: 'var(--blue-50)' }}
-                >
-                  <Bell size={18} style={{ color: 'var(--blue-600)' }} />
-                </div>
-                <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                  No notifications yet
+              <div className="text-center">
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+                  {tab === 'unread' ? 'All caught up!' : 'No notifications'}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                  {tab === 'unread' ? 'No unread notifications.' : 'Notifications will appear here.'}
                 </p>
               </div>
-            ) : (
-              notifications.map(notif => (
-                <div
-                  key={notif.id}
-                  onClick={() => handleMarkRead(notif)}
-                  className="flex gap-3 px-4 py-3 cursor-pointer transition-colors"
-                  style={{
-                    background: notif.is_read ? 'transparent' : 'var(--blue-50)',
-                    borderBottom: '1px solid var(--color-border)',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLDivElement).style.background = 'var(--slate-50)'
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLDivElement).style.background = notif.is_read ? 'transparent' : 'var(--blue-50)'
-                  }}
-                >
-                  {/* Icon */}
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                    style={{ background: `${notifColor(notif.type)}15` }}
-                  >
-                    <NotifIcon type={notif.type} />
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="text-sm font-medium leading-snug"
-                      style={{ color: 'var(--color-text)' }}
-                    >
-                      {notif.title}
-                    </p>
-                    {notif.body && (
-                      <p
-                        className="text-xs mt-0.5 line-clamp-2"
-                        style={{ color: 'var(--color-text-muted)' }}
-                      >
-                        {notif.body}
-                      </p>
-                    )}
-                    <p className="text-[11px] mt-1" style={{ color: 'var(--slate-400)' }}>
-                      {timeAgo(notif.created_at)}
-                    </p>
-                  </div>
-
-                  {/* Unread dot */}
-                  {!notif.is_read && (
-                    <div
-                      className="w-2 h-2 rounded-full mt-2 shrink-0"
-                      style={{ background: 'var(--blue-600)' }}
-                    />
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Footer */}
-          {notifications.length > 0 && (
-            <div
-              className="px-4 py-2.5 flex items-center justify-center"
-              style={{ borderTop: '1px solid var(--color-border)' }}
-            >
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Showing last {notifications.length} notifications
-              </p>
             </div>
+          ) : (
+            grouped.map(group => (
+              <div key={group.label}>
+                {/* Date label */}
+                <div className="px-5 py-1.5">
+                  <span
+                    className="text-[11px] font-bold uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    {group.label}
+                  </span>
+                </div>
+
+                {group.items.map(notif => {
+                  const cfg = TYPE_CONFIG[notif.type ?? 'info'] ?? TYPE_CONFIG.info
+                  const Icon = cfg.icon
+                  return (
+                    <button
+                      key={notif.id}
+                      type="button"
+                      onClick={() => handleNotifClick(notif)}
+                      className="w-full flex items-start gap-3 px-5 py-3.5 text-left transition-all group"
+                      style={{
+                        background: notif.is_read ? 'transparent' : 'rgba(59,130,246,0.04)',
+                        borderLeft: notif.is_read ? '3px solid transparent' : '3px solid #3B82F6',
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLButtonElement).style.background = 'var(--slate-50)'
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'transparent' : 'rgba(59,130,246,0.04)'
+                      }}
+                    >
+                      {/* Icon */}
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+                        style={{ background: cfg.bg }}
+                      >
+                        <Icon size={16} style={{ color: cfg.color }} />
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-sm font-semibold leading-snug truncate"
+                          style={{ color: 'var(--color-text)' }}
+                        >
+                          {notif.title}
+                        </p>
+                        {notif.body && (
+                          <p
+                            className="text-xs mt-0.5 line-clamp-2"
+                            style={{ color: 'var(--color-text-muted)' }}
+                          >
+                            {notif.body}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>
+                            {timeAgo(notif.created_at)}
+                          </span>
+                          <span
+                            className="text-[10px] font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
+                            style={{ color: '#3B82F6' }}
+                          >
+                            Go <ArrowRight size={10} />
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Unread indicator or check */}
+                      <div className="shrink-0 mt-1">
+                        {notif.is_read ? (
+                          <Check size={13} style={{ color: 'var(--slate-300)' }} />
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#3B82F6' }} />
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ))
           )}
         </div>
-      )}
-    </div>
+
+        {/* Footer */}
+        <div
+          className="shrink-0 px-5 py-3"
+          style={{ borderTop: '1px solid var(--color-border)' }}
+        >
+          <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+            {notifications.length > 0
+              ? `${notifications.length} notification${notifications.length !== 1 ? 's' : ''} — click to navigate`
+              : 'Notifications appear here in real time'}
+          </p>
+        </div>
+      </div>
+    </>
   )
 }
