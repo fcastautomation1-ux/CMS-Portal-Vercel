@@ -1,0 +1,225 @@
+@import "tailwindcss";
+
+/* ── Design Tokens ───────────────────────────────────────── */
+:root {
+  --sans: 'Outfit', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+
+  /* Blues */
+  --blue-50: #EFF6FF;
+  --blue-100: #DBEAFE;
+  --blue-200: #BFDBFE;
+  --blue-500: #3B82F6;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+  --blue-900: #1E3A8A;
+
+  /* Neutrals */
+  --white: #FFFFFF;
+  --slate-50: #F8FAFC;
+  --slate-100: #F1F5F9;
+  --slate-200: #E2E8F0;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-500: #64748B;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1E293B;
+  --slate-900: #0F172A;
+
+  /* ── Glassmorphism — Page bg gradient ── */
+  --bg-start:  #dce9f4;
+  --bg-mid:    #e8f1f8;
+  --bg-end:    #d5e4f0;
+  --color-bg:  var(--bg-mid);
+
+  /* Glass surface colors */
+  --glass-bg:         rgba(255, 255, 255, 0.82);
+  --glass-bg-strong:  rgba(255, 255, 255, 0.95);
+  --glass-bg-sidebar: rgba(255, 255, 255, 0.92);
+  --glass-bg-topbar:  rgba(255, 255, 255, 0.88);
+  --glass-border:     rgba(255, 255, 255, 0.55);
+  --glass-border-strong: rgba(255, 255, 255, 0.70);
+  --glass-shadow:     0 4px 24px rgba(0, 0, 0, 0.07);
+  --glass-shadow-lg:  0 20px 60px rgba(0, 0, 0, 0.12);
+  --glass-blur:       16px;
+  --glass-blur-lg:    20px;
+
+  /* Semantic */
+  --color-surface: var(--glass-bg);
+  --color-border: rgba(203, 213, 225, 0.45);
+  --color-text: var(--slate-800);
+  --color-text-muted: var(--slate-500);
+  --color-primary: var(--blue-600);
+  --color-primary-hover: var(--blue-700);
+  --color-primary-light: var(--blue-50);
+
+  /* Status */
+  --color-success: #10B981;
+  --color-success-bg: rgba(236, 253, 245, 0.9);
+  --color-warning: #F59E0B;
+  --color-warning-bg: rgba(255, 251, 235, 0.9);
+  --color-error: #EF4444;
+  --color-error-bg: rgba(254, 242, 242, 0.9);
+  --color-pending: #94A3B8;
+  --color-pending-bg: rgba(241, 245, 249, 0.9);
+
+  /* Dimensions */
+  --sidebar-width: 248px;
+  --topbar-height: 64px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.04), 0 1px 2px -1px rgba(0,0,0,0.03);
+  --shadow-md: 0 4px 24px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.04);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.06);
+
+  /* Active nav glow */
+  --nav-active-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+@theme inline {
+  --font-sans: var(--sans);
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+}
+
+/* ── Base ────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { font-size: 16px; }
+
+body {
+  font-family: var(--sans);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Full-screen fixed glassmorphism background */
+  background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-mid) 50%, var(--bg-end) 100%);
+  min-height: 100vh;
+}
+
+/* ── Glassmorphism utilities ─────────────────────────────── */
+
+/* Standard glass card/panel */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Strong glass for modals */
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+/* Sidebar glass */
+.glass-sidebar {
+  background: var(--glass-bg-sidebar);
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
+}
+
+/* Topbar glass */
+.glass-topbar {
+  background: var(--glass-bg-topbar);
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(200%);
+  border-bottom: 1px solid rgba(203, 213, 225, 0.4);
+  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* Glass card — rounded card with strong glass */
+.glass-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* Legacy aliases */
+.surface {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius);
+}
+.card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.5); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.6); }
+
+/* ── Focus Ring ──────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--blue-500);
+  outline-offset: 2px;
+}
+
+/* ── Transitions ─────────────────────────────────────────── */
+button, a, input, select, textarea {
+  transition: all 0.15s ease;
+}
+
+/* ── Typography helpers ──────────────────────────────────── */
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--slate-800);
+  letter-spacing: -0.025em;
+}
+
+.section-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--slate-700);
+  letter-spacing: -0.015em;
+}
+
+/* ── Stat / Metric gradient cards ────────────────────────── */
+.stat-card-blue   { background: linear-gradient(135deg, #2563EB, #1D4ED8); color: white; }
+.stat-card-green  { background: linear-gradient(135deg, #10B981, #059669); color: white; }
+.stat-card-purple { background: linear-gradient(135deg, #8B5CF6, #7C3AED); color: white; }
+.stat-card-amber  { background: linear-gradient(135deg, #F59E0B, #D97706); color: white; }
+
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in  { animation: fadeIn 0.2s ease forwards; }
+.animate-slide-up { animation: slideUp 0.25s ease forwards; }

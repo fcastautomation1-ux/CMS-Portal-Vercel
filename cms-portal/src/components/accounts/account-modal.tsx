@@ -1,0 +1,279 @@
+'use client'
+
+import { useTransition, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { X, Save, Loader2 } from 'lucide-react'
+import { createAccount, updateAccount } from '@/app/dashboard/accounts/actions'
+import type { Account } from '@/types'
+
+const WORKFLOW_OPTIONS = [
+  { value: 'workflow-0', label: 'Workflow 0 (Default)' },
+  { value: 'workflow-1', label: 'Workflow 1' },
+  { value: 'workflow-2', label: 'Workflow 2' },
+  { value: 'workflow-3', label: 'Workflow 3' },
+]
+
+const schema = z.object({
+  customer_id: z.string().min(1, 'Customer ID is required').max(50),
+  google_sheet_link: z.string().url('Must be a valid URL').or(z.literal('')).optional(),
+  drive_code_comments: z.string().max(2000).optional(),
+  workflow: z.string().min(1),
+  enabled: z.boolean(),
+})
+
+type FormData = z.infer<typeof schema>
+
+interface AccountModalProps {
+  account: Account | null
+  onClose: () => void
+}
+
+function FormField({
+  label,
+  error,
+  required,
+  children,
+  hint,
+}: {
+  label: string
+  error?: string
+  required?: boolean
+  children: React.ReactNode
+  hint?: string
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium" style={{ color: 'var(--slate-700)' }}>
+        {label}
+        {required && <span className="ml-0.5" style={{ color: 'var(--color-error)' }}>*</span>}
+      </label>
+      {children}
+      {hint && !error && <p className="text-xs" style={{ color: 'var(--slate-400)' }}>{hint}</p>}
+      {error && <p className="text-xs" style={{ color: 'var(--color-error)' }}>{error}</p>}
+    </div>
+  )
+}
+
+const inputStyle: React.CSSProperties = {
+  border: '1.5px solid var(--slate-200)',
+  borderRadius: '8px',
+  padding: '8px 12px',
+  fontSize: '14px',
+  color: 'var(--slate-900)',
+  outline: 'none',
+  width: '100%',
+  background: 'white',
+  transition: 'border-color 0.15s',
+}
+
+export function AccountModal({ account, onClose }: AccountModalProps) {
+  const isEdit = account !== null
+  const [isPending, startTransition] = useTransition()
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setError,
+    reset,
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      customer_id: account?.customer_id ?? '',
+      google_sheet_link: account?.google_sheet_link ?? '',
+      drive_code_comments: account?.drive_code_comments ?? '',
+      workflow: account?.workflow ?? 'workflow-0',
+      enabled: account?.enabled ?? true,
+    },
+  })
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  function onSubmit(data: FormData) {
+    startTransition(async () => {
+      const result = isEdit
+        ? await updateAccount(account.customer_id, {
+            google_sheet_link: data.google_sheet_link ?? '',
+            drive_code_comments: data.drive_code_comments ?? '',
+            workflow: data.workflow,
+            enabled: data.enabled,
+          })
+        : await createAccount({
+            customer_id: data.customer_id,
+            google_sheet_link: data.google_sheet_link ?? '',
+            drive_code_comments: data.drive_code_comments ?? '',
+            workflow: data.workflow,
+            enabled: data.enabled,
+          })
+
+      if (result.success) {
+        onClose()
+      } else {
+        setError('root', { message: result.error ?? 'Something went wrong.' })
+      }
+    })
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 flex items-center justify-center p-4"
+        style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }}
+        onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      >
+        {/* Modal */}
+        <div
+          className="relative w-full max-w-lg animate-slide-up overflow-hidden rounded-2xl"
+          style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-6 py-4"
+            style={{ borderBottom: '1px solid var(--slate-100)' }}
+          >
+            <div>
+              <h2 className="font-bold text-lg" style={{ color: 'var(--slate-900)', letterSpacing: '-0.02em' }}>
+                {isEdit ? 'Edit Account' : 'Add Account'}
+              </h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--slate-500)' }}>
+                {isEdit ? `Editing ${account.customer_id}` : 'Add a new Google Ads account'}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-9 h-9 flex items-center justify-center rounded-xl transition-all"
+              style={{ color: 'var(--slate-500)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--slate-100)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <div className="px-6 py-5 flex flex-col gap-4">
+              {/* Root error */}
+              {errors.root && (
+                <div
+                  className="text-sm p-3 rounded-lg"
+                  style={{ background: 'var(--color-error-bg)', color: 'var(--color-error)', border: '1px solid #FCA5A5' }}
+                >
+                  {errors.root.message}
+                </div>
+              )}
+
+              {/* Customer ID */}
+              <FormField label="Customer ID" error={errors.customer_id?.message} required hint="Google Ads customer ID, e.g. 123-456-7890">
+                <input
+                  {...register('customer_id')}
+                  disabled={isEdit}
+                  placeholder="123-456-7890"
+                  style={{
+                    ...inputStyle,
+                    fontFamily: 'monospace',
+                    background: isEdit ? 'var(--slate-50)' : 'white',
+                    color: isEdit ? 'var(--slate-500)' : 'var(--slate-900)',
+                    cursor: isEdit ? 'not-allowed' : 'text',
+                  }}
+                  onFocus={e => { if (!isEdit) e.currentTarget.style.borderColor = 'var(--blue-500)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = errors.customer_id ? 'var(--color-error)' : 'var(--slate-200)'; }}
+                />
+              </FormField>
+
+              {/* Google Sheet Link */}
+              <FormField label="Google Sheet Link" error={errors.google_sheet_link?.message} hint="URL to the linked Google Spreadsheet">
+                <input
+                  {...register('google_sheet_link')}
+                  type="url"
+                  placeholder="https://docs.google.com/spreadsheets/..."
+                  style={inputStyle}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--blue-500)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = errors.google_sheet_link ? 'var(--color-error)' : 'var(--slate-200)'; }}
+                />
+              </FormField>
+
+              {/* Drive Code Comments */}
+              <FormField label="Drive Code Comments" error={errors.drive_code_comments?.message} hint="Free text or paste Google Drive folder URLs">
+                <textarea
+                  {...register('drive_code_comments')}
+                  rows={3}
+                  placeholder="Enter comments or Drive folder URL..."
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: '72px' }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--blue-500)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = 'var(--slate-200)'; }}
+                />
+              </FormField>
+
+              {/* Workflow */}
+              <FormField label="Workflow" error={errors.workflow?.message} required>
+                <select
+                  {...register('workflow')}
+                  style={{ ...inputStyle, cursor: 'pointer', appearance: 'auto' }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--blue-500)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = 'var(--slate-200)'; }}
+                >
+                  {WORKFLOW_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </FormField>
+
+              {/* Enabled */}
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  {...register('enabled')}
+                  type="checkbox"
+                  className="w-4 h-4 rounded cursor-pointer accent-blue-600"
+                />
+                <span className="text-sm font-medium" style={{ color: 'var(--slate-700)' }}>
+                  Account Enabled
+                </span>
+                <span className="text-xs" style={{ color: 'var(--slate-400)' }}>
+                  (Disabled accounts are excluded from workflows)
+                </span>
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div
+              className="flex items-center justify-end gap-3 px-6 py-4"
+              style={{ borderTop: '1px solid var(--slate-100)', background: 'var(--slate-50)' }}
+            >
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isPending}
+                className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+                style={{ color: 'var(--slate-600)', background: 'white', border: '1.5px solid var(--slate-200)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--slate-100)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isPending}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-70"
+                style={{ background: 'var(--blue-600)' }}
+                onMouseEnter={e => { if (!isPending) e.currentTarget.style.background = 'var(--blue-700)'; }}
+                onMouseLeave={e => { if (!isPending) e.currentTarget.style.background = 'var(--blue-600)'; }}
+              >
+                {isPending ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                {isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Account'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </>
+  )
+}
