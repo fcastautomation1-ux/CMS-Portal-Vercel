@@ -150,9 +150,9 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Campaigns</h1>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Campaigns</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>
             {campaigns.length} campaigns across {uniqueAccounts.length} accounts
           </p>
@@ -160,8 +160,8 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
       </div>
 
       <div className="card p-4 mb-6">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-60">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -172,12 +172,12 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
               style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-slate-400" />
+          <div className="flex items-center gap-2 flex-1 min-w-[150px]">
+            <Filter size={14} className="text-slate-400 shrink-0" />
             <select
               value={accountFilter}
               onChange={e => setAccountFilter(e.target.value)}
-              className="h-10 px-3 rounded-lg text-sm outline-none"
+              className="h-10 px-3 rounded-lg text-sm outline-none w-full"
               style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
             >
               <option value="">All Accounts</option>
@@ -196,19 +196,21 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
         <div className="flex flex-col gap-4">
           {Object.entries(grouped).map(([accountId, camps]) => (
             <div key={accountId} className="card overflow-hidden">
-              <div className="px-5 py-3 flex items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--slate-100)' }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--blue-600)' }}>
+              <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--slate-100)' }}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: 'var(--blue-600)' }}>
                     {accountId.split('-')[0]?.slice(0, 2)}
                   </div>
-                  <div>
-                    <span className="text-sm font-semibold" style={{ color: 'var(--slate-900)' }}>{accountId}</span>
-                    {!!accountNameMap[accountId] && (
-                      <span className="text-xs ml-2" style={{ color: 'var(--slate-500)' }}>
-                        {accountNameMap[accountId]}
-                      </span>
-                    )}
-                    <span className="text-xs ml-2" style={{ color: 'var(--slate-400)' }}>{camps.length} campaigns</span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="text-sm font-semibold truncate" style={{ color: 'var(--slate-900)' }}>{accountId}</span>
+                      {!!accountNameMap[accountId] && (
+                        <span className="text-xs truncate max-w-[160px]" style={{ color: 'var(--slate-500)' }}>
+                          {accountNameMap[accountId]}
+                        </span>
+                      )}
+                      <span className="text-xs" style={{ color: 'var(--slate-400)' }}>{camps.length} campaigns</span>
+                    </div>
                   </div>
                 </div>
                 {canEdit && (
@@ -270,14 +272,14 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
       )}
 
       {managingAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) setManagingAccount(null) }}>
-          <div className="glass-strong w-full max-w-6xl max-h-[95vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up">
-            <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-200)' }}>
-              <div>
-                <h3 className="font-bold text-lg" style={{ color: 'var(--slate-900)' }}>Campaign Removal Conditions - {managingAccount}</h3>
-                {!!accountNameMap[managingAccount] && <p className="text-sm" style={{ color: 'var(--slate-500)' }}>{accountNameMap[managingAccount]}</p>}
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) setManagingAccount(null) }}>
+          <div className="glass-strong w-full sm:max-w-6xl max-h-[95vh] sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden animate-slide-up">
+            <div className="px-4 py-3 sm:px-6 sm:py-4 flex items-start justify-between gap-3" style={{ borderBottom: '1px solid var(--slate-200)' }}>
+              <div className="min-w-0">
+                <h3 className="font-bold text-base sm:text-lg truncate" style={{ color: 'var(--slate-900)' }}>Conditions — {managingAccount}</h3>
+                {!!accountNameMap[managingAccount] && <p className="text-sm truncate" style={{ color: 'var(--slate-500)' }}>{accountNameMap[managingAccount]}</p>}
               </div>
-              <button onClick={() => setManagingAccount(null)} className="btn-motion p-2 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+              <button onClick={() => setManagingAccount(null)} className="btn-motion p-2 rounded-lg hover:bg-slate-100 shrink-0"><X size={16} /></button>
             </div>
 
             <div className="p-3 sm:p-4 md:p-6 overflow-y-auto space-y-4">
@@ -351,7 +353,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
               })}
             </div>
 
-            <div className="px-6 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--slate-200)', background: '#fff' }}>
+            <div className="px-4 py-3 sm:px-6 sm:py-4 flex flex-wrap justify-end gap-2" style={{ borderTop: '1px solid var(--slate-200)', background: '#fff' }}>
               <button className="btn-motion h-10 px-4 rounded-lg text-sm" onClick={() => setManagingAccount(null)} style={{ color: 'var(--slate-600)' }}>Close</button>
               <button
                 className="btn-motion h-10 px-4 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
@@ -359,7 +361,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
                 disabled={savingBulk}
                 onClick={saveAllForAccount}
               >
-                <Save size={14} /> {savingBulk ? 'Saving...' : 'Save All Campaign Conditions'}
+                <Save size={14} /> {savingBulk ? 'Saving...' : 'Save All Conditions'}
               </button>
             </div>
           </div>

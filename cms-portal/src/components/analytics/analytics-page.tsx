@@ -31,12 +31,12 @@ export function AnalyticsPage({ analytics }: Props) {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Analytics</h1>
+        <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Analytics</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>Task performance overview</p>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
         {kpis.map(k => (
           <div key={k.label} className="card p-4 text-center">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: k.bg, color: k.color }}>{k.icon}</div>

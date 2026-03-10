@@ -129,18 +129,18 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 flex items-center justify-center p-4"
+        className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-0 sm:p-4"
         style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}
       >
         {/* Modal */}
         <div
-          className="relative w-full max-w-lg animate-slide-up overflow-hidden rounded-2xl"
-          style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}
+          className="relative w-full sm:max-w-lg animate-slide-up overflow-hidden sm:rounded-2xl rounded-t-2xl"
+          style={{ background: 'rgba(255,255,255,0.95)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid var(--slate-200)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}
         >
           {/* Header */}
           <div
-            className="flex items-center justify-between px-6 py-4"
+            className="flex items-center justify-between px-5 py-4"
             style={{ borderBottom: '1px solid var(--slate-100)' }}
           >
             <div>
@@ -164,7 +164,7 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
 
           {/* Body */}
           <form onSubmit={handleSubmit(onSubmit)}>
-            <div className="px-6 py-5 flex flex-col gap-4">
+            <div className="px-5 py-5 flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
               {/* Root error */}
               {errors.root && (
                 <div
@@ -259,7 +259,7 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
 
             {/* Footer */}
             <div
-              className="flex items-center justify-end gap-3 px-6 py-4"
+              className="flex items-center justify-end gap-3 px-5 py-4"
               style={{ borderTop: '1px solid var(--slate-100)', background: 'var(--slate-50)' }}
             >
               <button

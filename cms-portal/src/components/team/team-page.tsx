@@ -25,21 +25,21 @@ export function TeamPage({ members }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Team</h1>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Team</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{members.length} team members</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="card p-4 mb-6">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[240px]">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="Search team..." value={search} onChange={e => setSearch(e.target.value)} className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
           </div>
-          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }}>
+          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-[140px]" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }}>
             <option value="">All Departments</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>

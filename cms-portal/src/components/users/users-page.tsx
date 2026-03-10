@@ -76,9 +76,9 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Users</h1>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Users</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{users.length} users total</p>
         </div>
         {canEdit && (
@@ -93,16 +93,16 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
       </div>
 
       <div className="card p-4 mb-6">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-60">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }} />
           </div>
-          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
+          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-[120px]" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
             <option value="">All Roles</option>
             {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
+          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-[120px]" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
             <option value="">All Departments</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
@@ -176,16 +176,16 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
       )}
 
       {deleting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) setDeleting(null) }}>
-          <div className="card rounded-2xl w-full max-w-sm animate-slide-up">
-            <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) setDeleting(null) }}>
+          <div className="card w-full sm:rounded-2xl rounded-t-2xl sm:max-w-sm animate-slide-up">
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
               <h2 className="font-bold text-base" style={{ color: 'var(--slate-900)' }}>Delete User</h2>
               <button onClick={() => setDeleting(null)} className="btn-motion p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
             </div>
-            <div className="px-6 py-5">
+            <div className="px-5 py-5">
               <p className="text-sm" style={{ color: 'var(--slate-600)' }}>Are you sure you want to delete <strong>{deleting.username}</strong>?</p>
             </div>
-            <div className="px-6 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--slate-100)' }}>
+            <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--slate-100)' }}>
               <button onClick={() => setDeleting(null)} className="btn-motion h-9 px-4 rounded-lg text-sm font-medium" style={{ color: 'var(--slate-600)' }}>Cancel</button>
               <button onClick={handleDelete} disabled={pending} className="btn-motion h-9 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: '#EF4444' }}>Delete</button>
             </div>
@@ -288,14 +288,14 @@ function UserModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="glass-strong rounded-2xl w-full max-w-5xl max-h-[94vh] flex flex-col overflow-hidden animate-slide-up">
-        <div className="px-6 py-4 flex items-center justify-between shrink-0" style={{ borderBottom: '1px solid var(--slate-200)', background: '#0f172a', color: '#fff' }}>
-          <h2 className="font-bold text-xl flex items-center gap-2"><UserPlus size={18} /> {isEdit ? `Edit User: ${username}` : 'Add New User'}</h2>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.5)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="glass-strong w-full sm:rounded-2xl rounded-t-2xl sm:max-w-5xl max-h-[95vh] sm:max-h-[94vh] flex flex-col overflow-hidden animate-slide-up">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between shrink-0" style={{ borderBottom: '1px solid var(--slate-200)', background: '#0f172a', color: '#fff' }}>
+          <h2 className="font-bold text-base sm:text-xl flex items-center gap-2"><UserPlus size={18} /> {isEdit ? `Edit: ${username}` : 'Add New User'}</h2>
           <button onClick={onClose} className="btn-motion p-2 rounded-lg" style={{ background: 'rgba(255,255,255,0.1)' }}><X size={16} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           {error && <div className="lg:col-span-2 text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
 
           <section className="space-y-4">
@@ -391,7 +391,7 @@ function UserModal({
           </section>
         </form>
 
-        <div className="px-6 py-4 flex gap-2 shrink-0" style={{ borderTop: '1px solid var(--slate-200)' }}>
+        <div className="px-4 sm:px-6 py-3 sm:py-4 flex gap-2 shrink-0" style={{ borderTop: '1px solid var(--slate-200)' }}>
           <button type="submit" onClick={() => { const form = document.querySelector('form'); if (form) form.requestSubmit() }} disabled={saving} className="btn-motion h-10 px-5 rounded-lg text-sm font-semibold text-white" style={{ background: '#059669' }}>
             {saving ? 'Saving...' : 'Save User'}
           </button>

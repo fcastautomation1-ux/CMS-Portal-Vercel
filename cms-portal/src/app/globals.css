@@ -194,13 +194,29 @@ button, a, input, select, textarea {
 .stat-card-purple { background: linear-gradient(135deg, #8B5CF6, #7C3AED); color: white; }
 .stat-card-amber  { background: linear-gradient(135deg, #F59E0B, #D97706); color: white; }
 
+/* ── Mobile: prevent iOS input zoom (font-size ≥ 16px) ──── */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ── Safe area for notched phones ────────────────────────── */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* ── Animations ──────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUpFromBottom {
+  from { opacity: 0; transform: translateY(100%); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes shimmer {
@@ -208,4 +224,4 @@ button, a, input, select, textarea {
   100% { background-position: 200% 0; }
 }
 .animate-fade-in  { animation: fadeIn 0.2s ease forwards; }
-.animate-slide-up { animation: slideUp 0.25s ease forwards; }
+.animate-slide-up { animation: slideUp 0.25s cubic-bezier(0.22,1,0.36,1) forwards; }

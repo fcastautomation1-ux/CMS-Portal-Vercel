@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { SessionUser } from '@/types'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
@@ -12,6 +12,12 @@ interface DashboardShellProps {
 
 export function DashboardShell({ user, children }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  // Prevent background scroll when mobile nav is open
+  useEffect(() => {
+    document.body.style.overflow = mobileNavOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [mobileNavOpen])
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>

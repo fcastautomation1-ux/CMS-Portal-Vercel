@@ -148,9 +148,9 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       </div>
 
       {/* ── Filters ───────────────────────────────────────── */}
-      <div className="card p-4 flex flex-wrap gap-3 items-center">
+      <div className="card p-4 flex flex-col sm:flex-row flex-wrap gap-3 items-start sm:items-center">
         {/* Search */}
-        <div className="relative flex-1 min-w-50">
+        <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--slate-400)' }} />
           <input
             type="text"
@@ -165,12 +165,12 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
         </div>
 
         {/* Status filter */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center flex-wrap gap-1">
           {STATUS_OPTIONS.map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
                 background: statusFilter === s ? 'var(--blue-600)' : 'var(--slate-100)',
                 color: statusFilter === s ? 'white' : 'var(--slate-600)',
@@ -215,7 +215,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       {/* ── Batch action bar ──────────────────────────────── */}
       {selected.size > 0 && canEdit && (
         <div
-          className="flex items-center gap-3 px-4 py-3 rounded-xl animate-fade-in"
+          className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl animate-fade-in"
           style={{ background: 'var(--blue-50)', border: '1.5px solid var(--blue-200)' }}
         >
           <span className="text-sm font-semibold" style={{ color: 'var(--blue-700)' }}>
@@ -251,7 +251,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       {/* ── Table ─────────────────────────────────────────── */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm border-collapse min-w-[880px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                 {canEdit && (

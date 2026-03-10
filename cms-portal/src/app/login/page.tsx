@@ -121,13 +121,13 @@ export default function LoginPage() {
   }, [])
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: '#EAEAEA' }}>
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6" style={{ background: '#EAEAEA' }}>
       <div
-        className="w-full max-w-5xl flex rounded-3xl overflow-hidden"
-        style={{ minHeight: '620px', background: 'white', boxShadow: '0 24px 80px rgba(0,0,0,0.14)' }}
+        className="w-full max-w-5xl flex rounded-2xl sm:rounded-3xl overflow-hidden"
+        style={{ minHeight: 'min(620px, 100dvh)', background: 'white', boxShadow: '0 24px 80px rgba(0,0,0,0.14)' }}
       >
         {/* ── Left: Form Panel ─────────────────────────────── */}
-        <div className="flex-1 flex flex-col justify-center px-12 py-14 bg-white">
+        <div className="flex-1 flex flex-col justify-center px-6 sm:px-10 md:px-12 py-10 sm:py-14 bg-white">
           {/* Logo */}
           <div className="flex items-center gap-2.5 mb-10">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#7C3AED' }}>
@@ -144,8 +144,8 @@ export default function LoginPage() {
           {/* Heading */}
           <div className="mb-8">
             <h1
-              className="font-extrabold leading-tight mb-2"
-              style={{ fontSize: '2.4rem', color: '#0F172A', letterSpacing: '-0.02em' }}
+              className="font-extrabold leading-tight mb-2 text-3xl sm:text-[2.4rem]"
+              style={{ color: '#0F172A', letterSpacing: '-0.02em' }}
             >
               Holla,<br />Welcome Back
             </h1>
