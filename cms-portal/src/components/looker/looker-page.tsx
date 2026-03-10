@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ExternalLink, Plus, Trash2, FileBarChart, X } from 'lucide-react'
+import { ExternalLink, Plus, Trash2, FileBarChart, X, Search } from 'lucide-react'
 import { saveLookerReport, deleteLookerReport } from '@/app/dashboard/looker/actions'
 import type { LookerReport, SessionUser } from '@/types'
 
@@ -11,6 +11,9 @@ export function LookerPage({ reports: initial, user }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const [reports, setReports] = useState(initial)
   const [modalOpen, setModalOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = reports.filter(r => r.title.toLowerCase().includes(search.toLowerCase()))
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this report?')) return
@@ -26,20 +29,33 @@ export function LookerPage({ reports: initial, user }: Props) {
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{reports.length} reports available</p>
         </div>
         {canEdit && (
-          <button onClick={() => setModalOpen(true)} className="h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}>
+          <button onClick={() => setModalOpen(true)} className="btn-motion h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: 'var(--blue-600)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}>
             <Plus size={16} /> Add Report
           </button>
         )}
       </div>
 
-      {reports.length === 0 ? (
+      <div className="card p-4 mb-6">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
+            style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
+            placeholder="Search reports..."
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="card p-12 text-center">
           <FileBarChart size={40} className="mx-auto mb-3 text-slate-300" />
           <p className="text-sm font-medium" style={{ color: 'var(--slate-500)' }}>No reports available</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {reports.map(r => (
+          {filtered.map(r => (
             <div key={r.id} className="card p-5 flex flex-col gap-3 group">
               <div className="flex items-start justify-between">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(59,130,246,0.08)' }}>
@@ -59,8 +75,8 @@ export function LookerPage({ reports: initial, user }: Props) {
               </div>
               <a
                 href={r.report_url} target="_blank" rel="noopener noreferrer"
-                className="mt-auto inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
-                style={{ background: 'rgba(37,99,235,0.06)', color: '#2563EB' }}
+                className="btn-motion mt-auto inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}
               >
                 <ExternalLink size={12} /> Open Report
               </a>

@@ -36,6 +36,7 @@ export interface ModuleAccess {
 // ─── Accounts ────────────────────────────────────────────────
 export interface Account {
   customer_id: string
+  account_name?: string | null
   google_sheet_link: string | null
   drive_code_comments: string | null
   enabled: boolean
@@ -47,6 +48,7 @@ export interface Account {
 
 export type AccountFormData = {
   customer_id: string
+  account_name?: string
   google_sheet_link: string
   drive_code_comments: string
   workflow: string

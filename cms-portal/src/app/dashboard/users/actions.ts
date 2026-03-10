@@ -3,7 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
-import type { User } from '@/types'
+import type { ModuleAccess, User } from '@/types'
+
+export interface UserFormOptions {
+  accounts: Array<{ customer_id: string; account_name: string | null }>
+  lookerReports: Array<{ id: string; title: string }>
+  managers: Array<{ username: string; role: string }>
+  teamMembers: Array<{ username: string; role: string; department: string | null }>
+}
 
 export async function getUsers(): Promise<User[]> {
   const user = await getSession()
@@ -46,7 +53,7 @@ export async function createUser(
     username: string; email: string; role: string; department: string;
     password: string; allowed_accounts: string; allowed_campaigns: string;
     allowed_drive_folders: string; allowed_looker_reports: string;
-    drive_access_level: string; manager_id: string; email_notifications_enabled: boolean;
+    drive_access_level: string; manager_id: string; team_members?: string; module_access?: ModuleAccess | null; email_notifications_enabled: boolean;
   }
 ): Promise<{ success: boolean; error?: string }> {
   const session = await getSession()
@@ -76,6 +83,8 @@ export async function createUser(
     allowed_looker_reports: userData.allowed_looker_reports || '',
     drive_access_level: userData.drive_access_level || 'none',
     manager_id: userData.manager_id || null,
+    team_members: userData.team_members || '',
+    module_access: userData.module_access || null,
     email_notifications_enabled: userData.email_notifications_enabled,
   })
 
@@ -93,7 +102,7 @@ export async function updateUser(
     email: string; role: string; department: string;
     password?: string; allowed_accounts: string; allowed_campaigns: string;
     allowed_drive_folders: string; allowed_looker_reports: string;
-    drive_access_level: string; manager_id: string; email_notifications_enabled: boolean;
+    drive_access_level: string; manager_id: string; team_members?: string; module_access?: ModuleAccess | null; email_notifications_enabled: boolean;
   }
 ): Promise<{ success: boolean; error?: string }> {
   const session = await getSession()
@@ -129,6 +138,8 @@ export async function updateUser(
     allowed_looker_reports: userData.allowed_looker_reports || '',
     drive_access_level: userData.drive_access_level || 'none',
     manager_id: userData.manager_id || null,
+    team_members: userData.team_members || '',
+    module_access: userData.module_access || null,
     email_notifications_enabled: userData.email_notifications_enabled,
   }
   if (userData.password) update.password = userData.password
@@ -160,4 +171,26 @@ export async function getDepartmentsList(): Promise<string[]> {
   const supabase = createServerClient()
   const { data } = await supabase.from('departments').select('name').order('name')
   return data?.map(d => d.name) ?? []
+}
+
+export async function getUserFormOptions(): Promise<UserFormOptions> {
+  const session = await getSession()
+  if (!session) {
+    return { accounts: [], lookerReports: [], managers: [], teamMembers: [] }
+  }
+
+  const supabase = createServerClient()
+  const [accountsRes, lookerRes, managersRes, usersRes] = await Promise.all([
+    supabase.from('accounts').select('customer_id,account_name').order('customer_id'),
+    supabase.from('looker_reports').select('id,title').order('sort_order'),
+    supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
+    supabase.from('users').select('username,role,department').order('username'),
+  ])
+
+  return {
+    accounts: (accountsRes.data as Array<{ customer_id: string; account_name: string | null }>) ?? [],
+    lookerReports: (lookerRes.data as Array<{ id: string; title: string }>) ?? [],
+    managers: (managersRes.data as Array<{ username: string; role: string }>) ?? [],
+    teamMembers: (usersRes.data as Array<{ username: string; role: string; department: string | null }>) ?? [],
+  }
 }

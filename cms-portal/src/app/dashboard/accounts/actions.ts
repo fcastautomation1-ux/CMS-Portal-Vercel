@@ -56,14 +56,28 @@ export async function createAccount(
   }
 
   const supabase = createServerClient()
-  const { error } = await supabase.from('accounts').insert({
+  const payloadWithName = {
     customer_id: formData.customer_id.trim(),
+    account_name: (formData as AccountFormData & { account_name?: string }).account_name?.trim() || null,
     google_sheet_link: formData.google_sheet_link || null,
     drive_code_comments: formData.drive_code_comments || null,
     workflow: formData.workflow || 'workflow-0',
     enabled: formData.enabled,
     status: 'Pending',
-  })
+  }
+  let { error } = await supabase.from('accounts').insert(payloadWithName)
+
+  // Backward compatibility for databases that don't have account_name yet.
+  if (error && error.message.includes('account_name')) {
+    ;({ error } = await supabase.from('accounts').insert({
+      customer_id: formData.customer_id.trim(),
+      google_sheet_link: formData.google_sheet_link || null,
+      drive_code_comments: formData.drive_code_comments || null,
+      workflow: formData.workflow || 'workflow-0',
+      enabled: formData.enabled,
+      status: 'Pending',
+    }))
+  }
 
   if (error) {
     if (error.code === '23505') return { success: false, error: 'Customer ID already exists.' }
@@ -86,15 +100,30 @@ export async function updateAccount(
   }
 
   const supabase = createServerClient()
-  const { error } = await supabase
+  const payloadWithName = {
+    account_name: ((formData as Omit<AccountFormData, 'customer_id'> & { account_name?: string }).account_name || '').trim() || null,
+    google_sheet_link: formData.google_sheet_link || null,
+    drive_code_comments: formData.drive_code_comments || null,
+    workflow: formData.workflow,
+    enabled: formData.enabled,
+  }
+
+  let { error } = await supabase
     .from('accounts')
-    .update({
-      google_sheet_link: formData.google_sheet_link || null,
-      drive_code_comments: formData.drive_code_comments || null,
-      workflow: formData.workflow,
-      enabled: formData.enabled,
-    })
+    .update(payloadWithName)
     .eq('customer_id', customerId)
+
+  if (error && error.message.includes('account_name')) {
+    ;({ error } = await supabase
+      .from('accounts')
+      .update({
+        google_sheet_link: formData.google_sheet_link || null,
+        drive_code_comments: formData.drive_code_comments || null,
+        workflow: formData.workflow,
+        enabled: formData.enabled,
+      })
+      .eq('customer_id', customerId))
+  }
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')

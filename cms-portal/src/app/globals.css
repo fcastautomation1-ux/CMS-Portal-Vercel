@@ -2,7 +2,7 @@
 
 /* ── Design Tokens ───────────────────────────────────────── */
 :root {
-  --sans: 'Outfit', sans-serif;
+  --sans: var(--font-plus-jakarta), 'Plus Jakarta Sans', sans-serif;
   --mono: 'JetBrains Mono', monospace;
 
   /* Blues */
@@ -159,6 +159,19 @@ body {
 /* ── Transitions ─────────────────────────────────────────── */
 button, a, input, select, textarea {
   transition: all 0.15s ease;
+}
+
+.btn-motion {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.btn-motion:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.01);
+}
+
+.btn-motion:active {
+  transform: translateY(0);
 }
 
 /* ── Typography helpers ──────────────────────────────────── */

@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { GitBranch, ToggleLeft, ToggleRight, Clock, Activity } from 'lucide-react'
+import { GitBranch, Clock, Activity } from 'lucide-react'
 import { toggleWorkflow } from '@/app/dashboard/workflows/actions'
 import type { Workflow, SessionUser } from '@/types'
+import { RunStopToggle } from '@/components/ui/run-stop-toggle'
 
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return '—'
@@ -74,9 +75,13 @@ export function WorkflowsPage({ workflows: initial, user }: Props) {
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--slate-500)' }}>{formatRelativeTime(wf.last_run)}</td>
                   <td className="px-5 py-3">
-                    <button onClick={() => canEdit && handleToggle(wf)} disabled={toggling === wf.workflow_name || !canEdit} className="inline-flex">
-                      {wf.enabled ? <ToggleRight size={28} className="text-blue-600" /> : <ToggleLeft size={28} className="text-slate-300" />}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <RunStopToggle
+                        enabled={wf.enabled}
+                        disabled={toggling === wf.workflow_name || !canEdit}
+                        onToggle={() => canEdit && handleToggle(wf)}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

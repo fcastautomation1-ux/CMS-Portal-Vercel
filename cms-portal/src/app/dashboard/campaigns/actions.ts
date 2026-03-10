@@ -70,12 +70,32 @@ export async function getAccountsForCampaigns(): Promise<Account[]> {
   if (allowedIds !== null && allowedIds.length === 0) return []
 
   const supabase = createServerClient()
-  let query = supabase.from('accounts').select('customer_id, workflow').order('customer_id')
+  let query = supabase.from('accounts').select('customer_id, workflow, account_name, drive_code_comments').order('customer_id')
   if (allowedIds !== null) {
     query = query.in('customer_id', allowedIds)
   }
   const { data } = await query
   return (data as unknown as Account[]) ?? []
+}
+
+export async function getConditionDefinitions(): Promise<Array<{ id: string; name: string; description: string | null }>> {
+  const user = await getSession()
+  if (!user) return []
+
+  const allowedIds = getAllowedAccountIds(user)
+  if (allowedIds !== null && allowedIds.length === 0) return []
+
+  const supabase = createServerClient()
+  const { data, error } = await supabase
+    .from('removal_condition_definitions')
+    .select('id,name,description')
+    .order('name')
+
+  if (error) {
+    console.error('getConditionDefinitions error:', error)
+    return []
+  }
+  return (data as Array<{ id: string; name: string; description: string | null }>) ?? []
 }
 
 export async function saveCampaign(
@@ -111,6 +131,27 @@ export async function saveCampaign(
   )
 
   if (error) return { success: false, error: error.message }
+  revalidatePath('/dashboard/campaigns')
+  return { success: true }
+}
+
+export async function saveCampaignBatch(
+  items: Array<{ customer_id: string; campaign_name: string; removal_conditions: string; workflow: string; enabled: boolean }>
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const allowedIds = getAllowedAccountIds(user)
+  if (allowedIds !== null) {
+    const denied = items.find(i => !allowedIds.includes(i.customer_id))
+    if (denied) return { success: false, error: 'Permission denied: no access to one or more accounts.' }
+  }
+
+  for (const item of items) {
+    const res = await saveCampaign(item)
+    if (!res.success) return res
+  }
+
   revalidatePath('/dashboard/campaigns')
   return { success: true }
 }

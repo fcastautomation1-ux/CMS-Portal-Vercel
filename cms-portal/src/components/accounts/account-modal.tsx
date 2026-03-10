@@ -17,6 +17,7 @@ const WORKFLOW_OPTIONS = [
 
 const schema = z.object({
   customer_id: z.string().min(1, 'Customer ID is required').max(50),
+  account_name: z.string().max(120).optional(),
   google_sheet_link: z.string().url('Must be a valid URL').or(z.literal('')).optional(),
   drive_code_comments: z.string().max(2000).optional(),
   workflow: z.string().min(1),
@@ -82,6 +83,7 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
     resolver: zodResolver(schema),
     defaultValues: {
       customer_id: account?.customer_id ?? '',
+      account_name: account?.account_name ?? '',
       google_sheet_link: account?.google_sheet_link ?? '',
       drive_code_comments: account?.drive_code_comments ?? '',
       workflow: account?.workflow ?? 'workflow-0',
@@ -101,12 +103,14 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
       const result = isEdit
         ? await updateAccount(account.customer_id, {
             google_sheet_link: data.google_sheet_link ?? '',
+            account_name: data.account_name ?? '',
             drive_code_comments: data.drive_code_comments ?? '',
             workflow: data.workflow,
             enabled: data.enabled,
           })
         : await createAccount({
             customer_id: data.customer_id,
+            account_name: data.account_name ?? '',
             google_sheet_link: data.google_sheet_link ?? '',
             drive_code_comments: data.drive_code_comments ?? '',
             workflow: data.workflow,
@@ -189,6 +193,16 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
                 />
               </FormField>
 
+              <FormField label="Account Name" error={errors.account_name?.message} hint="Business-friendly account label">
+                <input
+                  {...register('account_name')}
+                  placeholder="e.g. Auto Irfan"
+                  style={inputStyle}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--blue-500)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = errors.account_name ? 'var(--color-error)' : 'var(--slate-200)'; }}
+                />
+              </FormField>
+
               {/* Google Sheet Link */}
               <FormField label="Google Sheet Link" error={errors.google_sheet_link?.message} hint="URL to the linked Google Spreadsheet">
                 <input
@@ -252,7 +266,7 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
                 type="button"
                 onClick={onClose}
                 disabled={isPending}
-                className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+                className="btn-motion px-4 py-2 rounded-xl text-sm font-medium transition-all"
                 style={{ color: 'var(--slate-600)', background: 'white', border: '1.5px solid var(--slate-200)' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--slate-100)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
@@ -262,7 +276,7 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
               <button
                 type="submit"
                 disabled={isPending}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-70"
+                className="btn-motion flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-70"
                 style={{ background: 'var(--blue-600)' }}
                 onMouseEnter={e => { if (!isPending) e.currentTarget.style.background = 'var(--blue-700)'; }}
                 onMouseLeave={e => { if (!isPending) e.currentTarget.style.background = 'var(--blue-600)'; }}

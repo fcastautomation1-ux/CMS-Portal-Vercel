@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { Search, Plus, Trash2, Pencil, Check, ChevronDown, Copy, RefreshCw } from 'lucide-react'
 import { StatusBadge, WorkflowBadge } from '@/components/ui/badges'
 import { EnabledToggle } from '@/components/ui/enabled-toggle'
@@ -43,6 +44,7 @@ interface AccountsTableProps {
 }
 
 export function AccountsTable({ accounts, user }: AccountsTableProps) {
+  const router = useRouter()
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
 
   // ── Filters ───────────────────────────────────────────────
@@ -134,7 +136,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
         {canEdit && (
           <button
             onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+            className="btn-motion flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
             style={{ background: 'var(--blue-600)', boxShadow: '0 2px 8px rgba(37,99,235,0.25)' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--blue-700)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--blue-600)'; }}
@@ -268,7 +270,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                     </div>
                   </th>
                 )}
-                {['Customer ID', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Actions'].map(h => (
+                {['Customer ID', 'Account Name', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Actions'].map(h => (
                   <th
                     key={h}
                     className="py-3.5 px-4 text-left font-semibold text-xs uppercase tracking-wider whitespace-nowrap"
@@ -283,7 +285,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 8 : 7}
+                    colSpan={canEdit ? 9 : 8}
                     className="py-20 text-center"
                     style={{ color: 'var(--slate-400)' }}
                   >
@@ -341,6 +343,10 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                         </div>
                       </td>
 
+                      <td className="py-3.5 px-4" style={{ color: 'var(--slate-600)' }}>
+                        {account.account_name || account.drive_code_comments || '—'}
+                      </td>
+
                       {/* Workflow */}
                       <td className="py-3.5 px-4">
                         <WorkflowBadge workflow={account.workflow} />
@@ -383,6 +389,14 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                               title="Edit"
                             >
                               <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => router.push(`/dashboard/campaigns?account=${encodeURIComponent(account.customer_id)}`)}
+                              className="btn-motion px-2.5 h-8 rounded-lg text-xs font-semibold"
+                              style={{ background: 'var(--slate-100)', color: 'var(--slate-700)' }}
+                              title="Manage campaigns"
+                            >
+                              Manage
                             </button>
                             <button
                               onClick={() => setDeletingAccount(account)}

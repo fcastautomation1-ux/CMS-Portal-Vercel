@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useTransition } from 'react'
+import { useEffect, useTransition } from 'react'
 import { logoutAction } from '@/app/login/actions'
 import type { SessionUser } from '@/types'
 import { cn } from '@/lib/cn'
@@ -121,6 +121,13 @@ export function Sidebar({ user }: SidebarProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
+  useEffect(() => {
+    // Prefetch visible module routes so the next click is instant.
+    NAV_ITEMS.filter(item => isNavItemVisible(item.href, user)).forEach(item => {
+      router.prefetch(item.href)
+    })
+  }, [router, user])
+
   const handleLogout = () => {
     startTransition(async () => {
       await logoutAction()
@@ -238,7 +245,7 @@ export function Sidebar({ user }: SidebarProps) {
           type="button"
           onClick={handleLogout}
           disabled={isPending}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 hover:bg-red-50 hover:text-red-600"
+          className="btn-motion w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 hover:bg-red-50 hover:text-red-600"
           style={{ color: 'var(--slate-500)' }}
         >
           <LogOut size={15} />
