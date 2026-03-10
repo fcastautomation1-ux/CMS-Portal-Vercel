@@ -1,8 +1,12 @@
 'use client'
 
-import { BarChart3, CheckCircle, Clock, AlertTriangle, TrendingUp, Users, CalendarCheck } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import {
+  BarChart3, CheckCircle, Clock, AlertTriangle, TrendingUp,
+  Users, CalendarCheck, X,
+} from 'lucide-react'
 import type { SessionUser } from '@/types'
-import type { AnalyticsData } from '@/app/dashboard/analytics/actions'
+import type { AnalyticsData, AnalyticsTask } from '@/app/dashboard/analytics/actions'
 
 interface Props { analytics: AnalyticsData; user: SessionUser }
 
@@ -12,39 +16,182 @@ const STATUS_COLORS: Record<string, string> = {
 const PRIORITY_COLORS: Record<string, string> = {
   low: '#94A3B8', medium: '#3B82F6', high: '#F59E0B', urgent: '#EF4444',
 }
+const PRIORITY_BG: Record<string, string> = {
+  low: 'rgba(148,163,184,0.12)', medium: 'rgba(59,130,246,0.12)',
+  high: 'rgba(245,158,11,0.12)', urgent: 'rgba(239,68,68,0.12)',
+}
 
-export function AnalyticsPage({ analytics }: Props) {
-  const { totalTasks, assignedToMe, completed, inProgress, pending, overdue, dueToday, statusBreakdown, priorityBreakdown, departmentBreakdown, topUsers } = analytics
+// ── Filtered Task Table ───────────────────────────────────────────────────────
+
+function TaskTable({ tasks, label, onClose }: { tasks: AnalyticsTask[]; label: string; onClose: () => void }) {
+  return (
+    <div
+      className="rounded-2xl overflow-hidden animate-fade-in"
+      style={{ border: '1px solid var(--color-border)', background: 'var(--color-card)' }}
+    >
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ borderBottom: '1px solid var(--color-border)' }}
+      >
+        <div className="flex items-center gap-2">
+          <BarChart3 size={15} style={{ color: 'var(--blue-600)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{label}</span>
+          <span
+            className="text-xs font-bold px-2 py-0.5 rounded-full"
+            style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}
+          >
+            {tasks.length}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+          style={{ color: 'var(--color-text-muted)' }}
+          aria-label="Close filter"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      {tasks.length === 0 ? (
+        <div className="py-10 text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+          No tasks found for this filter.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--slate-50)' }}>
+                {['Title', 'Assigned To', 'Status', 'Priority', 'Due Date'].map(h => (
+                  <th key={h} className="py-2.5 px-4 text-left font-semibold" style={{ color: 'var(--slate-500)' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map(t => {
+                const isOverdue = !t.completed && t.due_date != null && t.due_date < new Date().toISOString().split('T')[0]
+                return (
+                  <tr
+                    key={t.id}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--slate-50)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}
+                  >
+                    <td className="py-2.5 px-4 max-w-[200px]">
+                      <span className="truncate block font-medium" style={{ color: 'var(--color-text)' }}>{t.title || '(no title)'}</span>
+                      <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>{t.username}</span>
+                    </td>
+                    <td className="py-2.5 px-4" style={{ color: 'var(--slate-600)' }}>{t.assigned_to ?? '—'}</td>
+                    <td className="py-2.5 px-4">
+                      <span className="px-2 py-0.5 rounded-full font-medium capitalize" style={{ background: `${STATUS_COLORS[t.task_status] || '#94A3B8'}20`, color: STATUS_COLORS[t.task_status] || '#94A3B8' }}>
+                        {t.task_status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <span className="px-2 py-0.5 rounded-full font-medium capitalize" style={{ background: PRIORITY_BG[t.priority] || 'rgba(148,163,184,0.12)', color: PRIORITY_COLORS[t.priority] || '#94A3B8' }}>
+                        {t.priority}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 font-medium" style={{ color: isOverdue ? '#EF4444' : 'var(--slate-500)' }}>
+                      {t.due_date ?? '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+export function AnalyticsPage({ analytics, user }: Props) {
+  const {
+    totalTasks, assignedToMe, completed, inProgress, pending,
+    overdue, dueToday, statusBreakdown, priorityBreakdown, departmentBreakdown, topUsers, allTasks,
+  } = analytics
+
+  const [activeKpi, setActiveKpi] = useState<string | null>(null)
 
   const kpis = [
-    { label: 'Total Tasks', value: totalTasks, icon: <BarChart3 size={20} />, color: '#3B82F6', bg: 'rgba(59,130,246,0.08)' },
-    { label: 'Assigned to Me', value: assignedToMe, icon: <Users size={20} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)' },
-    { label: 'Completed', value: completed, icon: <CheckCircle size={20} />, color: '#22C55E', bg: 'rgba(34,197,94,0.08)' },
-    { label: 'In Progress', value: inProgress, icon: <TrendingUp size={20} />, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
-    { label: 'Pending', value: pending, icon: <Clock size={20} />, color: '#64748B', bg: 'rgba(100,116,139,0.08)' },
-    { label: 'Overdue', value: overdue, icon: <AlertTriangle size={20} />, color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
-    { label: 'Due Today', value: dueToday, icon: <CalendarCheck size={20} />, color: '#0EA5E9', bg: 'rgba(14,165,233,0.08)' },
+    { label: 'Total Tasks',    value: totalTasks,   icon: <BarChart3 size={20} />,    color: '#3B82F6', bg: 'rgba(59,130,246,0.08)' },
+    { label: 'Assigned to Me', value: assignedToMe, icon: <Users size={20} />,        color: '#8B5CF6', bg: 'rgba(139,92,246,0.08)' },
+    { label: 'Completed',      value: completed,    icon: <CheckCircle size={20} />,  color: '#22C55E', bg: 'rgba(34,197,94,0.08)' },
+    { label: 'In Progress',    value: inProgress,   icon: <TrendingUp size={20} />,   color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+    { label: 'Pending',        value: pending,      icon: <Clock size={20} />,        color: '#64748B', bg: 'rgba(100,116,139,0.08)' },
+    { label: 'Overdue',        value: overdue,      icon: <AlertTriangle size={20} />, color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
+    { label: 'Due Today',      value: dueToday,     icon: <CalendarCheck size={20} />, color: '#0EA5E9', bg: 'rgba(14,165,233,0.08)' },
   ]
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const filteredTasks = useMemo((): AnalyticsTask[] => {
+    if (!activeKpi || !allTasks) return []
+    switch (activeKpi) {
+      case 'Total Tasks':    return allTasks
+      case 'Assigned to Me': return allTasks.filter(t => t.assigned_to === user.username || t.username === user.username)
+      case 'Completed':      return allTasks.filter(t => t.completed)
+      case 'In Progress':    return allTasks.filter(t => !t.completed && t.task_status === 'in_progress')
+      case 'Pending':        return allTasks.filter(t => !t.completed && t.task_status !== 'in_progress' && t.task_status !== 'done')
+      case 'Overdue':        return allTasks.filter(t => !t.completed && t.due_date != null && t.due_date < today)
+      case 'Due Today':      return allTasks.filter(t => !t.completed && t.due_date === today)
+      default:               return []
+    }
+  }, [activeKpi, allTasks, user.username, today])
 
   const maxDeptValue = Math.max(...Object.values(departmentBreakdown), 1)
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Analytics</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>Task performance overview</p>
+        <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Analytics</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+          Task performance overview — click any card to drill down
+        </p>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — clickable */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-        {kpis.map(k => (
-          <div key={k.label} className="card p-4 text-center">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: k.bg, color: k.color }}>{k.icon}</div>
-            <p className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>{k.value}</p>
-            <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--slate-500)' }}>{k.label}</p>
-          </div>
-        ))}
+        {kpis.map(k => {
+          const isActive = activeKpi === k.label
+          return (
+            <button
+              key={k.label}
+              type="button"
+              onClick={() => setActiveKpi(isActive ? null : k.label)}
+              className="card p-4 text-center relative transition-all duration-200 hover:scale-[1.03] focus:outline-none"
+              style={{
+                boxShadow: isActive ? `0 0 0 2px ${k.color}, 0 4px 16px ${k.color}30` : undefined,
+                transform: isActive ? 'scale(1.03)' : undefined,
+              }}
+            >
+              {isActive && (
+                <span className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ background: k.color }} />
+              )}
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: k.bg, color: k.color }}>
+                {k.icon}
+              </div>
+              <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{k.value}</p>
+              <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{k.label}</p>
+            </button>
+          )
+        })}
       </div>
+
+      {/* Filtered Task Table */}
+      {activeKpi && (
+        <div className="mb-6">
+          <TaskTable
+            tasks={filteredTasks}
+            label={`${activeKpi} — filtered tasks`}
+            onClose={() => setActiveKpi(null)}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         {/* Status Breakdown */}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   LayoutGrid, TrendingUp, Users, CheckSquare, Building2,
   AlertCircle, Clock, CheckCircle2, Activity, ArrowUp,
@@ -17,7 +17,7 @@ import {
 // ── KPI Card ─────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, sub, icon, gradient, delay = 0,
+  label, value, sub, icon, gradient, delay = 0, onClick, active = false,
 }: {
   label: string
   value: number | string
@@ -25,12 +25,24 @@ function KpiCard({
   icon: React.ReactNode
   gradient: string
   delay?: number
+  onClick?: () => void
+  active?: boolean
 }) {
   return (
-    <div
-      className="rounded-2xl p-5 text-white relative overflow-hidden animate-fade-in"
-      style={{ background: gradient, animationDelay: `${delay}ms` }}
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl p-5 text-white relative overflow-hidden animate-fade-in text-left focus:outline-none transition-all duration-200 hover:scale-[1.02]"
+      style={{
+        background: gradient,
+        animationDelay: `${delay}ms`,
+        boxShadow: active ? '0 0 0 3px rgba(255,255,255,0.8), 0 8px 24px rgba(0,0,0,0.25)' : undefined,
+        transform: active ? 'scale(1.02)' : undefined,
+      }}
     >
+      {active && (
+        <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full bg-white opacity-90" />
+      )}
       <div className="flex items-start justify-between mb-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -50,7 +62,7 @@ function KpiCard({
         className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full"
         style={{ background: 'rgba(255,255,255,0.1)' }}
       />
-    </div>
+    </button>
   )
 }
 
@@ -114,6 +126,8 @@ interface AdminOverviewProps {
 }
 
 function AdminOverview({ stats, user }: AdminOverviewProps) {
+  const [activeFilter, setActiveFilter] = useState<string | null>(null)
+
   const roleData = useMemo(() =>
     Object.entries(stats.users.byRole).map(([name, value]) => ({ name, value })),
     [stats.users.byRole]
@@ -146,7 +160,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <KpiCard
           label="Total Accounts"
           value={stats.accounts.total}
@@ -154,6 +168,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<LayoutGrid size={18} />}
           gradient="linear-gradient(135deg, #2B7FFF, #1A6AE4)"
           delay={0}
+          active={activeFilter === 'Total Accounts'}
+          onClick={() => setActiveFilter(activeFilter === 'Total Accounts' ? null : 'Total Accounts')}
         />
         <KpiCard
           label="Campaigns"
@@ -162,6 +178,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<TrendingUp size={18} />}
           gradient="linear-gradient(135deg, #F97316, #EA580C)"
           delay={60}
+          active={activeFilter === 'Campaigns'}
+          onClick={() => setActiveFilter(activeFilter === 'Campaigns' ? null : 'Campaigns')}
         />
         <KpiCard
           label="Team Members"
@@ -169,6 +187,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<Users size={18} />}
           gradient="linear-gradient(135deg, #8B5CF6, #7C3AED)"
           delay={120}
+          active={activeFilter === 'Team Members'}
+          onClick={() => setActiveFilter(activeFilter === 'Team Members' ? null : 'Team Members')}
         />
         <KpiCard
           label="Total Tasks"
@@ -177,6 +197,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<CheckSquare size={18} />}
           gradient="linear-gradient(135deg, #10B981, #059669)"
           delay={180}
+          active={activeFilter === 'Total Tasks'}
+          onClick={() => setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')}
         />
         <KpiCard
           label="Overdue"
@@ -185,6 +207,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<AlertCircle size={18} />}
           gradient="linear-gradient(135deg, #EF4444, #DC2626)"
           delay={240}
+          active={activeFilter === 'Overdue'}
+          onClick={() => setActiveFilter(activeFilter === 'Overdue' ? null : 'Overdue')}
         />
         <KpiCard
           label="Departments"
@@ -192,8 +216,117 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           icon={<Building2 size={18} />}
           gradient="linear-gradient(135deg, #14B8A6, #0D9488)"
           delay={300}
+          active={activeFilter === 'Departments'}
+          onClick={() => setActiveFilter(activeFilter === 'Departments' ? null : 'Departments')}
         />
       </div>
+
+      {/* Quick-view panel — shown when a KPI is selected */}
+      {activeFilter && (
+        <div
+          className="mb-6 rounded-2xl p-4 animate-fade-in flex flex-col gap-2"
+          style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
+        >
+          {/* header */}
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+              Quick View — {activeFilter}
+            </span>
+            <button
+              onClick={() => setActiveFilter(null)}
+              className="text-xs px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          {activeFilter === 'Total Accounts' && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total', value: stats.accounts.total, color: '#2B7FFF' },
+                { label: 'Running', value: stats.accounts.running, color: '#10B981' },
+                { label: 'Not Running', value: stats.accounts.total - stats.accounts.running, color: '#94A3B8' },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: `${item.color}12`, border: `1px solid ${item.color}30` }}>
+                  <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                  <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{item.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeFilter === 'Campaigns' && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total', value: stats.campaigns.total, color: '#F97316' },
+                { label: 'Enabled', value: stats.campaigns.enabled, color: '#10B981' },
+                { label: 'Disabled', value: stats.campaigns.total - stats.campaigns.enabled, color: '#94A3B8' },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: `${item.color}12`, border: `1px solid ${item.color}30` }}>
+                  <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                  <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{item.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeFilter === 'Team Members' && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(stats.users.byRole).map(([role, count]) => (
+                <div key={role} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm" style={{ background: 'var(--slate-100)', border: '1px solid var(--color-border)' }}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: '#8B5CF6' }} />
+                  <span style={{ color: 'var(--color-text)' }}>{role}</span>
+                  <span className="font-bold" style={{ color: '#8B5CF6' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeFilter === 'Total Tasks' && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total', value: stats.tasks.total, color: '#10B981' },
+                { label: 'Completed', value: stats.tasks.completed, color: '#22C55E' },
+                { label: 'In Progress', value: stats.tasks.inProgress, color: '#3B82F6' },
+                { label: 'Overdue', value: stats.tasks.overdue, color: '#EF4444' },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: `${item.color}12`, border: `1px solid ${item.color}30` }}>
+                  <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                  <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{item.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeFilter === 'Overdue' && (
+            <div className="flex flex-col gap-2">
+              {stats.recentTasks.filter(t => t.due_date && t.due_date < new Date().toISOString().split('T')[0] && t.task_status !== 'done').length === 0 ? (
+                <p className="text-sm py-2" style={{ color: 'var(--color-text-muted)' }}>No overdue tasks found in recent tasks.</p>
+              ) : (
+                stats.recentTasks
+                  .filter(t => t.due_date && t.due_date < new Date().toISOString().split('T')[0] && t.task_status !== 'done')
+                  .map(t => (
+                    <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: '#EF4444' }} />
+                      <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--color-text)' }}>{t.title}</span>
+                      <span className="text-xs font-medium shrink-0" style={{ color: '#EF4444' }}>{t.due_date}</span>
+                    </div>
+                  ))
+              )}
+            </div>
+          )}
+
+          {activeFilter === 'Departments' && (
+            <div className="flex items-center gap-4 py-2">
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.3)' }}>
+                <p className="text-3xl font-bold" style={{ color: '#14B8A6' }}>{stats.departments.total}</p>
+                <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>Active Departments</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">

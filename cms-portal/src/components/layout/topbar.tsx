@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Menu, Sun, Moon } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import { NotificationPanel } from '@/components/notifications/notification-panel'
@@ -61,9 +62,10 @@ export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggl
         {/* Notifications */}
         <NotificationPanel />
 
-        {/* User chip */}
-        <div
-          className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-default ml-1"
+        {/* User chip → links to profile */}
+        <Link
+          href="/dashboard/profile"
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg ml-1 transition-colors hover:opacity-90"
           style={{
             background: 'var(--slate-100)',
             border: '1px solid var(--color-border)',
@@ -83,7 +85,7 @@ export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggl
               {user.role}
             </span>
           </div>
-        </div>
+        </Link>
       </div>
     </header>
   )

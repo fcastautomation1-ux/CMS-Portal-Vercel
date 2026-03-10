@@ -3,6 +3,19 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 
+export interface AnalyticsTask {
+  id: string
+  title: string
+  username: string
+  assigned_to: string | null
+  completed: boolean
+  task_status: string
+  priority: string
+  due_date: string | null
+  category: string | null
+  created_at: string
+}
+
 export interface AnalyticsData {
   totalTasks: number
   assignedToMe: number
@@ -15,6 +28,7 @@ export interface AnalyticsData {
   priorityBreakdown: Record<string, number>
   departmentBreakdown: Record<string, number>
   topUsers: Array<{ username: string; total: number; completed: number }>
+  allTasks: AnalyticsTask[]
 }
 
 export async function getAnalytics(): Promise<AnalyticsData> {
@@ -22,7 +36,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   const empty: AnalyticsData = {
     totalTasks: 0, assignedToMe: 0, completed: 0, inProgress: 0, pending: 0,
     overdue: 0, dueToday: 0, statusBreakdown: {}, priorityBreakdown: {},
-    departmentBreakdown: {}, topUsers: [],
+    departmentBreakdown: {}, topUsers: [], allTasks: [],
   }
   if (!user) return empty
 
@@ -32,7 +46,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   const supabase = createServerClient()
   const { data: todos } = await supabase
     .from('todos')
-    .select('id, username, assigned_to, completed, task_status, priority, due_date, category, archived')
+    .select('id, title, username, assigned_to, completed, task_status, priority, due_date, category, archived, created_at')
     .eq('archived', false)
 
   if (!todos) return empty
@@ -41,8 +55,8 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   const todayStr = now.toISOString().split('T')[0]
 
   const tasks = todos as unknown as Array<{
-    id: string; username: string; assigned_to: string | null; completed: boolean;
-    task_status: string; priority: string; due_date: string | null; category: string | null;
+    id: string; title: string; username: string; assigned_to: string | null; completed: boolean;
+    task_status: string; priority: string; due_date: string | null; category: string | null; created_at: string;
   }>
 
   const statusBreakdown: Record<string, number> = {}
@@ -95,5 +109,17 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     priorityBreakdown,
     departmentBreakdown,
     topUsers,
+    allTasks: tasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      username: t.username,
+      assigned_to: t.assigned_to,
+      completed: t.completed,
+      task_status: t.task_status,
+      priority: t.priority,
+      due_date: t.due_date,
+      category: t.category,
+      created_at: t.created_at,
+    })),
   }
 }

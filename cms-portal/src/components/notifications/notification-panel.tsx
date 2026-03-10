@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Bell, Check, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle, X } from 'lucide-react'
 import {
   getNotifications,
@@ -35,6 +35,39 @@ function notifColor(type: string | null): string {
   return 'var(--blue-600)'
 }
 
+// ── Desktop Notification Helper ────────────────────────────────────────────────
+
+async function requestDesktopPermission(): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  if (Notification.permission === 'denied') return false
+  const result = await Notification.requestPermission()
+  return result === 'granted'
+}
+
+function fireDesktopNotification(notif: Notification) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  try {
+    const n = new window.Notification(notif.title, {
+      body: notif.body ?? undefined,
+      icon: '/favicon.ico',
+      tag: notif.id, // deduplicate
+      silent: false,
+    })
+    // Auto-close after 6 seconds
+    setTimeout(() => n.close(), 6000)
+    n.onclick = () => {
+      window.focus()
+      n.close()
+    }
+  } catch {
+    // Silently fail if notifications aren't supported in this context
+  }
+}
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 interface NotificationPanelProps {
   initialCount?: number
 }
@@ -45,6 +78,15 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   const [unreadCount, setUnreadCount] = useState(initialCount)
   const [loading, setLoading] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Track IDs we've already fired desktop notifs for (to avoid dupes)
+  const seenIdsRef = useRef<Set<string>>(new Set())
+  // Track previous unread count to detect new arrivals
+  const prevUnreadRef = useRef(initialCount)
+
+  // Request desktop notification permission once on mount
+  useEffect(() => {
+    requestDesktopPermission()
+  }, [])
 
   // Close on outside click
   useEffect(() => {
@@ -63,19 +105,40 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     setLoading(true)
     getNotifications().then(data => {
       setNotifications(data)
-      setUnreadCount(data.filter(n => !n.is_read).length)
+      const unread = data.filter(n => !n.is_read).length
+      setUnreadCount(unread)
+      // Mark all fetched IDs as seen (don't re-fire desktop notif for existing)
+      data.forEach(n => seenIdsRef.current.add(n.id))
       setLoading(false)
     })
   }, [open])
 
-  // Periodically update unread count
+  // Poll for new notifications every 30 seconds, fire desktop notif on new ones
+  const pollNotifications = useCallback(async () => {
+    const data = await getNotifications()
+    const unreadItems = data.filter(n => !n.is_read)
+    const newCount = unreadItems.length
+
+    // Fire desktop notifications for brand-new unread items we haven't seen yet
+    const unseen = unreadItems.filter(n => !seenIdsRef.current.has(n.id))
+    for (const notif of unseen) {
+      seenIdsRef.current.add(notif.id)
+      fireDesktopNotification(notif)
+    }
+
+    setUnreadCount(newCount)
+    prevUnreadRef.current = newCount
+
+    // If panel is already open, refresh the list
+    if (open) {
+      setNotifications(data)
+    }
+  }, [open])
+
   useEffect(() => {
-    const id = setInterval(async () => {
-      const data = await getNotifications()
-      setUnreadCount(data.filter(n => !n.is_read).length)
-    }, 30000)
+    const id = setInterval(pollNotifications, 30000)
     return () => clearInterval(id)
-  }, [])
+  }, [pollNotifications])
 
   async function handleMarkRead(notif: Notification) {
     if (notif.is_read) return
