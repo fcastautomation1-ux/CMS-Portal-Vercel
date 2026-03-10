@@ -30,7 +30,7 @@ export async function loginAction(
       'username,email,role,department,password,password_hash,password_salt,' +
       'allowed_accounts,allowed_campaigns,allowed_drive_folders,' +
       'allowed_looker_reports,drive_access_level,module_access,' +
-      'manager_id,team_members'
+      'manager_id,team_members,theme_preference'
     )
     .eq('username', username)
     .limit(1)
@@ -78,6 +78,7 @@ export async function loginAction(
     teamMembers: parseCSV(user.team_members),
     managerId: user.manager_id ?? null,
     driveAccessLevel: (user.drive_access_level ?? 'none') as DriveAccessLevel,
+    themePreference: (user.theme_preference ?? null) as 'light' | 'dark' | null,
   }
 
   const token = await createSession(sessionUser)

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { SessionUser } from '@/types'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
+import { saveThemePreference } from '@/app/dashboard/profile/actions'
 
 interface DashboardShellProps {
   user: SessionUser
@@ -12,6 +13,26 @@ interface DashboardShellProps {
 
 export function DashboardShell({ user, children }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    (user.themePreference ?? 'light') as 'light' | 'dark'
+  )
+
+  // Apply theme class to <html>
+  useEffect(() => {
+    const html = document.documentElement
+    if (theme === 'dark') {
+      html.classList.add('dark')
+    } else {
+      html.classList.remove('dark')
+    }
+  }, [theme])
+
+  // Restore sidebar collapse from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('cms_sidebar_collapsed')
+    if (stored === 'true') setSidebarCollapsed(true)
+  }, [])
 
   // Prevent background scroll when mobile nav is open
   useEffect(() => {
@@ -19,9 +40,30 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     return () => { document.body.style.overflow = '' }
   }, [mobileNavOpen])
 
+  const handleThemeToggle = useCallback(async () => {
+    const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    saveThemePreference(next).catch(() => {})
+  }, [theme])
+
+  const handleCollapsedChange = useCallback((val: boolean) => {
+    setSidebarCollapsed(val)
+    localStorage.setItem('cms_sidebar_collapsed', val ? 'true' : 'false')
+  }, [])
+
+  const mainMargin = sidebarCollapsed
+    ? 'var(--sidebar-collapsed-width)'
+    : 'var(--sidebar-width)'
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
-      <Sidebar user={user} mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
+      <Sidebar
+        user={user}
+        mobileOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={handleCollapsedChange}
+      />
       {mobileNavOpen && (
         <button
           type="button"
@@ -31,9 +73,19 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
           onClick={() => setMobileNavOpen(false)}
         />
       )}
-      <Topbar user={user} onMenuClick={() => setMobileNavOpen(prev => !prev)} />
-      <main className="min-h-screen md:ml-[var(--sidebar-width)] pt-[var(--topbar-height)]">
-        <div className="p-3 sm:p-4 md:p-5">{children}</div>
+      <Topbar
+        user={user}
+        onMenuClick={() => setMobileNavOpen(prev => !prev)}
+        theme={theme}
+        onThemeToggle={handleThemeToggle}
+      />
+      <main
+        className="min-h-screen pt-[var(--topbar-height)] transition-[margin-left] duration-300"
+        style={{ marginLeft: `max(0px, ${mainMargin})` }}
+      >
+        <div className="p-3 sm:p-4 md:p-5 md:ml-0" style={{ marginLeft: 0 }}>
+          {children}
+        </div>
       </main>
     </div>
   )

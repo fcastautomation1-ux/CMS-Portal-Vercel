@@ -21,6 +21,7 @@ export interface SessionUser {
   teamMembers: string[]
   managerId: string | null
   driveAccessLevel: DriveAccessLevel
+  themePreference?: 'light' | 'dark' | null
 }
 
 export interface ModuleAccess {

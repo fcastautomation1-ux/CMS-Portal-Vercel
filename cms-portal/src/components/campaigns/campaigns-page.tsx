@@ -224,7 +224,14 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
                 )}
               </div>
               <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[860px]">
+              <table className="w-full text-sm min-w-[860px]" style={{ tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '35%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: canEdit ? '32%' : '37%' }} />
+                  <col style={{ width: '10%' }} />
+                  {canEdit && <col style={{ width: '10%' }} />}
+                </colgroup>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                     <th className="text-left px-5 py-2.5 font-semibold text-xs uppercase tracking-wider" style={{ color: 'var(--slate-400)' }}>Campaign Name</th>
@@ -243,8 +250,8 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
                         <td className="px-5 py-3">
                           <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}>{formatWf(c.workflow)}</span>
                         </td>
-                        <td className="px-5 py-3 text-xs" style={{ color: 'var(--slate-500)', maxWidth: 220 }}>
-                          <span className="truncate block">{c.removal_conditions || '—'}</span>
+                        <td className="px-5 py-3 text-xs overflow-hidden" style={{ color: 'var(--slate-500)' }}>
+                          <span className="truncate block max-w-full">{c.removal_conditions || '—'}</span>
                         </td>
                         <td className="px-5 py-3 text-center">
                           <RunStopToggle
