@@ -114,9 +114,11 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
 
 interface SidebarProps {
   user: SessionUser
+  mobileOpen?: boolean
+  onClose?: () => void
 }
 
-export function Sidebar({ user }: SidebarProps) {
+export function Sidebar({ user, mobileOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -138,7 +140,11 @@ export function Sidebar({ user }: SidebarProps) {
 
   return (
     <aside
-      className="glass-sidebar fixed left-0 top-0 h-screen flex flex-col z-30"
+      className={cn(
+        'glass-sidebar fixed left-0 top-0 h-screen flex flex-col z-40 transition-transform duration-200',
+        'md:translate-x-0',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      )}
       style={{ width: 'var(--sidebar-width)' }}
     >
       {/* ── Logo ─────────────────────────────────────────────── */}
@@ -179,6 +185,7 @@ export function Sidebar({ user }: SidebarProps) {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  onClick={onClose}
                   className={cn(
                     'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group',
                     isActive

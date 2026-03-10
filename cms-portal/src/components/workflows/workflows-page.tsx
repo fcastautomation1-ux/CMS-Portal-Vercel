@@ -48,7 +48,8 @@ export function WorkflowsPage({ workflows: initial, user }: Props) {
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                 {['Workflow', 'Description', 'Schedule', 'Last Run', 'Enabled'].map(h => (
@@ -87,6 +88,7 @@ export function WorkflowsPage({ workflows: initial, user }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

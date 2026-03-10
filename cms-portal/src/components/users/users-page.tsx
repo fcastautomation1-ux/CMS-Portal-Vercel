@@ -110,7 +110,8 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
               {['User', 'Email', 'Role', 'Department(s)', 'Last Login', 'Actions'].map(h => (
@@ -156,6 +157,7 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {modalOpen && (

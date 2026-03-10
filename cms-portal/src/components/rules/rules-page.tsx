@@ -40,7 +40,8 @@ export function RulesPage({ rules: initial, user }: Props) {
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                 {['ID', 'Name', 'Description', 'Actions'].map(h => (
@@ -68,6 +69,7 @@ export function RulesPage({ rules: initial, user }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
