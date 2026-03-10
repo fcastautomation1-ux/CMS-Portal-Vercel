@@ -284,6 +284,32 @@ export interface CreateTodoInput {
   multi_assignment?: MultiAssignment
 }
 
+// ─── Workflows ───────────────────────────────────────────────
+export interface Workflow {
+  workflow_name: string
+  enabled: boolean
+  schedule: string | null
+  last_run: string | null
+  description: string | null
+}
+
+// ─── Rules (Removal Condition Definitions) ───────────────────
+export interface Rule {
+  id: string
+  name: string
+  description: string | null
+}
+
+// ─── Campaigns ───────────────────────────────────────────────
+export interface Campaign {
+  id?: string
+  customer_id: string
+  campaign_name: string
+  removal_conditions: string | null
+  workflow: string
+  enabled: boolean
+}
+
 // ─── Role helpers ────────────────────────────────────────────
 export const ROLE_LEVELS: Record<UserRole, number> = {
   Admin: 1,

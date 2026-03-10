@@ -27,7 +27,6 @@ interface NavItem {
   label: string
   href: string
   icon: React.ReactNode
-  allowedRoles?: string[]
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -39,11 +38,70 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Drive Manager', href: '/dashboard/drive', icon: <FolderOpen size={18} /> },
   { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={18} /> },
   { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={18} /> },
-  { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={18} />, allowedRoles: ['Admin', 'Super Manager', 'Manager'] },
+  { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={18} /> },
   { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={18} /> },
   { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={18} /> },
   { label: 'Packages', href: '/dashboard/packages', icon: <Package size={18} /> },
 ]
+
+/**
+ * Mirrors the frontend.html updateNavigationVisibility() logic.
+ * Determines which nav items each role can see.
+ */
+function isNavItemVisible(href: string, user: SessionUser): boolean {
+  const { role, moduleAccess: ma, allowedAccounts, allowedCampaigns, allowedDriveFolders, allowedLookerReports, teamMembers } = user
+  const isAdminOrSM = role === 'Admin' || role === 'Super Manager'
+  const isManager = role === 'Manager'
+
+  switch (href) {
+    case '/dashboard/accounts':
+      if (isAdminOrSM) return true
+      if (isManager) return ma?.googleAccount?.enabled === true
+      return allowedAccounts.length > 0
+
+    case '/dashboard/campaigns':
+      if (isAdminOrSM) return true
+      if (isManager) return ma?.googleAccount?.enabled === true
+      return allowedCampaigns.length > 0
+
+    case '/dashboard/users':
+      if (isAdminOrSM) return true
+      if (isManager) return ma?.users?.enabled === true
+      return false // Supervisor/User: never
+
+    case '/dashboard/workflows':
+    case '/dashboard/rules':
+      if (isAdminOrSM) return true
+      if (isManager) return ma?.googleAccount?.accessLevel === 'all'
+      return false // Supervisor/User: never
+
+    case '/dashboard/drive':
+      if (isAdminOrSM || isManager) return true
+      return allowedDriveFolders.length > 0
+
+    case '/dashboard/looker':
+      if (isAdminOrSM) return true
+      if (isManager) return ma?.looker?.enabled === true
+      return allowedLookerReports.length > 0
+
+    case '/dashboard/tasks':
+      return true // always visible
+
+    case '/dashboard/departments':
+    case '/dashboard/packages':
+      return isAdminOrSM || isManager // Supervisor/User: never
+
+    case '/dashboard/team':
+      if (isAdminOrSM) return true
+      return teamMembers.length > 0
+
+    case '/dashboard/analytics':
+      return isAdminOrSM // Admin and Super Manager only
+
+    default:
+      return true
+  }
+}
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
   Admin: 'bg-purple-100 text-purple-700',
@@ -97,7 +155,7 @@ export function Sidebar({ user }: SidebarProps) {
         <ul className="flex flex-col gap-0.5">
           {NAV_ITEMS.map(item => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
-            if (item.allowedRoles && !item.allowedRoles.includes(user.role)) return null
+            if (!isNavItemVisible(item.href, user)) return null
 
             return (
               <li key={item.href}>
