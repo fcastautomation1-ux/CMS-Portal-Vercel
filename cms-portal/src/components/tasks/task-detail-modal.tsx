@@ -3,21 +3,17 @@
 import { useState, useTransition, useEffect } from 'react'
 import {
   X,
-  Clock,
   MessageCircle,
   Paperclip,
-  Share2,
   Edit3,
   Trash2,
   Archive,
-  ChevronDown,
   Loader2,
   UserPlus,
   UserMinus,
   CheckCircle2,
   XCircle,
   PlayCircle,
-  AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { formatDistanceToNow } from 'date-fns'
@@ -67,21 +63,24 @@ export function TaskDetailModal({
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState('')
 
-  const loadDetails = async () => {
-    setLoading(true)
-    const res = await getTodoDetails(taskId)
-    setDetails(res)
-    setLoading(false)
-  }
-
-  useEffect(() => { loadDetails() }, [taskId])
+  useEffect(() => {
+    let cancelled = false
+    getTodoDetails(taskId).then((res) => {
+      if (!cancelled) {
+        setDetails(res)
+        setLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [taskId])
 
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>) => {
     setActionError('')
     startTransition(async () => {
       const res = await fn()
       if (res.success) {
-        loadDetails()
+        const updated = await getTodoDetails(taskId)
+        setDetails(updated)
         onRefresh()
       } else {
         setActionError(res.error ?? 'Action failed')
@@ -558,8 +557,8 @@ export function TaskDetailModal({
 
 function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-      <div className="rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4" onClick={onClose}>
+      <div className="rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }} onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
