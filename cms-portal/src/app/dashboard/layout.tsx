@@ -12,7 +12,7 @@ export default async function DashboardLayout({
   if (!user) redirect('/login')
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <Sidebar user={user} />
       <Topbar user={user} />
       <main
@@ -22,7 +22,7 @@ export default async function DashboardLayout({
           paddingTop: 'var(--topbar-height)',
         }}
       >
-        <div className="p-6">{children}</div>
+        <div className="p-5">{children}</div>
       </main>
     </div>
   )

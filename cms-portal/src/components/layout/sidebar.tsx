@@ -137,30 +137,30 @@ export function Sidebar({ user }: SidebarProps) {
       {/* ── Logo ─────────────────────────────────────────────── */}
       <div
         className="flex items-center gap-3 px-5 h-16 shrink-0"
-        style={{ borderBottom: '1px solid rgba(226,232,240,0.5)' }}
+        style={{ borderBottom: '1px solid var(--color-border)' }}
       >
         <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
-          style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--blue-700))' }}
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: 'var(--blue-600)' }}
         >
-          <ShieldCheck size={16} className="text-white" />
+          <ShieldCheck size={15} className="text-white" />
         </div>
         <div className="min-w-0">
           <div
-            className="font-bold text-base leading-tight truncate"
-            style={{ color: 'var(--slate-800)', letterSpacing: '-0.02em' }}
+            className="font-bold text-sm leading-tight truncate"
+            style={{ color: 'var(--slate-800)', letterSpacing: '-0.01em' }}
           >
             CMS Portal
           </div>
-          <div className="text-xs font-medium" style={{ color: 'var(--slate-400)' }}>Operations Hub</div>
+          <div className="text-[11px] font-medium" style={{ color: 'var(--slate-400)' }}>Operations Hub</div>
         </div>
       </div>
 
       {/* ── Navigation ───────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
-        <div className="mb-2 px-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'var(--slate-400)' }}>
-            Menu
+      <nav className="flex-1 overflow-y-auto py-3 px-3">
+        <div className="mb-1.5 px-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.10em]" style={{ color: 'var(--slate-400)' }}>
+            Main
           </span>
         </div>
         <ul className="flex flex-col gap-0.5">
@@ -173,31 +173,25 @@ export function Sidebar({ user }: SidebarProps) {
                 <Link
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group',
+                    'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group',
                     isActive
                       ? 'text-white'
-                      : 'text-slate-600 hover:text-slate-900'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   )}
                   style={
                     isActive
                       ? {
-                          background: 'linear-gradient(135deg, var(--blue-600), var(--blue-700))',
+                          background: 'var(--blue-600)',
                           boxShadow: 'var(--nav-active-shadow)',
                         }
                       : {}
                   }
-                  onMouseEnter={e => {
-                    if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.65)'
-                  }}
-                  onMouseLeave={e => {
-                    if (!isActive) e.currentTarget.style.background = ''
-                  }}
                 >
-                  <span className={cn('shrink-0', isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600')}>
+                  <span className={cn('shrink-0', isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-500')}>
                     {item.icon}
                   </span>
                   <span className="truncate flex-1">{item.label}</span>
-                  {isActive && <ChevronRight size={14} className="shrink-0 opacity-70" />}
+                  {isActive && <ChevronRight size={13} className="shrink-0 opacity-60" />}
                 </Link>
               </li>
             )
@@ -208,29 +202,29 @@ export function Sidebar({ user }: SidebarProps) {
       {/* ── User Profile ─────────────────────────────────────── */}
       <div
         className="px-3 py-4 shrink-0"
-        style={{ borderTop: '1px solid rgba(226,232,240,0.5)' }}
+        style={{ borderTop: '1px solid var(--color-border)' }}
       >
         <div
-          className="flex items-center gap-3 p-2.5 rounded-xl mb-2"
-          style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.7)' }}
+          className="flex items-center gap-3 p-2.5 rounded-lg mb-2"
+          style={{ background: 'var(--slate-50)', border: '1px solid var(--color-border)' }}
         >
           {/* Avatar */}
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 text-white"
-            style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--blue-700))' }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 text-white"
+            style={{ background: 'var(--blue-600)' }}
           >
             {user.username.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
             <div
               className="text-sm font-semibold truncate"
-              style={{ color: 'var(--slate-900)' }}
+              style={{ color: 'var(--slate-800)' }}
             >
               {user.username}
             </div>
             <span
               className={cn(
-                'text-xs font-medium px-1.5 py-0.5 rounded-full inline-block',
+                'text-xs font-medium px-1.5 py-0.5 rounded inline-block',
                 ROLE_BADGE_COLORS[user.role] ?? 'bg-slate-100 text-slate-600'
               )}
             >
@@ -244,12 +238,10 @@ export function Sidebar({ user }: SidebarProps) {
           type="button"
           onClick={handleLogout}
           disabled={isPending}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 hover:bg-red-50 hover:text-red-600"
           style={{ color: 'var(--slate-500)' }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(254,242,242,0.8)'; e.currentTarget.style.color = '#EF4444'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--slate-500)'; }}
         >
-          <LogOut size={16} />
+          <LogOut size={15} />
           {isPending ? 'Signing out…' : 'Sign out'}
         </button>
       </div>
