@@ -6,10 +6,11 @@ import { redirect } from 'next/navigation'
 export const metadata = { title: 'Accounts · CMS Portal' }
 
 export default async function AccountsPage() {
-  const user = await getSession()
+  const [user, accounts] = await Promise.all([
+    getSession(),
+    getAccounts().catch(() => []),
+  ])
   if (!user) redirect('/login')
-
-  const accounts = await getAccounts()
 
   return <AccountsTable accounts={accounts} user={user} />
 }

@@ -4,13 +4,12 @@ import { getCampaigns, getAccountsForCampaigns } from './actions'
 import { CampaignsPage } from '@/components/campaigns/campaigns-page'
 
 export default async function Page() {
-  const user = await getSession()
-  if (!user) redirect('/login')
-
-  const [campaigns, accounts] = await Promise.all([
+  const [user, campaigns, accounts] = await Promise.all([
+    getSession(),
     getCampaigns().catch(() => []),
     getAccountsForCampaigns().catch(() => []),
   ])
+  if (!user) redirect('/login')
 
   return <CampaignsPage campaigns={campaigns} accounts={accounts} user={user} />
 }

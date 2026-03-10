@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useCallback, useEffect } from 'react'
+import { useState, useTransition, useCallback } from 'react'
 import {
   Plus,
   RefreshCw,
@@ -8,15 +8,12 @@ import {
   LayoutGrid,
   Calendar,
   Search,
-  SortAsc,
-  Filter,
   ChevronDown,
   Download,
   CheckSquare,
   Square,
   Trash2,
   Archive,
-  Share2,
   Loader2,
   Inbox,
 } from 'lucide-react'
@@ -30,7 +27,6 @@ import {
   getTodoStats,
   deleteTodoAction,
   archiveTodoAction,
-  updateTaskStatusAction,
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
@@ -74,7 +70,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
   const [tasks, setTasks] = useState<Todo[]>(initialTasks)
   const [stats, setStats] = useState<TodoStats>(initialStats)
   const [loading, setLoading] = useState(false)
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
 
   // UI state
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -89,8 +85,8 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
-  const [shareTask, setShareTask] = useState<Todo | null>(null)
-  const [declineTask, setDeclineTask] = useState<Todo | null>(null)
+  const [, setShareTask] = useState<Todo | null>(null)
+  const [, setDeclineTask] = useState<Todo | null>(null)
 
   // Bulk select
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -106,7 +102,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
     setStats(fetchedStats)
     setLoading(false)
     setSelected(new Set())
-  }, [])
+  }, [initialStats])
 
   // ── Filter + sort pipeline ──
   const filteredTasks = (() => {
@@ -207,7 +203,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }
@@ -315,7 +311,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
                 {selected.size} selected <ChevronDown size={14} />
               </button>
               {showBulkMenu && (
-                <div className="absolute right-0 top-10 bg-white border border-slate-200 rounded-xl shadow-xl z-20 min-w-[150px] py-1">
+                <div className="absolute right-0 top-10 bg-white border border-slate-200 rounded-xl shadow-xl z-20 min-w-40 py-1">
                   <button onClick={bulkArchive} className="w-full px-4 py-2.5 text-sm text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                     <Archive size={14}/> Archive All
                   </button>
@@ -633,7 +629,7 @@ function CalendarView({
             <div
               key={i}
               className={cn(
-                'bg-white min-h-[80px] p-1.5',
+                'bg-white min-h-20 p-1.5',
                 !day && 'bg-slate-50',
                 isToday && 'bg-blue-50 ring-1 ring-inset ring-blue-300'
               )}

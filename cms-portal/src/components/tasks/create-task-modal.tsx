@@ -319,7 +319,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                   ref={goalRef}
                   contentEditable
                   suppressContentEditableWarning
-                  className="min-h-[80px] px-3 py-2.5 text-sm text-slate-700 outline-none bg-white"
+                  className="min-h-20 px-3 py-2.5 text-sm text-slate-700 outline-none bg-white"
                   data-placeholder="Write your goals here..."
                   onInput={() => {}}
                 />

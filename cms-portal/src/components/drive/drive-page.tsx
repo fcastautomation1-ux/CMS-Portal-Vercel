@@ -10,7 +10,7 @@ const ACCESS_COLORS: Record<string, string> = {
   full: '#22C55E', upload: '#3B82F6', view: '#F59E0B', none: '#94A3B8',
 }
 
-export function DrivePage({ config, driveAccess, user }: Props) {
+export function DrivePage({ config, driveAccess }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">

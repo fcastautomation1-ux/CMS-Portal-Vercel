@@ -12,10 +12,8 @@ export const metadata = {
 }
 
 export default async function TasksPage() {
-  const user = await getSession()
-  if (!user) redirect('/login')
-
-  const [tasks, stats] = await Promise.all([
+  const [user, tasks, stats] = await Promise.all([
+    getSession(),
     getTodos().catch(() => []),
     getTodoStats().catch(() => ({
       total: 0,
@@ -27,6 +25,7 @@ export default async function TasksPage() {
       shared: 0,
     })),
   ])
+  if (!user) redirect('/login')
 
   return (
     <div className="flex flex-col h-full">

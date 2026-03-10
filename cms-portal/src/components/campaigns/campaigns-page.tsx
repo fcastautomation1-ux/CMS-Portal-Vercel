@@ -12,7 +12,7 @@ function formatWf(w: string) {
 
 interface Props { campaigns: Campaign[]; accounts: Account[]; user: SessionUser }
 
-export function CampaignsPage({ campaigns: initial, accounts, user }: Props) {
+export function CampaignsPage({ campaigns: initial, user }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const [campaigns, setCampaigns] = useState(initial)
   const [search, setSearch] = useState('')
@@ -67,7 +67,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user }: Props) {
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[240px]">
+          <div className="relative flex-1 min-w-60">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text" placeholder="Search campaigns..."

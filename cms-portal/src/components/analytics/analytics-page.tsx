@@ -13,7 +13,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: '#94A3B8', medium: '#3B82F6', high: '#F59E0B', urgent: '#EF4444',
 }
 
-export function AnalyticsPage({ analytics, user }: Props) {
+export function AnalyticsPage({ analytics }: Props) {
   const { totalTasks, assignedToMe, completed, inProgress, pending, overdue, dueToday, statusBreakdown, priorityBreakdown, departmentBreakdown, topUsers } = analytics
 
   const kpis = [

@@ -239,11 +239,11 @@ export default function LoginPage() {
         >
           {/* Background glow blobs */}
           <div
-            className="absolute top-[-80px] right-[-80px] w-80 h-80 rounded-full"
+            className="absolute -top-20 -right-20 w-80 h-80 rounded-full"
             style={{ background: 'radial-gradient(circle, rgba(196,181,253,0.3), transparent)' }}
           />
           <div
-            className="absolute bottom-[-60px] left-[-60px] w-64 h-64 rounded-full"
+            className="absolute -bottom-[60px] -left-[60px] w-64 h-64 rounded-full"
             style={{ background: 'radial-gradient(circle, rgba(129,140,248,0.25), transparent)' }}
           />
           <CmsIllustration />

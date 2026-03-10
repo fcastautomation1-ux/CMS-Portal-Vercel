@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition } from 'react'
-import { Search, Plus, Trash2, Pencil, Users, X, Shield, Mail } from 'lucide-react'
+import { Search, Plus, Trash2, Pencil, X } from 'lucide-react'
 import { createUser, updateUser, deleteUser } from '@/app/dashboard/users/actions'
 import type { User, SessionUser, UserRole } from '@/types'
 import { cn } from '@/lib/cn'
@@ -70,7 +70,7 @@ export function UsersPage({ users: initial, departments, currentUser }: Props) {
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[240px]">
+          <div className="relative flex-1 min-w-60">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
           </div>

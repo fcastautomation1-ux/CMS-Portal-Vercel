@@ -4,12 +4,12 @@ import { getPackages } from './actions'
 import { PackagesPage } from '@/components/packages/packages-page'
 
 export default async function Page() {
-  const user = await getSession()
+  const [user, packages] = await Promise.all([
+    getSession(),
+    getPackages().catch(() => []),
+  ])
   if (!user) redirect('/login')
-  // Packages: Admin, Super Manager, Manager only
   if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) redirect('/dashboard/tasks')
-
-  const packages = await getPackages().catch(() => [])
 
   return <PackagesPage packages={packages} user={user} />
 }

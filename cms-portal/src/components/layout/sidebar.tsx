@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useTransition } from 'react'
 import { logoutAction } from '@/app/login/actions'
 import type { SessionUser } from '@/types'
 import { cn } from '@/lib/cn'
@@ -117,6 +118,16 @@ interface SidebarProps {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const handleLogout = () => {
+    startTransition(async () => {
+      await logoutAction()
+      router.push('/login')
+      router.refresh()
+    })
+  }
 
   return (
     <aside
@@ -229,18 +240,18 @@ export function Sidebar({ user }: SidebarProps) {
         </div>
 
         {/* Logout */}
-        <form action={logoutAction}>
-          <button
-            type="submit"
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all"
-            style={{ color: 'var(--slate-500)' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(254,242,242,0.8)'; e.currentTarget.style.color = '#EF4444'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--slate-500)'; }}
-          >
-            <LogOut size={16} />
-            Sign out
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={isPending}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50"
+          style={{ color: 'var(--slate-500)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(254,242,242,0.8)'; e.currentTarget.style.color = '#EF4444'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--slate-500)'; }}
+        >
+          <LogOut size={16} />
+          {isPending ? 'Signing out…' : 'Sign out'}
+        </button>
       </div>
     </aside>
   )

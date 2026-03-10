@@ -4,10 +4,11 @@ import { getTeamMembers } from './actions'
 import { TeamPage } from '@/components/team/team-page'
 
 export default async function Page() {
-  const user = await getSession()
+  const [user, members] = await Promise.all([
+    getSession(),
+    getTeamMembers().catch(() => []),
+  ])
   if (!user) redirect('/login')
-
-  const members = await getTeamMembers().catch(() => [])
 
   return <TeamPage members={members} user={user} />
 }

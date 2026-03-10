@@ -4,13 +4,12 @@ import { getDriveConfig, getUserDriveAccess } from './actions'
 import { DrivePage } from '@/components/drive/drive-page'
 
 export default async function Page() {
-  const user = await getSession()
-  if (!user) redirect('/login')
-
-  const [config, access] = await Promise.all([
+  const [user, config, access] = await Promise.all([
+    getSession(),
     getDriveConfig(),
     getUserDriveAccess().catch(() => []),
   ])
+  if (!user) redirect('/login')
 
   return <DrivePage config={config} driveAccess={access} user={user} />
 }

@@ -148,7 +148,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       {/* ── Filters ───────────────────────────────────────── */}
       <div className="card p-4 flex flex-wrap gap-3 items-center">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-50">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--slate-400)' }} />
           <input
             type="text"

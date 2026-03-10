@@ -58,7 +58,7 @@ export function PackagesPage({ packages: initial, user }: Props) {
                       </div>
                       <div>
                         <span className="font-medium" style={{ color: 'var(--slate-900)' }}>{pkg.name}</span>
-                        {pkg.description && <p className="text-xs mt-0.5 truncate max-w-[200px]" style={{ color: 'var(--slate-400)' }}>{pkg.description}</p>}
+                        {pkg.description && <p className="text-xs mt-0.5 truncate max-w-50" style={{ color: 'var(--slate-400)' }}>{pkg.description}</p>}
                       </div>
                     </div>
                   </td>

@@ -7,7 +7,7 @@ import type { TeamMember } from '@/app/dashboard/team/actions'
 
 interface Props { members: TeamMember[]; user: SessionUser }
 
-export function TeamPage({ members, user }: Props) {
+export function TeamPage({ members }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
 

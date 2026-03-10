@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, Plus, Pencil, Trash2, X, Hash } from 'lucide-react'
+import { Settings, Plus, Pencil, Trash2, X } from 'lucide-react'
 import { saveRule, deleteRule } from '@/app/dashboard/rules/actions'
 import type { Rule, SessionUser } from '@/types'
 

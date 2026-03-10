@@ -10,14 +10,13 @@ import {
   DueDateChip,
 } from './task-badges'
 import { cn } from '@/lib/cn'
-import { MoreVertical, CheckCircle, Edit3, Trash2, Archive, Share2, Eye } from 'lucide-react'
+import { MoreVertical, Edit3, Trash2, Archive, Share2, Eye } from 'lucide-react'
 import {
   toggleTodoCompleteAction,
   startTaskAction,
   deleteTodoAction,
   archiveTodoAction,
   approveTodoAction,
-  declineTodoAction,
 } from '@/app/dashboard/tasks/actions'
 
 interface TaskCardProps {
@@ -46,7 +45,6 @@ export function TaskCard({
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
-  const isManager = ['Admin', 'Super Manager', 'Manager'].includes(currentUsername) // simplified — actions.ts does real check
   const isPendingApproval = task.approval_status === 'pending_approval'
   const isCompleted = task.completed
   const showStartBtn = isAssignee && task.task_status === 'backlog'
@@ -140,7 +138,7 @@ export function TaskCard({
             </button>
             {menuOpen && (
               <div
-                className="absolute right-0 top-8 rounded-xl z-50 min-w-[160px] py-1 animate-fade-in"
+                className="absolute right-0 top-8 rounded-xl z-50 min-w-40 py-1 animate-fade-in"
                 style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.7)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}
                 onMouseLeave={() => setMenuOpen(false)}
               >

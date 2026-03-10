@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { GitBranch, ToggleLeft, ToggleRight, Clock, Activity } from 'lucide-react'
 import { toggleWorkflow } from '@/app/dashboard/workflows/actions'
 import type { Workflow, SessionUser } from '@/types'

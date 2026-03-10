@@ -4,16 +4,16 @@ import { getAnalytics } from './actions'
 import { AnalyticsPage } from '@/components/analytics/analytics-page'
 
 export default async function Page() {
-  const user = await getSession()
+  const [user, analytics] = await Promise.all([
+    getSession(),
+    getAnalytics().catch(() => ({
+      totalTasks: 0, assignedToMe: 0, completed: 0, inProgress: 0, pending: 0,
+      overdue: 0, dueToday: 0, statusBreakdown: {}, priorityBreakdown: {},
+      departmentBreakdown: {}, topUsers: [],
+    })),
+  ])
   if (!user) redirect('/login')
-  // Analytics is Admin and Super Manager only
   if (user.role !== 'Admin' && user.role !== 'Super Manager') redirect('/dashboard/tasks')
-
-  const analytics = await getAnalytics().catch(() => ({
-    totalTasks: 0, assignedToMe: 0, completed: 0, inProgress: 0, pending: 0,
-    overdue: 0, dueToday: 0, statusBreakdown: {}, priorityBreakdown: {},
-    departmentBreakdown: {}, topUsers: [],
-  }))
 
   return <AnalyticsPage analytics={analytics} user={user} />
 }

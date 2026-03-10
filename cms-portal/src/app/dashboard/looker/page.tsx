@@ -4,10 +4,11 @@ import { getLookerReports } from './actions'
 import { LookerPage } from '@/components/looker/looker-page'
 
 export default async function Page() {
-  const user = await getSession()
+  const [user, reports] = await Promise.all([
+    getSession(),
+    getLookerReports().catch(() => []),
+  ])
   if (!user) redirect('/login')
-
-  const reports = await getLookerReports().catch(() => [])
 
   return <LookerPage reports={reports} user={user} />
 }
