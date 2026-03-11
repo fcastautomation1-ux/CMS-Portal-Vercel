@@ -106,10 +106,11 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   // Request desktop notification permission once on mount
   useEffect(() => { requestDesktopPermission() }, [])
 
-  const refreshUnreadCount = useCallback(async () => {
+  const refreshUnreadCount = useCallback(async (fallbackUnread?: number) => {
     const count = await getUnreadCount()
-    setUnreadCount(count)
-    prevUnreadRef.current = count
+    const resolved = typeof count === 'number' && count >= 0 ? count : (fallbackUnread ?? 0)
+    setUnreadCount(resolved)
+    prevUnreadRef.current = resolved
   }, [])
 
   const refreshNotifications = useCallback(async (withLoading = false) => {
@@ -118,7 +119,7 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
       const data = await getNotifications()
       setNotifications(data)
       data.forEach(n => seenIdsRef.current.add(n.id))
-      await refreshUnreadCount()
+      await refreshUnreadCount(data.filter(n => !n.is_read).length)
       return data
     } finally {
       if (withLoading) setLoading(false)
@@ -141,8 +142,11 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
       ])
       if (cancelled) return
       data.forEach(n => seenIdsRef.current.add(n.id))
-      setUnreadCount(count)
-      prevUnreadRef.current = count
+      const listUnread = data.filter(n => !n.is_read).length
+      const resolved = typeof count === 'number' && count >= 0 ? count : listUnread
+      setUnreadCount(resolved)
+      prevUnreadRef.current = resolved
+      setNotifications(data)
     })()
     return () => { cancelled = true }
   }, [])
@@ -169,8 +173,10 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
       fireDesktopNotification(notif)
     }
     const count = await getUnreadCount()
-    setUnreadCount(count)
-    prevUnreadRef.current = count
+    const listUnread = data.filter(n => !n.is_read).length
+    const resolved = typeof count === 'number' && count >= 0 ? count : listUnread
+    setUnreadCount(resolved)
+    prevUnreadRef.current = resolved
     if (open) setNotifications(data)
   }, [open])
 
@@ -268,14 +274,14 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {unreadCount > 0 && (
+            {(unreadCount > 0 || notifications.some(n => !n.is_read)) && (
               <button
                 onClick={handleMarkAllRead}
                 className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                 style={{ color: '#3B82F6', background: 'rgba(59,130,246,0.08)' }}
                 title="Mark all as read"
               >
-                <CheckCheck size={13} /> All read
+                <CheckCheck size={13} /> Mark all read
               </button>
             )}
             <button

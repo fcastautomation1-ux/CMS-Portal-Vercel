@@ -180,12 +180,16 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
   }
 
   const supabase = createServerClient()
-  const [accountsRes, lookerRes, managersRes, usersRes] = await Promise.all([
+  const [accountsRes, lookerResBySort, managersRes, usersRes] = await Promise.all([
     supabase.from('accounts').select('customer_id,account_name').order('customer_id'),
     supabase.from('looker_reports').select('id,title,name').order('sort_order'),
     supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
     supabase.from('users').select('username,role,department').order('username'),
   ])
+
+  const lookerRes = lookerResBySort.error
+    ? await supabase.from('looker_reports').select('id,title,name').order('updated_at', { ascending: false })
+    : lookerResBySort
 
   const lookerReports = ((lookerRes.data ?? []) as Array<{ id: string; title?: string | null; name?: string | null }>)
     .map(r => ({ id: r.id, title: r.title ?? r.name ?? 'Untitled Report' }))

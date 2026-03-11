@@ -14,7 +14,6 @@ export async function getNotifications(): Promise<Notification[]> {
     .select('*')
     .eq('user_id', user.username)
     .order('created_at', { ascending: false })
-    .limit(30)
 
   return (data as unknown as Notification[]) ?? []
 }
