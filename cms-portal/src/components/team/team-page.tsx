@@ -61,7 +61,7 @@ export function TeamPage({ members }: Props) {
       {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[180px]">
+          <div className="relative flex-1 min-w-45">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
             <input
               type="text"
@@ -75,7 +75,7 @@ export function TeamPage({ members }: Props) {
           <select
             value={deptFilter}
             onChange={e => setDeptFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-[140px]"
+            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-35"
             style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
           >
             <option value="">All Departments</option>
@@ -84,7 +84,7 @@ export function TeamPage({ members }: Props) {
           <select
             value={roleFilter}
             onChange={e => setRoleFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-[130px]"
+            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-32"
             style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
           >
             <option value="">All Roles</option>
@@ -116,10 +116,17 @@ export function TeamPage({ members }: Props) {
                 {/* Top accent band */}
                 <div className="h-16 relative" style={{ background: gradient }}>
                   <div
-                    className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full flex items-center justify-center text-base font-bold text-white shadow-lg ring-2 ring-white"
+                    className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full overflow-hidden shadow-lg ring-2 ring-white shrink-0"
                     style={{ background: gradient }}
                   >
-                    {getInitials(m.username)}
+                    {m.avatar_data ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-base font-bold text-white">
+                        {getInitials(m.username)}
+                      </div>
+                    )}
                   </div>
                   {/* Role badge top-right */}
                   <span
@@ -138,7 +145,7 @@ export function TeamPage({ members }: Props) {
                   {m.email && (
                     <div className="flex items-center justify-center gap-1 mt-0.5">
                       <Mail size={10} style={{ color: 'var(--color-text-muted)' }} />
-                      <p className="text-[11px] truncate max-w-[160px]" style={{ color: 'var(--color-text-muted)' }}>
+                      <p className="text-[11px] truncate max-w-40" style={{ color: 'var(--color-text-muted)' }}>
                         {m.email}
                       </p>
                     </div>

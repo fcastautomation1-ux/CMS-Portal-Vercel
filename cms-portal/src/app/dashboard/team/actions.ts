@@ -9,6 +9,7 @@ export interface TeamMember {
   department: string | null
   email: string
   last_login: string | null
+  avatar_data: string | null
   taskStats: { total: number; completed: number; pending: number; overdue: number }
 }
 
@@ -37,7 +38,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
   // Get user details
   const { data: usersData } = await supabase
     .from('users')
-    .select('username, role, department, email, last_login')
+    .select('username, role, department, email, last_login, avatar_data')
     .in('username', memberUsernames)
 
   if (!usersData) return []
@@ -50,7 +51,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
 
   const now = new Date().toISOString().split('T')[0]
 
-  return (usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null }>).map(u => {
+  return (usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null; avatar_data: string | null }>).map(u => {
     const myTasks = (todos ?? []).filter((t: Record<string, unknown>) => t.username === u.username || t.assigned_to === u.username)
     const completed = myTasks.filter((t: Record<string, unknown>) => t.completed).length
     const pending = myTasks.filter((t: Record<string, unknown>) => !t.completed).length

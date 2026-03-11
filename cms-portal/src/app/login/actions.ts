@@ -87,7 +87,7 @@ export async function loginAction(
     path: '/',
   })
 
-  redirect('/dashboard/accounts')
+  redirect('/dashboard')
 }
 
 export async function logoutAction() {

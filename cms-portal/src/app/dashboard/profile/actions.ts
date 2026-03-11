@@ -1,7 +1,8 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { createServerClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/auth'
+import { getSession, createSession, getCookieName } from '@/lib/auth'
 
 export async function saveThemePreference(
   theme: 'light' | 'dark'
@@ -13,8 +14,22 @@ export async function saveThemePreference(
   try {
     await supabase
       .from('users')
-      .update({ theme_preference: theme } as Record<string, unknown>)
+      .update({ theme_preference: theme })
       .eq('username', user.username)
+
+    // Refresh the JWT session cookie so the updated preference
+    // is available on the next page load without a full re-login.
+    const updatedUser = { ...user, themePreference: theme }
+    const token = await createSession(updatedUser)
+    const cookieStore = await cookies()
+    cookieStore.set(getCookieName(), token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24, // 24 hours
+      path: '/',
+    })
+
     return { success: true }
   } catch {
     return { success: false }

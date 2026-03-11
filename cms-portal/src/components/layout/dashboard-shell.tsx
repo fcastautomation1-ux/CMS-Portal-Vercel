@@ -14,9 +14,16 @@ interface DashboardShellProps {
 export function DashboardShell({ user, children }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [theme, setTheme] = useState<'light' | 'dark'>(
-    (user.themePreference ?? 'light') as 'light' | 'dark'
-  )
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    // Server-supplied preference from JWT takes priority; fall back to
+    // localStorage so navigations within a session don't flicker.
+    if (user.themePreference) return user.themePreference
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cms_theme') as 'light' | 'dark' | null
+      if (stored === 'light' || stored === 'dark') return stored
+    }
+    return 'light'
+  })
 
   // Apply theme class to <html>
   useEffect(() => {
@@ -43,6 +50,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
   const handleThemeToggle = useCallback(async () => {
     const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
+    localStorage.setItem('cms_theme', next)
     saveThemePreference(next).catch(() => {})
   }, [theme])
 

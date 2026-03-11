@@ -111,16 +111,36 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  // Fetch when opened
+  // Fetch unread count immediately on mount (live badge)
+  useEffect(() => {
+    let cancelled = false
+    getNotifications().then(data => {
+      if (cancelled) return
+      const unread = data.filter(n => !n.is_read)
+      unread.forEach(n => seenIdsRef.current.add(n.id))
+      setUnreadCount(unread.length)
+      prevUnreadRef.current = unread.length
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // Fetch full list when panel is opened
   useEffect(() => {
     if (!open) return
-    setLoading(true)
-    getNotifications().then(data => {
-      setNotifications(data)
-      setUnreadCount(data.filter(n => !n.is_read).length)
-      data.forEach(n => seenIdsRef.current.add(n.id))
-      setLoading(false)
-    })
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      try {
+        const data = await getNotifications()
+        if (cancelled) return
+        setNotifications(data)
+        setUnreadCount(data.filter(n => !n.is_read).length)
+        data.forEach(n => seenIdsRef.current.add(n.id))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, [open])
 
   // Poll every 30 s for new notifications
@@ -174,7 +194,7 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
         <Bell size={17} />
         {unreadCount > 0 && (
           <span
-            className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full text-[10px] font-bold text-white leading-none"
+            className="absolute top-1 right-1 min-w-4 h-4 px-1 flex items-center justify-center rounded-full text-[10px] font-bold text-white leading-none"
             style={{ background: '#EF4444' }}
           >
             {unreadCount > 99 ? '99+' : unreadCount}

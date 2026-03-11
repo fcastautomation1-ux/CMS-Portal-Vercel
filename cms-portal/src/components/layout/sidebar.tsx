@@ -107,14 +107,6 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
   }
 }
 
-const ROLE_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  Admin: { bg: 'var(--violet-100)', color: 'var(--violet-600)' },
-  'Super Manager': { bg: 'var(--blue-100)', color: 'var(--blue-700)' },
-  Manager: { bg: 'var(--teal-100)', color: 'var(--teal-600)' },
-  Supervisor: { bg: 'var(--amber-100)', color: 'var(--amber-600)' },
-  User: { bg: 'var(--slate-100)', color: 'var(--slate-600)' },
-}
-
 interface SidebarProps {
   user: SessionUser
   mobileOpen?: boolean
@@ -134,8 +126,8 @@ export function Sidebar({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  useEffect(() => {
-    NAV_ITEMS.filter(item => isNavItemVisible(item.href, user)).forEach(item => {
+    useEffect(() => {
+      NAV_ITEMS.filter(item => isNavItemVisible(item.href, user)).forEach(item => {
       router.prefetch(item.href)
     })
   }, [router, user])
@@ -147,8 +139,6 @@ export function Sidebar({
       router.refresh()
     })
   }
-
-  const roleStyle = ROLE_BADGE_STYLES[user.role] ?? ROLE_BADGE_STYLES['User']
 
   return (
     <aside
@@ -184,7 +174,7 @@ export function Sidebar({
       <nav className="flex-1 overflow-y-auto py-3" style={{ padding: collapsed ? '12px 8px' : '12px' }}>
         {!collapsed && (
           <div className="mb-1.5 px-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.10em]" style={{ color: 'var(--color-text-muted)' }}>
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--color-text-muted)' }}>
               Main
             </span>
           </div>
@@ -244,36 +234,11 @@ export function Sidebar({
         </ul>
       </nav>
 
-      {/* ── User Profile + Collapse toggle ───────────────────── */}
+      {/* ── Collapse toggle + Logout ─────────────────────── */}
       <div
         className="shrink-0"
         style={{ borderTop: '1px solid var(--color-border)', padding: collapsed ? '12px 8px' : '12px' }}
       >
-        {!collapsed && (
-          <div
-            className="flex items-center gap-3 p-2.5 rounded-lg mb-2"
-            style={{ background: 'var(--slate-100)', border: '1px solid var(--color-border)' }}
-          >
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 text-white"
-              style={{ background: `linear-gradient(135deg, ${roleStyle.color}, ${roleStyle.color}dd)` }}
-            >
-              {user.username.charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold truncate" style={{ color: 'var(--color-text)' }}>
-                {user.username}
-              </div>
-              <span
-                className="text-xs font-medium px-1.5 py-0.5 rounded inline-block"
-                style={{ background: roleStyle.bg, color: roleStyle.color }}
-              >
-                {user.role}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* Collapse toggle (desktop only) */}
         <button
           type="button"

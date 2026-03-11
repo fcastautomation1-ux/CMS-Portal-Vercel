@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   LayoutGrid, TrendingUp, Users, CheckSquare, Building2,
   AlertCircle, Clock, CheckCircle2, Activity, ArrowUp,
@@ -10,7 +11,7 @@ import type { SessionUser } from '@/types'
 import type { OverviewStats, ManagerOverviewStats } from '@/app/dashboard/overview/actions'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell, CartesianGrid, RadialBarChart, RadialBar,
+  PieChart, Pie, Cell, CartesianGrid,
   type PieLabelRenderProps,
 } from 'recharts'
 
@@ -126,6 +127,7 @@ interface AdminOverviewProps {
 }
 
 function AdminOverview({ stats, user }: AdminOverviewProps) {
+  const router = useRouter()
   const [activeFilter, setActiveFilter] = useState<string | null>(null)
 
   const roleData = useMemo(() =>
@@ -336,6 +338,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 size={16} style={{ color: 'var(--blue-600)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Task Status</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click to filter</span>
           </div>
           {stats.tasks.total > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
@@ -351,25 +354,39 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                   label={renderCustomLabel}
                   animationBegin={0}
                   animationDuration={800}
+                  cursor="pointer"
+                  onClick={() => {
+                    setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')
+                  }}
                 >
                   {stats.tasksByStatus.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
+                    <Cell
+                      key={index}
+                      fill={entry.color}
+                      opacity={activeFilter === 'Total Tasks' || activeFilter === null ? 1 : 0.4}
+                    />
                   ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[200px] flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
               No task data
             </div>
           )}
           <div className="flex flex-wrap gap-3 mt-2 justify-center">
             {stats.tasksByStatus.map(s => (
-              <div key={s.label} className="flex items-center gap-1.5">
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')}
+                className="flex items-center gap-1.5 transition-opacity"
+                style={{ opacity: activeFilter === 'Total Tasks' || activeFilter === null ? 1 : 0.5 }}
+              >
                 <div className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{s.label} ({s.value})</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -379,19 +396,22 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           <div className="flex items-center gap-2 mb-4">
             <Activity size={16} style={{ color: 'var(--emerald-500)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Tasks by Department</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click bar to view</span>
           </div>
           {stats.tasksByDept.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={stats.tasksByDept} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={stats.tasksByDept} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}
+                onClick={() => router.push('/dashboard/tasks')}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" animationDuration={800} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(43,127,255,0.08)' }} />
+                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" animationDuration={800} cursor="pointer" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[200px] flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
               No department data
             </div>
           )}
@@ -406,32 +426,42 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           <div className="flex items-center gap-2 mb-4">
             <Users size={16} style={{ color: 'var(--violet-500)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>User Roles</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click to filter</span>
           </div>
           {roleData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <RadialBarChart
-                cx="50%" cy="50%"
-                innerRadius="20%" outerRadius="90%"
-                data={roleData.map((d, i) => ({ ...d, fill: ROLE_COLORS[i % ROLE_COLORS.length] }))}
-              >
-                <RadialBar dataKey="value" label={{ fill: 'var(--color-text)', fontSize: 11 }} animationDuration={800} />
-                <Tooltip content={<CustomTooltip />} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[180px] flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>—</div>
-          )}
-          <div className="flex flex-col gap-1.5 mt-2">
-            {roleData.map((r, i) => (
-              <div key={r.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
-                  <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{r.name}</span>
-                </div>
-                <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>{r.value}</span>
+            <>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart
+                  data={roleData.map((d, i) => ({ ...d, fill: ROLE_COLORS[i % ROLE_COLORS.length] }))}
+                  layout="vertical"
+                  margin={{ top: 0, right: 10, left: 0, bottom: 0 }}
+                  onClick={() => setActiveFilter(activeFilter === 'Team Members' ? null : 'Team Members')}
+                >
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(139,92,246,0.08)' }} />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Users" animationDuration={800} cursor="pointer">
+                    {roleData.map((_, i) => (
+                      <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1.5 mt-2">
+                {roleData.map((r, i) => (
+                  <div key={r.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
+                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{r.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>{r.value}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <div className="h-45 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>—</div>
+          )}
         </div>
 
         {/* Top Performers */}
