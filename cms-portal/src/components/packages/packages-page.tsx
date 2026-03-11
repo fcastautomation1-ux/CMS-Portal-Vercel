@@ -187,8 +187,8 @@ export function PackagesPage({ packages: initial, user }: Props) {
               const ids = assignments.filter(a => a.username === nextUser).map(a => a.package_id)
               setSelectedPackageIds(new Set(ids))
             }}
-            className="h-10 px-3 rounded-lg text-sm outline-none min-w-55"
-            style={{ border: '1px solid #CBD5E1', background: '#fff' }}
+            className="h-10 px-3 rounded-lg text-sm outline-none"
+            style={{ border: '1px solid #CBD5E1', background: '#fff', minWidth: 180 }}
           >
             <option value="">-- Select a user --</option>
             {users.map(u => <option key={u.username} value={u.username}>{u.username} ({u.role})</option>)}
@@ -203,8 +203,8 @@ export function PackagesPage({ packages: initial, user }: Props) {
             value={assignSearch}
             onChange={e => setAssignSearch(e.target.value)}
             placeholder="Search app names for assignment..."
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-65"
-            style={{ border: '1px solid #CBD5E1', background: '#fff' }}
+            className="h-10 px-3 rounded-lg text-sm outline-none flex-1"
+            style={{ border: '1px solid #CBD5E1', background: '#fff', minWidth: 160 }}
           />
           <span className="text-xs font-semibold" style={{ color: '#64748B' }}>
             {filteredAssignPackages.length} / {packages.length} app names • {selectedPackageIds.size} selected
@@ -215,13 +215,13 @@ export function PackagesPage({ packages: initial, user }: Props) {
           {filteredAssignPackages.length === 0 ? (
             <div className="text-sm p-3" style={{ color: '#94A3B8' }}>No app names match your search.</div>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {filteredAssignPackages.map(pkg => {
                 const checked = selectedPackageIds.has(pkg.id)
                 return (
-                  <label key={pkg.id} className="flex items-center gap-2 px-3 py-2 rounded-lg min-w-55" style={{ border: `2px solid ${checked ? '#2563EB' : '#E2E8F0'}`, background: '#fff' }}>
-                    <input type="checkbox" checked={checked} onChange={e => toggleAssignment(pkg.id, e.target.checked)} />
-                    <span className="text-sm font-semibold" style={{ color: '#1E293B' }}>{pkg.name}</span>
+                  <label key={pkg.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer" style={{ border: `2px solid ${checked ? '#2563EB' : '#E2E8F0'}`, background: checked ? 'rgba(37,99,235,0.04)' : '#fff', maxWidth: 220 }}>
+                    <input type="checkbox" checked={checked} onChange={e => toggleAssignment(pkg.id, e.target.checked)} className="shrink-0" />
+                    <span className="text-xs font-medium truncate" style={{ color: '#1E293B' }} title={pkg.name}>{pkg.name}</span>
                   </label>
                 )
               })}
@@ -282,11 +282,24 @@ export function PackagesPage({ packages: initial, user }: Props) {
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-270">
+          <table className="w-full table-fixed text-xs">
+            <colgroup>
+              {canEdit && <col style={{ width: 32 }} />}
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '6%' }} />
+            </colgroup>
             <thead>
-              <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+              <tr style={{ borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
                 {canEdit && (
-                  <th className="text-left px-3 py-3 w-10">
+                  <th className="px-2 py-2.5 w-8">
                     <button
                       type="button"
                       onClick={toggleAllRows}
@@ -294,13 +307,13 @@ export function PackagesPage({ packages: initial, user }: Props) {
                       title={allRowsSelected ? 'Deselect all' : 'Select all'}
                     >
                       {allRowsSelected
-                        ? <CheckSquare size={16} style={{ color: '#2563EB' }} />
-                        : <Square size={16} style={{ color: '#CBD5E1' }} />}
+                        ? <CheckSquare size={14} style={{ color: '#2563EB' }} />
+                        : <Square size={14} style={{ color: '#CBD5E1' }} />}
                     </button>
                   </th>
                 )}
-                {['APP/Games Name', 'Package Name', 'Playconsole', 'Marketer', 'Product Owner', 'Monitization', 'Admob', 'Department', 'Assigned Users', 'Actions'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: '#64748B' }}>{h}</th>
+                {['APP/Games Name', 'Package Name', 'Playconsole', 'Marketer', 'Prod. Owner', 'Monetization', 'Admob', 'Dept.', 'Assigned Users', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-2 py-2.5 font-semibold uppercase tracking-wide text-[10px] whitespace-nowrap overflow-hidden" style={{ color: '#64748B' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -312,40 +325,65 @@ export function PackagesPage({ packages: initial, user }: Props) {
                   const assignedUsers = assignedByPackage[pkg.id] || []
                   const rowSelected = selectedRows.has(pkg.id)
                   return (
-                    <tr key={pkg.id} style={{ borderBottom: '1px solid #F1F5F9', background: rowSelected ? 'rgba(37,99,235,0.04)' : undefined }}>
+                    <tr key={pkg.id} className="group" style={{ borderBottom: '1px solid #F1F5F9', background: rowSelected ? 'rgba(37,99,235,0.04)' : undefined }}>
                       {canEdit && (
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-2">
                           <button
                             type="button"
                             onClick={() => toggleRow(pkg.id)}
                             className="flex items-center justify-center"
                           >
                             {rowSelected
-                              ? <CheckSquare size={16} style={{ color: '#2563EB' }} />
-                              : <Square size={16} style={{ color: '#CBD5E1' }} />}
+                              ? <CheckSquare size={14} style={{ color: '#2563EB' }} />
+                              : <Square size={14} style={{ color: '#CBD5E1' }} />}
                           </button>
                         </td>
                       )}
-                      <td className="px-4 py-3 font-semibold" style={{ color: '#1E293B' }}>{pkg.app_name || '—'}</td>
-                      <td className="px-4 py-3 text-xs" style={{ color: '#64748B' }}>{pkg.name}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.playconsole_account || '—'}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.marketer || '—'}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.product_owner || '—'}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.monetization || '—'}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.admob || '—'}</td>
-                      <td className="px-4 py-3 text-xs">{pkg.department || '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-2">
+                        <span className="block truncate font-semibold" style={{ color: '#1E293B' }} title={pkg.app_name || ''}>
+                          {pkg.app_name || '—'}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" style={{ color: '#64748B' }} title={pkg.name}>
+                          {pkg.name}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.playconsole_account || ''}>
+                          {pkg.playconsole_account || '—'}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.marketer || ''}>{pkg.marketer || '—'}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.product_owner || ''}>{pkg.product_owner || '—'}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.monetization || ''}>{pkg.monetization || '—'}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.admob || ''}>{pkg.admob || '—'}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="block truncate" title={pkg.department || ''}>{pkg.department || '—'}</span>
+                      </td>
+                      <td className="px-2 py-2">
                         {assignedUsers.length === 0 ? (
-                          <span className="text-xs" style={{ color: '#94A3B8' }}>No users assigned</span>
+                          <span style={{ color: '#94A3B8' }}>—</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {assignedUsers.map(u => (
-                              <span key={`${pkg.id}-${u}`} className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#EEF2FF', color: '#6366F1' }}>{u}</span>
+                          <div className="flex flex-wrap gap-0.5">
+                            {assignedUsers.slice(0, 2).map(u => (
+                              <span key={`${pkg.id}-${u}`} className="px-1.5 py-0.5 rounded-full text-[10px] truncate max-w-[70px]" style={{ background: '#EEF2FF', color: '#6366F1' }} title={u}>{u}</span>
                             ))}
+                            {assignedUsers.length > 2 && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: '#F1F5F9', color: '#64748B' }} title={assignedUsers.slice(2).join(', ')}>+{assignedUsers.length - 2}</span>
+                            )}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-2">
                         <button
                           onClick={() => openEditModal(pkg)}
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold"
