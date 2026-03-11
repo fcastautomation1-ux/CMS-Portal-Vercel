@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, Users2, Mail, Building2 } from 'lucide-react'
+import { Search, Users2, Building2 } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
 
@@ -107,95 +107,94 @@ export function TeamPage({ members }: Props) {
             const completion = m.taskStats.total > 0
               ? Math.round((m.taskStats.completed / m.taskStats.total) * 100)
               : 0
+            const completionColor = completion >= 80 ? '#10B981' : completion >= 50 ? '#F59E0B' : '#EF4444'
 
             return (
               <div
                 key={m.username}
-                className="card p-0 overflow-hidden group hover:shadow-lg transition-shadow duration-300 animate-fade-in"
+                className="relative overflow-hidden rounded-[28px] p-4 group transition-all duration-300 animate-fade-in"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
+                  border: '1px solid var(--color-border)',
+                  boxShadow: '0 12px 30px rgba(15,23,42,0.08)',
+                }}
               >
-                {/* Top accent band */}
-                <div className="h-16 relative" style={{ background: gradient }}>
-                  <div
-                    className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full overflow-hidden shadow-lg ring-2 ring-white shrink-0"
-                    style={{ background: gradient }}
-                  >
-                    {m.avatar_data ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-base font-bold text-white">
-                        {getInitials(m.username)}
-                      </div>
-                    )}
+                <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full opacity-15" style={{ background: gradient }} />
+                <div className="absolute top-0 left-0 right-0 h-24" style={{ background: gradient }} />
+
+                <div className="relative flex items-start justify-between gap-3 mb-5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg ring-4 ring-white shrink-0"
+                      style={{ background: gradient }}
+                    >
+                      {m.avatar_data ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-base font-bold text-white">
+                          {getInitials(m.username)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 pt-1">
+                      <h3 className="text-sm font-bold truncate" style={{ color: 'white' }}>
+                        {m.username}
+                      </h3>
+                      <p className="text-[11px] truncate max-w-40" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                        {m.email}
+                      </p>
+                    </div>
                   </div>
-                  {/* Role badge top-right */}
                   <span
-                    className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                    style={{ background: 'rgba(255,255,255,0.25)', color: 'white', backdropFilter: 'blur(4px)' }}
+                    className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-full"
+                    style={{ background: 'rgba(255,255,255,0.22)', color: 'white', backdropFilter: 'blur(4px)' }}
                   >
                     {m.role}
                   </span>
                 </div>
 
-                {/* Body */}
-                <div className="pt-8 pb-4 px-4 text-center">
-                  <h3 className="text-sm font-bold truncate" style={{ color: 'var(--color-text)' }}>
-                    {m.username}
-                  </h3>
-                  {m.email && (
-                    <div className="flex items-center justify-center gap-1 mt-0.5">
-                      <Mail size={10} style={{ color: 'var(--color-text-muted)' }} />
-                      <p className="text-[11px] truncate max-w-40" style={{ color: 'var(--color-text-muted)' }}>
-                        {m.email}
-                      </p>
-                    </div>
-                  )}
-                  {m.department && (
-                    <div className="flex items-center justify-center gap-1 mt-0.5">
-                      <Building2 size={10} style={{ color: 'var(--color-text-muted)' }} />
-                      <p className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>{m.department}</p>
-                    </div>
-                  )}
-
-                  {/* Role pill */}
-                  <span
-                    className="inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: roleBadge.bg, color: roleBadge.color }}
-                  >
-                    {m.role}
-                  </span>
-
-                  {/* Progress bar */}
-                  <div className="mt-3 mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>Task completion</span>
-                      <span className="text-[10px] font-bold" style={{ color: completion >= 70 ? '#10B981' : completion >= 40 ? '#F59E0B' : '#EF4444' }}>
-                        {completion}%
+                <div className="relative rounded-[22px] p-4 mt-3" style={{ background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(226,232,240,0.9)' }}>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Building2 size={12} style={{ color: roleBadge.color }} />
+                      <span className="text-[11px] font-medium truncate" style={{ color: 'var(--color-text-muted)' }}>
+                        {m.department || 'No department'}
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                    <span
+                      className="text-[10px] font-semibold px-2 py-1 rounded-full"
+                      style={{ background: roleBadge.bg, color: roleBadge.color }}
+                    >
+                      {completion}% complete
+                    </span>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>Task health</span>
+                      <span className="text-[11px] font-bold" style={{ color: completionColor }}>
+                        {m.taskStats.completed}/{m.taskStats.total || 0}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
                       <div
                         className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${completion}%`,
-                          background: completion >= 70 ? '#10B981' : completion >= 40 ? '#F59E0B' : '#EF4444',
-                        }}
+                        style={{ width: `${completion}%`, background: completionColor }}
                       />
                     </div>
                   </div>
 
-                  {/* Stats row */}
-                  <div className="grid grid-cols-3 gap-1.5 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-                    <StatPill label="DONE"    value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.08)" />
-                    <StatPill label="OPEN"    value={m.taskStats.pending}   color="#2B7FFF" bg="rgba(43,127,255,0.08)" />
-                    <StatPill label="OVERDUE" value={m.taskStats.overdue}   color="#EF4444" bg="rgba(239,68,68,0.08)" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <StatPill label="Done" value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
+                    <StatPill label="Open" value={m.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
+                    <StatPill label="Late" value={m.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
                   </div>
 
-                  {m.last_login && (
-                    <p className="text-[10px] mt-3" style={{ color: 'var(--color-text-muted)' }}>
-                      Last seen {new Date(m.last_login).toLocaleDateString()}
-                    </p>
-                  )}
+                  <div className="mt-4 flex items-center justify-between gap-2 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                    <span>{m.last_login ? `Last seen ${new Date(m.last_login).toLocaleDateString()}` : 'No recent activity'}</span>
+                    <span style={{ color: completionColor }}>{completion >= 80 ? 'Excellent' : completion >= 50 ? 'On track' : 'Needs attention'}</span>
+                  </div>
                 </div>
               </div>
             )

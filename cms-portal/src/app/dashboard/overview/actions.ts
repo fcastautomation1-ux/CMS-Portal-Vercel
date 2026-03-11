@@ -22,12 +22,28 @@ export interface OverviewStats {
   recentTasks: Array<{
     id: string
     title: string
+    username: string
     assigned_to: string | null
+    task_status: string
+    completed: boolean
+    priority: string
+    due_date: string | null
+    category: string | null
+    created_at: string
+  }>
+  taskRecords: Array<{
+    id: string
+    title: string
+    username: string
+    assigned_to: string | null
+    completed: boolean
     task_status: string
     priority: string
     due_date: string | null
+    category: string | null
     created_at: string
   }>
+  userRecords: Array<{ username: string; role: string }>
 }
 
 export interface ManagerOverviewStats {
@@ -49,6 +65,8 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     tasksByStatus: [],
     tasksByDept: [],
     recentTasks: [],
+    taskRecords: [],
+    userRecords: [],
   }
   if (!user) return empty
 
@@ -94,6 +112,17 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     due_date: string | null; category: string | null; created_at: string
   }>
 
+  const getTaskBucket = (task: {
+    completed: boolean
+    task_status: string
+    due_date: string | null
+  }) => {
+    if (task.completed || task.task_status === 'done') return 'completed'
+    if (task.due_date && task.due_date < today) return 'overdue'
+    if (task.task_status === 'in_progress') return 'in_progress'
+    return 'pending'
+  }
+
   let completed = 0, inProgress = 0, pending = 0, overdue = 0, dueToday = 0
   const deptMap: Record<string, number> = {}
   const userMap: Record<string, { total: number; completed: number }> = {}
@@ -103,15 +132,18 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     if (!userMap[owner]) userMap[owner] = { total: 0, completed: 0 }
     userMap[owner].total++
 
-    if (t.completed) {
+    const bucket = getTaskBucket(t)
+    if (bucket === 'completed') {
       completed++
       userMap[owner].completed++
+    } else if (bucket === 'in_progress') {
+      inProgress++
+    } else if (bucket === 'pending') {
+      pending++
     } else {
-      if (t.task_status === 'in_progress') inProgress++
-      else pending++
-      if (t.due_date && t.due_date < today) overdue++
-      if (t.due_date === today) dueToday++
+      overdue++
     }
+    if (t.due_date === today) dueToday++
     if (t.category) deptMap[t.category] = (deptMap[t.category] || 0) + 1
   }
 
@@ -140,10 +172,13 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const recentTasks = todos.slice(0, 8).map(t => ({
     id: t.id,
     title: t.title,
+    username: t.username,
     assigned_to: t.assigned_to,
     task_status: t.task_status,
+    completed: t.completed,
     priority: t.priority,
     due_date: t.due_date,
+    category: t.category,
     created_at: t.created_at,
   }))
 
@@ -157,6 +192,8 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     tasksByStatus,
     tasksByDept,
     recentTasks,
+    taskRecords: todos,
+    userRecords: usersData,
   }
 }
 

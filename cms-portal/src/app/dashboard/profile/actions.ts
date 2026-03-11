@@ -93,6 +93,23 @@ export async function updateProfile(data: {
 
   const { error } = await supabase.from('users').update(updates).eq('username', user.username)
   if (error) return { success: false, error: error.message }
+
+  const updatedUser = {
+    ...user,
+    email: data.email ?? user.email,
+    department: data.department !== undefined ? data.department : user.department,
+    avatarData: data.avatar_data !== undefined ? data.avatar_data : user.avatarData,
+  }
+  const token = await createSession(updatedUser)
+  const cookieStore = await cookies()
+  cookieStore.set(getCookieName(), token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24,
+    path: '/',
+  })
+
   return { success: true }
 }
 

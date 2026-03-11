@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import {
   getNotifications,
+  getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
 } from '@/app/dashboard/notifications/actions'
@@ -105,22 +106,44 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   // Request desktop notification permission once on mount
   useEffect(() => { requestDesktopPermission() }, [])
 
+  const refreshUnreadCount = useCallback(async () => {
+    const count = await getUnreadCount()
+    setUnreadCount(count)
+    prevUnreadRef.current = count
+  }, [])
+
+  const refreshNotifications = useCallback(async (withLoading = false) => {
+    if (withLoading) setLoading(true)
+    try {
+      const data = await getNotifications()
+      setNotifications(data)
+      data.forEach(n => seenIdsRef.current.add(n.id))
+      await refreshUnreadCount()
+      return data
+    } finally {
+      if (withLoading) setLoading(false)
+    }
+  }, [refreshUnreadCount])
+
   // Lock body scroll when panel is open
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  // Fetch unread count immediately on mount (live badge)
+  // Seed current notifications and fetch unread count immediately.
   useEffect(() => {
     let cancelled = false
-    getNotifications().then(data => {
+    void (async () => {
+      const [data, count] = await Promise.all([
+        getNotifications(),
+        getUnreadCount(),
+      ])
       if (cancelled) return
-      const unread = data.filter(n => !n.is_read)
-      unread.forEach(n => seenIdsRef.current.add(n.id))
-      setUnreadCount(unread.length)
-      prevUnreadRef.current = unread.length
-    })
+      data.forEach(n => seenIdsRef.current.add(n.id))
+      setUnreadCount(count)
+      prevUnreadRef.current = count
+    })()
     return () => { cancelled = true }
   }, [])
 
@@ -129,19 +152,12 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     if (!open) return
     let cancelled = false
     void (async () => {
-      setLoading(true)
-      try {
-        const data = await getNotifications()
-        if (cancelled) return
-        setNotifications(data)
-        setUnreadCount(data.filter(n => !n.is_read).length)
-        data.forEach(n => seenIdsRef.current.add(n.id))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      const data = await refreshNotifications(true)
+      if (cancelled) return
+      setNotifications(data)
     })()
     return () => { cancelled = true }
-  }, [open])
+  }, [open, refreshNotifications])
 
   // Poll every 30 s for new notifications
   const pollNotifications = useCallback(async () => {
@@ -152,8 +168,9 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
       seenIdsRef.current.add(notif.id)
       fireDesktopNotification(notif)
     }
-    setUnreadCount(unreadItems.length)
-    prevUnreadRef.current = unreadItems.length
+    const count = await getUnreadCount()
+    setUnreadCount(count)
+    prevUnreadRef.current = count
     if (open) setNotifications(data)
   }, [open])
 
@@ -165,17 +182,20 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   async function handleNotifClick(notif: Notification) {
     setOpen(false)
     if (!notif.is_read) {
-      await markNotificationRead(notif.id)
-      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
-      setUnreadCount(prev => Math.max(0, prev - 1))
+      const res = await markNotificationRead(notif.id)
+      if (res.success) {
+        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n))
+        await refreshUnreadCount()
+      }
     }
     router.push(getNotifLink(notif))
   }
 
   async function handleMarkAllRead() {
-    await markAllNotificationsRead()
+    const res = await markAllNotificationsRead()
+    if (!res.success) return
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-    setUnreadCount(0)
+    await refreshUnreadCount()
   }
 
   const displayed = tab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
@@ -409,7 +429,7 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
         >
           <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
             {notifications.length > 0
-              ? `${notifications.length} notification${notifications.length !== 1 ? 's' : ''} — click to navigate`
+              ? `Showing ${notifications.length} notification${notifications.length !== 1 ? 's' : ''} — click to navigate`
               : 'Notifications appear here in real time'}
           </p>
         </div>
