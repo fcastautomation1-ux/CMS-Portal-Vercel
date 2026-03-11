@@ -1060,6 +1060,386 @@ export async function updateTaskStatusAction(
   return { success: true }
 }
 
+// ── Acknowledge task assignment (backlog → todo) ───────────────────────────────
+
+export async function acknowledgeTaskAction(todoId: string): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,task_status,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.assigned_to as string) !== user.username)
+    return { success: false, error: 'Only the assignee can acknowledge this task.' }
+  if ((task.task_status as string) !== 'backlog')
+    return { success: false, error: 'Task is not waiting for acknowledgement.' }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'acknowledged',
+    user: user.username,
+    details: `${user.username} acknowledged the task assignment`,
+    timestamp: now,
+    icon: '✅',
+    title: 'Task Acknowledged',
+  })
+
+  await supabase.from('todos').update({
+    task_status: 'todo',
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  if ((task.username as string) && (task.username as string) !== user.username) {
+    await createNotification(supabase, {
+      userId: task.username as string,
+      type: 'task_assigned',
+      title: 'Task Acknowledged',
+      body: `${user.username} acknowledged task "${task.title}"`,
+      relatedId: todoId,
+    })
+  }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+// ── Duplicate todo ────────────────────────────────────────────────────────────
+
+export async function duplicateTodoAction(todoId: string): Promise<{ success: boolean; error?: string; id?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase.from('todos').select('*').eq('id', todoId).single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const original = existing as Record<string, unknown>
+  const now = new Date().toISOString()
+  const newId = crypto.randomUUID()
+
+  const history: HistoryEntry[] = [{
+    type: 'created',
+    user: user.username,
+    details: `Duplicated from task "${original.title}"`,
+    timestamp: now,
+    icon: '📋',
+    title: 'Task Duplicated',
+  }]
+
+  const payload: Record<string, unknown> = {
+    id: newId,
+    username: user.username,
+    title: `${String(original.title || '').slice(0, 27)} (Copy)`,
+    description: original.description || null,
+    our_goal: original.our_goal || null,
+    completed: false,
+    task_status: 'todo',
+    priority: original.priority || 'medium',
+    category: original.category || null,
+    kpi_type: original.kpi_type || null,
+    due_date: original.due_date || null,
+    expected_due_date: original.expected_due_date || null,
+    actual_due_date: original.actual_due_date || null,
+    notes: original.notes || null,
+    package_name: original.package_name || null,
+    app_name: original.app_name || null,
+    position: 0,
+    archived: false,
+    queue_department: null,
+    queue_status: null,
+    multi_assignment: null,
+    assigned_to: null,
+    manager_id: null,
+    completed_by: null,
+    completed_at: null,
+    approval_status: 'approved',
+    approved_at: null,
+    approved_by: null,
+    declined_at: null,
+    declined_by: null,
+    decline_reason: null,
+    assignment_chain: JSON.stringify([]),
+    history: JSON.stringify(history),
+    created_at: now,
+    updated_at: now,
+  }
+
+  const { error } = await supabase.from('todos').insert(payload)
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true, id: newId }
+}
+
+// ── Claim queued task (dept queue pick) ──────────────────────────────────────
+
+export async function claimQueuedTaskAction(todoId: string): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,queue_status,queue_department,task_status,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.queue_status as string) !== 'queued')
+    return { success: false, error: 'Task is not in the queue.' }
+  if (task.assigned_to)
+    return { success: false, error: 'Task has already been claimed.' }
+
+  // Check dept match
+  const taskDept = ((task.queue_department as string) || '').toLowerCase().trim()
+  const userDept = (user.department || '').toLowerCase().trim()
+  if (taskDept && userDept && taskDept !== userDept)
+    return { success: false, error: 'This task is for a different department.' }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} claimed this task from the ${task.queue_department} queue`,
+    timestamp: now,
+    icon: '📥',
+    title: 'Task Claimed',
+  })
+
+  await supabase.from('todos').update({
+    assigned_to: user.username,
+    queue_status: 'claimed',
+    task_status: 'todo',
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  if ((task.username as string) && (task.username as string) !== user.username) {
+    await createNotification(supabase, {
+      userId: task.username as string,
+      type: 'task_assigned',
+      title: 'Task Claimed from Queue',
+      body: `${user.username} claimed your queued task "${task.title}"`,
+      relatedId: todoId,
+    })
+  }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+// ── Update multi-assignment per-assignee status ───────────────────────────────
+
+export async function updateMaAssigneeStatusAction(
+  todoId: string,
+  newStatus: 'in_progress' | 'completed',
+  notes?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,multi_assignment,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!ma?.enabled || !Array.isArray(ma.assignees))
+    return { success: false, error: 'Not a multi-assignment task.' }
+
+  const assigneeIdx = ma.assignees.findIndex(
+    (a) => (a.username || '').toLowerCase() === user.username.toLowerCase()
+  )
+  if (assigneeIdx === -1)
+    return { success: false, error: 'You are not an assignee of this task.' }
+
+  const now = new Date().toISOString()
+  ma.assignees[assigneeIdx] = {
+    ...ma.assignees[assigneeIdx],
+    status: newStatus,
+    ...(newStatus === 'completed' ? { completed_at: now, notes: notes || undefined } : {}),
+  }
+
+  // Recalculate completion percentage
+  const total = ma.assignees.length
+  const done = ma.assignees.filter((a) => a.status === 'accepted' || a.status === 'completed').length
+  ma.completion_percentage = total > 0 ? Math.round((done / total) * 100) : 0
+
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const statusLabels: Record<string, string> = { in_progress: 'In Progress', completed: 'Submitted' }
+  history.push({
+    type: newStatus === 'completed' ? 'completion_submitted' : 'started',
+    user: user.username,
+    details: `[Multi-Assignment] ${user.username} updated status to ${statusLabels[newStatus] ?? newStatus}${notes ? `: ${notes}` : ''}`,
+    timestamp: now,
+    icon: newStatus === 'completed' ? '📤' : '🚀',
+    title: newStatus === 'completed' ? 'Work Submitted' : 'Work Started',
+  })
+
+  await supabase.from('todos').update({
+    multi_assignment: JSON.stringify(ma),
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  // Notify task creator if submitted
+  if (newStatus === 'completed' && (task.username as string) && (task.username as string) !== user.username) {
+    await createNotification(supabase, {
+      userId: task.username as string,
+      type: 'task_assigned',
+      title: 'MA: Work Submitted for Review',
+      body: `${user.username} submitted their work for task "${task.title}"`,
+      relatedId: todoId,
+    })
+  }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+// ── Accept/reject multi-assignment sub-assignee ───────────────────────────────
+
+export async function acceptMaAssigneeAction(
+  todoId: string,
+  assigneeUsername: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,multi_assignment,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.username as string) !== user.username)
+    return { success: false, error: 'Only the task creator can accept work.' }
+
+  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
+
+  const idx = ma.assignees.findIndex((a) => (a.username || '').toLowerCase() === assigneeUsername.toLowerCase())
+  if (idx === -1) return { success: false, error: 'Assignee not found.' }
+
+  const now = new Date().toISOString()
+  ma.assignees[idx] = { ...ma.assignees[idx], status: 'accepted', completed_at: now }
+  const done = ma.assignees.filter((a) => a.status === 'accepted').length
+  ma.completion_percentage = Math.round((done / ma.assignees.length) * 100)
+
+  const allAccepted = ma.assignees.every((a) => a.status === 'accepted')
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'completed',
+    user: user.username,
+    details: `${user.username} accepted work from ${assigneeUsername}`,
+    timestamp: now,
+    icon: '✅',
+    title: 'Work Accepted',
+  })
+
+  await supabase.from('todos').update({
+    multi_assignment: JSON.stringify(ma),
+    history: JSON.stringify(history),
+    ...(allAccepted ? { completed: true, completed_at: now, task_status: 'done', approval_status: 'approved' } : {}),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await createNotification(supabase, {
+    userId: assigneeUsername,
+    type: 'task_completed',
+    title: 'Your Work Was Accepted',
+    body: `${user.username} accepted your work on "${task.title}"`,
+    relatedId: todoId,
+  })
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+// ── Delegate multi-assignment slot to another user ────────────────────────────
+
+export async function delegateMaAssigneeAction(
+  todoId: string,
+  toUsername: string,
+  instructions?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,multi_assignment,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
+
+  const myIdx = ma.assignees.findIndex(
+    (a) => (a.username || '').toLowerCase() === user.username.toLowerCase()
+  )
+  if (myIdx === -1) return { success: false, error: 'You are not a multi-assignee on this task.' }
+
+  const existing_delegates = ma.assignees[myIdx].delegated_to || []
+  const alreadyDelegated = existing_delegates.some(
+    (d) => (d.username || '').toLowerCase() === toUsername.toLowerCase()
+  )
+  if (alreadyDelegated) return { success: false, error: 'Already delegated to that user.' }
+
+  const now = new Date().toISOString()
+  ma.assignees[myIdx].delegated_to = [
+    ...existing_delegates,
+    { username: toUsername, status: 'pending', delegation_instructions: instructions || undefined },
+  ]
+
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} delegated their assignment to ${toUsername}${instructions ? `: "${instructions}"` : ''}`,
+    timestamp: now,
+    icon: '🔄',
+    title: 'Task Delegated',
+  })
+
+  await supabase.from('todos').update({
+    multi_assignment: JSON.stringify(ma),
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await createNotification(supabase, {
+    userId: toUsername,
+    type: 'task_assigned',
+    title: 'Task Delegated to You',
+    body: `${user.username} delegated their part of "${task.title}" to you`,
+    relatedId: todoId,
+  })
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
 // ── Internal: create notification ────────────────────────────────────────────
 
 async function createNotification(

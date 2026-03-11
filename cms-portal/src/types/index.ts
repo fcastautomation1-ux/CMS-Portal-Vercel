@@ -181,16 +181,29 @@ export interface AssignmentChainEntry {
   feedback?: string
 }
 
+export interface MultiAssignmentSubEntry {
+  username: string
+  status?: string              // pending | in_progress | completed | accepted | rejected
+  completed_at?: string
+  notes?: string               // feedback note when submitting
+  delegation_instructions?: string
+  delegated_to?: MultiAssignmentSubEntry[]
+}
+
 export interface MultiAssignmentEntry {
   username: string
-  status?: string
+  status?: string              // pending | in_progress | completed | accepted | rejected
   completed_at?: string
-  delegated_to?: Array<{ username: string; status?: string; completed_at?: string }>
+  actual_due_date?: string
+  notes?: string               // feedback note
+  delegated_to?: MultiAssignmentSubEntry[]
 }
 
 export interface MultiAssignment {
   enabled: boolean
   assignees: MultiAssignmentEntry[]
+  created_by?: string
+  completion_percentage?: number
 }
 
 export interface Todo {

@@ -62,11 +62,12 @@ const QUICK_FILTERS: { key: QuickFilter; label: string }[] = [
 
 interface TasksBoardProps {
   currentUsername: string
+  currentUserDept?: string | null
   initialTasks: Todo[]
   initialStats: TodoStats
 }
 
-export function TasksBoard({ currentUsername, initialTasks, initialStats }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialStats }: TasksBoardProps) {
   const [tasks, setTasks] = useState<Todo[]>(initialTasks)
   const [stats, setStats] = useState<TodoStats>(initialStats)
   const [loading, setLoading] = useState(false)
@@ -240,6 +241,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
   const cardProps = (task: Todo) => ({
     task,
     currentUsername,
+    currentUserDept,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => setDetailTaskId(t.id),
     onShare: (t: Todo) => setShareTask(t),

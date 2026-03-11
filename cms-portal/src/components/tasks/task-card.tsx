@@ -10,18 +10,23 @@ import {
   DueDateChip,
 } from './task-badges'
 import { cn } from '@/lib/cn'
-import { MoreVertical, Edit3, Trash2, Archive, Share2, Eye } from 'lucide-react'
+import { MoreVertical, Edit3, Trash2, Archive, Share2, Eye, Copy, ExternalLink } from 'lucide-react'
 import {
   toggleTodoCompleteAction,
   startTaskAction,
   deleteTodoAction,
   archiveTodoAction,
   approveTodoAction,
+  acknowledgeTaskAction,
+  duplicateTodoAction,
+  claimQueuedTaskAction,
+  updateMaAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
 
 interface TaskCardProps {
   task: Todo
   currentUsername: string
+  currentUserDept?: string | null
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -30,9 +35,30 @@ interface TaskCardProps {
   compact?: boolean
 }
 
+const CATEGORY_ICONS: Record<string, string> = {
+  technical: '⚙️',
+  user_acquisition: '👤',
+  creative: '🎨',
+  monetization: '💰',
+  marketing: '📢',
+  analytics: '📊',
+  operations: '🔧',
+}
+
+function formatDuration(fromIso: string, toIso: string): string {
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime()
+  const days = Math.floor(ms / 86_400_000)
+  const hrs = Math.floor((ms % 86_400_000) / 3_600_000)
+  if (days > 0) return `${days}d ${hrs}h`
+  if (hrs > 0) return `${hrs}h`
+  const mins = Math.floor((ms % 3_600_000) / 60_000)
+  return `${mins}m`
+}
+
 export function TaskCard({
   task,
   currentUsername,
+  currentUserDept,
   onEdit,
   onViewDetail,
   onShare,
@@ -47,10 +73,35 @@ export function TaskCard({
   const isAssignee = task.assigned_to === currentUsername
   const isPendingApproval = task.approval_status === 'pending_approval'
   const isCompleted = task.completed
-  const showStartBtn = isAssignee && task.task_status === 'backlog'
+
+  // Multi-assignment data
+  const ma = task.multi_assignment
+  const maEnabled = ma?.enabled && Array.isArray(ma.assignees)
+  const myMaEntry = maEnabled ? ma!.assignees.find(
+    (a) => (a.username || '').toLowerCase() === currentUsername.toLowerCase()
+  ) : undefined
+
+  // Button visibility
+  const showAcknowledgeBtn = isAssignee && task.task_status === 'backlog' && !isCompleted
+  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const showCompleteBtn =
-    !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status !== 'backlog'
+    !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
   const showApproveDeclineBtn = isCreator && isPendingApproval
+  const showClaimBtn =
+    task.queue_status === 'queued' &&
+    !task.assigned_to &&
+    !isCompleted &&
+    (!task.queue_department ||
+      !currentUserDept ||
+      (task.queue_department || '').toLowerCase() === (currentUserDept || '').toLowerCase())
+  const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
+  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
+
+  // Completion time display
+  const completionTime =
+    isCompleted && task.completed_at && task.created_at
+      ? formatDuration(task.created_at, task.completed_at)
+      : null
 
   // Last comment count
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment')
@@ -62,9 +113,13 @@ export function TaskCard({
     startTransition(async () => {
       const res = await fn()
       if (res.success) onRefresh()
-      // else: could show error toast
     })
   }
+
+  const playStoreUrl =
+    task.package_name && task.package_name !== 'Others'
+      ? `https://play.google.com/store/apps/details?id=${task.package_name}`
+      : null
 
   return (
     <div
@@ -92,6 +147,24 @@ export function TaskCard({
       />
 
       <div className="pl-3">
+        {/* ── App name banner (prominent, above title) ── */}
+        {!compact && task.app_name && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-200 rounded-md text-xs font-bold text-slate-800 shadow-sm">
+              📱 {task.app_name}
+            </span>
+            {task.kpi_type && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold text-white"
+                style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' }}>
+                📈 {task.kpi_type}
+              </span>
+            )}
+            {task.category && CATEGORY_ICONS[task.category] && (
+              <span className="text-sm" title={task.category}>{CATEGORY_ICONS[task.category]}</span>
+            )}
+          </div>
+        )}
+
         {/* ── Top row ── */}
         <div className="flex items-start gap-2">
           {/* Complete checkbox */}
@@ -113,7 +186,7 @@ export function TaskCard({
             )}
           </button>
 
-          {/* Title + subtitle */}
+          {/* Title */}
           <div className="flex-1 min-w-0">
             <button
               className={cn(
@@ -124,12 +197,8 @@ export function TaskCard({
             >
               {task.title}
             </button>
-            {!compact && task.package_name && (
-              <div className="text-xs text-slate-400 mt-0.5 truncate">
-                {task.app_name && <span className="text-blue-500">{task.app_name}</span>}
-                {task.app_name && task.package_name && <span className="mx-1 text-slate-300">·</span>}
-                {task.package_name}
-              </div>
+            {!compact && !task.app_name && task.package_name && (
+              <div className="text-xs text-slate-400 mt-0.5 truncate">{task.package_name}</div>
             )}
           </div>
 
@@ -156,6 +225,11 @@ export function TaskCard({
                 <MenuBtn onClick={() => { setMenuOpen(false); onViewDetail(task) }} icon={<Eye size={14}/>} label="View Details" />
                 {isCreator && <MenuBtn onClick={() => { setMenuOpen(false); onEdit(task) }} icon={<Edit3 size={14}/>} label="Edit Task" />}
                 <MenuBtn onClick={() => { setMenuOpen(false); onShare(task) }} icon={<Share2 size={14}/>} label="Share" />
+                <MenuBtn
+                  onClick={() => { setMenuOpen(false); doAction(() => duplicateTodoAction(task.id)) }}
+                  icon={<Copy size={14}/>}
+                  label="Duplicate"
+                />
                 {isCreator && !isCompleted && (
                   <MenuBtn
                     onClick={() => { setMenuOpen(false); doAction(() => archiveTodoAction(task.id)) }}
@@ -180,12 +254,23 @@ export function TaskCard({
         <div className="flex flex-wrap items-center gap-1.5 mt-2 pl-7">
           <TaskStatusBadge status={task.task_status} />
           <PriorityBadge priority={task.priority} />
-          {task.kpi_type && (
-            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
-              {task.kpi_type}
+          {!task.app_name && task.kpi_type && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold text-white"
+              style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' }}>
+              📈 {task.kpi_type}
+            </span>
+          )}
+          {maEnabled && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded text-xs font-semibold">
+              👥 {ma!.completion_percentage ?? 0}%
             </span>
           )}
           <ApprovalBadge status={task.approval_status} />
+          {task.queue_status === 'queued' && (
+            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-xs font-medium">
+              🗂 Queue{task.queue_department ? `: ${task.queue_department}` : ''}
+            </span>
+          )}
           {task.archived && (
             <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-xs">Archived</span>
           )}
@@ -203,6 +288,12 @@ export function TaskCard({
             )}
             {/* Due date */}
             <DueDateChip dateStr={task.due_date} completed={isCompleted} />
+            {/* Completion time */}
+            {completionTime && (
+              <span className="flex items-center gap-1 text-xs text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded">
+                ⏱ {completionTime}
+              </span>
+            )}
             {/* Comments */}
             {comments.length > 0 && (
               <span className={cn('flex items-center gap-1 text-xs', unreadComments.length > 0 ? 'text-blue-600 font-semibold' : 'text-slate-400')}>
@@ -211,6 +302,18 @@ export function TaskCard({
                 </svg>
                 {unreadComments.length > 0 ? `${unreadComments.length} new` : comments.length}
               </span>
+            )}
+            {/* Play Store link */}
+            {playStoreUrl && (
+              <a
+                href={playStoreUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink size={10} /> Play Store
+              </a>
             )}
             {/* Shared flag */}
             {task.is_shared && (
@@ -222,14 +325,46 @@ export function TaskCard({
         )}
 
         {/* ── Action buttons ── */}
-        {(showStartBtn || showApproveDeclineBtn) && (
-          <div className="flex gap-2 mt-3 pl-7">
+        {(showAcknowledgeBtn || showStartBtn || showClaimBtn || showApproveDeclineBtn || showMaStartBtn || showMaSubmitBtn) && (
+          <div className="flex flex-wrap gap-2 mt-3 pl-7">
+            {showAcknowledgeBtn && (
+              <button
+                onClick={() => doAction(() => acknowledgeTaskAction(task.id))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors"
+              >
+                ✅ Acknowledge
+              </button>
+            )}
             {showStartBtn && (
               <button
                 onClick={() => doAction(() => startTaskAction(task.id))}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
               >
                 🚀 Start Work
+              </button>
+            )}
+            {showClaimBtn && (
+              <button
+                onClick={() => doAction(() => claimQueuedTaskAction(task.id))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-colors"
+              >
+                📥 Pick Task
+              </button>
+            )}
+            {showMaStartBtn && (
+              <button
+                onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
+              >
+                🚀 MA: Start
+              </button>
+            )}
+            {showMaSubmitBtn && (
+              <button
+                onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'completed'))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700 transition-colors"
+              >
+                📤 MA: Submit
               </button>
             )}
             {showApproveDeclineBtn && (
