@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { Plus, X, Search, RefreshCw, Upload, CheckSquare, Square, Users, Building2, Check } from 'lucide-react'
 import {
   addPackagesBulk,
-  assignPackagesToUser,
   getPackageAssignmentUsers,
   getUserPackageAssignments,
   savePackage,
@@ -28,9 +27,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
 
   const [packageSearch, setPackageSearch] = useState('')
-  const [selectedUser, setSelectedUser] = useState('')
-  const [assignSearch, setAssignSearch] = useState('')
-  const [selectedPackageIds, setSelectedPackageIds] = useState<Set<string>>(new Set())
 
   // Bulk-edit: row selection
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
@@ -40,9 +36,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [editing, setEditing] = useState<Package | null>(null)
-
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -81,12 +74,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
     })
   }, [packages, packageSearch])
 
-  const filteredAssignPackages = useMemo(() => {
-    const q = assignSearch.trim().toLowerCase()
-    if (!q) return packages
-    return packages.filter(p => p.name.toLowerCase().includes(q) || (p.app_name || '').toLowerCase().includes(q))
-  }, [packages, assignSearch])
-
   const assignedByPackage = useMemo(() => {
     const map: Record<string, string[]> = {}
     for (const row of assignments) {
@@ -108,7 +95,7 @@ export function PackagesPage({ packages: initial, user }: Props) {
   function toggleRow(id: string) {
     setSelectedRows(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -121,33 +108,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
   function openEditModal(pkg: Package) {
     setEditing(pkg)
     setModalOpen(true)
-  }
-
-  async function handleSaveAssignments() {
-    if (!selectedUser) return
-    setSaving(true)
-    setError('')
-
-    const selected = Array.from(selectedPackageIds)
-    const res = await assignPackagesToUser(selectedUser, selected)
-    if (!res.success) {
-      setError(res.error || 'Failed to save assignment.')
-      setSaving(false)
-      return
-    }
-
-    const refreshed = await getUserPackageAssignments()
-    setAssignments(refreshed)
-    setSaving(false)
-  }
-
-  function toggleAssignment(packageId: string, checked: boolean) {
-    setSelectedPackageIds(prev => {
-      const next = new Set(prev)
-      if (checked) next.add(packageId)
-      else next.delete(packageId)
-      return next
-    })
   }
 
   return (
@@ -170,65 +130,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
             </button>
           </div>
         )}
-      </div>
-
-      <div className="card p-4 mb-4">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <strong className="text-sm" style={{ color: 'var(--slate-800)' }}>Assign Multiple Apps to User</strong>
-          <select
-            value={selectedUser}
-            onChange={e => {
-              const nextUser = e.target.value
-              setSelectedUser(nextUser)
-              if (!nextUser) {
-                setSelectedPackageIds(new Set())
-                return
-              }
-              const ids = assignments.filter(a => a.username === nextUser).map(a => a.package_id)
-              setSelectedPackageIds(new Set(ids))
-            }}
-            className="h-10 px-3 rounded-lg text-sm outline-none"
-            style={{ border: '1px solid #CBD5E1', background: '#fff', minWidth: 180 }}
-          >
-            <option value="">-- Select a user --</option>
-            {users.map(u => <option key={u.username} value={u.username}>{u.username} ({u.role})</option>)}
-          </select>
-          <button onClick={handleSaveAssignments} disabled={!selectedUser || saving} className="h-10 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: '#16A34A', opacity: (!selectedUser || saving) ? 0.6 : 1 }}>
-            {saving ? 'Saving...' : 'Save Assignment'}
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <input
-            value={assignSearch}
-            onChange={e => setAssignSearch(e.target.value)}
-            placeholder="Search app names for assignment..."
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1"
-            style={{ border: '1px solid #CBD5E1', background: '#fff', minWidth: 160 }}
-          />
-          <span className="text-xs font-semibold" style={{ color: '#64748B' }}>
-            {filteredAssignPackages.length} / {packages.length} app names • {selectedPackageIds.size} selected
-          </span>
-        </div>
-
-        <div className="rounded-lg p-2 max-h-72 overflow-y-auto" style={{ border: '1px dashed #CBD5E1', background: '#fff' }}>
-          {filteredAssignPackages.length === 0 ? (
-            <div className="text-sm p-3" style={{ color: '#94A3B8' }}>No app names match your search.</div>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {filteredAssignPackages.map(pkg => {
-                const checked = selectedPackageIds.has(pkg.id)
-                return (
-                  <label key={pkg.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer" style={{ border: `2px solid ${checked ? '#2563EB' : '#E2E8F0'}`, background: checked ? 'rgba(37,99,235,0.04)' : '#fff', maxWidth: 220 }}>
-                    <input type="checkbox" checked={checked} onChange={e => toggleAssignment(pkg.id, e.target.checked)} className="shrink-0" />
-                    <span className="text-xs font-medium truncate" style={{ color: '#1E293B' }} title={pkg.name}>{pkg.name}</span>
-                  </label>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        {error && <div className="mt-3 text-sm" style={{ color: '#DC2626' }}>{error}</div>}
       </div>
 
       <div className="mb-4 flex items-center gap-2">
@@ -375,7 +276,7 @@ export function PackagesPage({ packages: initial, user }: Props) {
                         ) : (
                           <div className="flex flex-wrap gap-0.5">
                             {assignedUsers.slice(0, 2).map(u => (
-                              <span key={`${pkg.id}-${u}`} className="px-1.5 py-0.5 rounded-full text-[10px] truncate max-w-[70px]" style={{ background: '#EEF2FF', color: '#6366F1' }} title={u}>{u}</span>
+                              <span key={`${pkg.id}-${u}`} className="px-1.5 py-0.5 rounded-full text-[10px] truncate max-w-17.5" style={{ background: '#EEF2FF', color: '#6366F1' }} title={u}>{u}</span>
                             ))}
                             {assignedUsers.length > 2 && (
                               <span className="px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: '#F1F5F9', color: '#64748B' }} title={assignedUsers.slice(2).join(', ')}>+{assignedUsers.length - 2}</span>

@@ -76,28 +76,30 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const supabase = createServerClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const [accountsRes, campaignsRes, usersRes, todosRes, deptsRes] = await Promise.all([
+  const CAMPAIGN_TABLES = ['campaign_conditions', 'workflow_1', 'workflow_2', 'workflow_3'] as const
+
+  const [accountsRes, usersRes, todosRes, deptsRes, ...campaignResults] = await Promise.all([
     supabase.from('accounts').select('customer_id,enabled,status'),
-    supabase.from('campaigns').select('customer_id,enabled'),
     supabase.from('users').select('username,role,avatar_data'),
     supabase.from('todos').select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at,archived').eq('archived', false).order('created_at', { ascending: false }),
     supabase.from('departments').select('id'),
+    ...CAMPAIGN_TABLES.map(t => supabase.from(t).select('customer_id,enabled', { count: 'exact', head: false })),
   ])
 
   // Accounts
   const accounts = (accountsRes.data ?? []) as Array<{ customer_id: string; enabled: boolean; status: string }>
   const acctStats = {
     total: accounts.length,
-    running: accounts.filter(a => a.status === 'Running').length,
-    error: accounts.filter(a => a.status === 'Error').length,
-    pending: accounts.filter(a => a.status === 'Pending').length,
+    running: accounts.filter(a => (a.status || '').toLowerCase() === 'running').length,
+    error: accounts.filter(a => (a.status || '').toLowerCase() === 'error').length,
+    pending: accounts.filter(a => (a.status || '').toLowerCase() === 'pending').length,
   }
 
-  // Campaigns
-  const campaigns = (campaignsRes.data ?? []) as Array<{ customer_id: string; enabled: boolean }>
+  // Campaigns — aggregate across all 4 workflow tables
+  const allCampaigns = campaignResults.flatMap(r => (r.data ?? []) as Array<{ customer_id: string; enabled: boolean }>)
   const campStats = {
-    total: campaigns.length,
-    enabled: campaigns.filter(c => c.enabled).length,
+    total: allCampaigns.length,
+    enabled: allCampaigns.filter(c => c.enabled).length,
   }
 
   // Users

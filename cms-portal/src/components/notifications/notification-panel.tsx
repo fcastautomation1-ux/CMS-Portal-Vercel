@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bell, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle,
-  X, BellOff, ArrowRight, Check, Search, Trash2, Reply,
+  X, BellOff, ArrowRight, Check, Search, Reply,
 } from 'lucide-react'
 import {
   getNotifications,
@@ -144,8 +144,6 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
   const seenIdsRef = useRef<Set<string>>(new Set())
   const prevUnreadRef = useRef(initialCount)
 
-  useEffect(() => { requestDesktopPermission() }, [])
-
   const syncUnreadFromList = useCallback((list: Notification[]) => {
     const count = list.filter(n => !norm(n).isRead).length
     setUnreadCount(count)
@@ -174,10 +172,18 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      const permGranted = await requestDesktopPermission()
       const [data, count] = await Promise.all([getNotifications(), getUnreadCount()])
       if (cancelled) return
+      const unreadItems = data.filter(n => !norm(n).isRead)
+      // Fire desktop notifications for all existing unread items on first load
+      if (permGranted) {
+        for (const notif of unreadItems) {
+          fireDesktopNotification(notif)
+        }
+      }
       data.forEach(n => seenIdsRef.current.add(n.id))
-      const listUnread = data.filter(n => !norm(n).isRead).length
+      const listUnread = unreadItems.length
       const resolved = typeof count === 'number' && count >= 0 ? count : listUnread
       setUnreadCount(resolved)
       prevUnreadRef.current = resolved
@@ -431,7 +437,6 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
                 {group.items.map(notif => {
                   const n = norm(notif)
                   const cfg = TYPE_CONFIG[notif.type ?? 'info'] ?? TYPE_CONFIG.info
-                  const Icon = cfg.icon
                   const isReplying = replyingTo === notif.id
                   const canReply = !!(n.senderName && n.senderName !== currentUsername)
 
@@ -517,7 +522,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
 
                         {/* Inline reply box */}
                         {isReplying && (
-                          <div className="px-5 pb-3 pt-0 pl-[68px]" onClick={e => e.stopPropagation()}>
+                          <div className="px-5 pb-3 pt-0 pl-17" onClick={e => e.stopPropagation()}>
                             <div className="flex gap-2 items-center">
                               <input
                                 autoFocus
