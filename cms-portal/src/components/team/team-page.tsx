@@ -112,89 +112,84 @@ export function TeamPage({ members }: Props) {
             return (
               <div
                 key={m.username}
-                className="relative overflow-hidden rounded-[28px] p-4 group transition-all duration-300 animate-fade-in"
+                className="rounded-2xl p-6 text-center transition-all duration-300 animate-fade-in"
                 style={{
-                  background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
+                  background: 'var(--color-card)',
                   border: '1px solid var(--color-border)',
-                  boxShadow: '0 12px 30px rgba(15,23,42,0.08)',
+                  boxShadow: '0 4px 12px rgba(15,23,42,0.06)',
                 }}
               >
-                <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full opacity-15" style={{ background: gradient }} />
-                <div className="absolute top-0 left-0 right-0 h-24" style={{ background: gradient }} />
+                {/* Avatar */}
+                <div
+                  className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center text-lg font-bold text-white"
+                  style={{ background: gradient }}
+                >
+                  {m.avatar_data ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    getInitials(m.username)
+                  )}
+                </div>
 
-                <div className="relative flex items-start justify-between gap-3 mb-5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg ring-4 ring-white shrink-0"
-                      style={{ background: gradient }}
-                    >
-                      {m.avatar_data ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-base font-bold text-white">
-                          {getInitials(m.username)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 pt-1">
-                      <h3 className="text-sm font-bold truncate" style={{ color: 'white' }}>
-                        {m.username}
-                      </h3>
-                      <p className="text-[11px] truncate max-w-40" style={{ color: 'rgba(255,255,255,0.85)' }}>
-                        {m.email}
-                      </p>
-                    </div>
+                {/* Name */}
+                <h3 className="font-bold text-sm mb-0.5 truncate" style={{ color: 'var(--color-text)' }}>
+                  {m.username}
+                </h3>
+
+                {/* Email */}
+                <p className="text-xs mb-2 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                  {m.email}
+                </p>
+
+                {/* Department + Role label */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Building2 size={11} style={{ color: roleBadge.color }} />
+                    <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                      {m.department || 'No dept'}
+                    </span>
                   </div>
                   <span
-                    className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-full"
-                    style={{ background: 'rgba(255,255,255,0.22)', color: 'white', backdropFilter: 'blur(4px)' }}
+                    className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                    style={{ background: roleBadge.bg, color: roleBadge.color }}
                   >
                     {m.role}
                   </span>
                 </div>
 
-                <div className="relative rounded-[22px] p-4 mt-3" style={{ background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(226,232,240,0.9)' }}>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Building2 size={12} style={{ color: roleBadge.color }} />
-                      <span className="text-[11px] font-medium truncate" style={{ color: 'var(--color-text-muted)' }}>
-                        {m.department || 'No department'}
-                      </span>
-                    </div>
-                    <span
-                      className="text-[10px] font-semibold px-2 py-1 rounded-full"
-                      style={{ background: roleBadge.bg, color: roleBadge.color }}
-                    >
-                      {completion}% complete
+                {/* Progress bar */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
+                      Task completion
+                    </span>
+                    <span className="text-[11px] font-bold" style={{ color: completionColor }}>
+                      {completion}%
                     </span>
                   </div>
-
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>Task health</span>
-                      <span className="text-[11px] font-bold" style={{ color: completionColor }}>
-                        {m.taskStats.completed}/{m.taskStats.total || 0}
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${completion}%`, background: completionColor }}
-                      />
-                    </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${completion}%`, background: completionColor }}
+                    />
                   </div>
+                </div>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    <StatPill label="Done" value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
-                    <StatPill label="Open" value={m.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
-                    <StatPill label="Late" value={m.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
-                  </div>
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <StatPill label="Done" value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
+                  <StatPill label="Open" value={m.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
+                  <StatPill label="Overdue" value={m.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
+                </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-2 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-                    <span>{m.last_login ? `Last seen ${new Date(m.last_login).toLocaleDateString()}` : 'No recent activity'}</span>
-                    <span style={{ color: completionColor }}>{completion >= 80 ? 'Excellent' : completion >= 50 ? 'On track' : 'Needs attention'}</span>
-                  </div>
+                {/* Last seen + status */}
+                <div className="flex items-center justify-center gap-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                  <span>
+                    {m.last_login
+                      ? `Last seen ${new Date(m.last_login).toLocaleDateString('en', { month: 'short', day: 'numeric' })}`
+                      : 'No activity yet'}
+                  </span>
                 </div>
               </div>
             )
@@ -207,9 +202,9 @@ export function TeamPage({ members }: Props) {
 
 function StatPill({ label, value, color, bg }: { label: string; value: number; color: string; bg: string }) {
   return (
-    <div className="rounded-lg py-1.5 px-1 text-center" style={{ background: bg }}>
-      <p className="text-sm font-bold" style={{ color }}>{value}</p>
-      <p className="text-[9px] font-semibold mt-0.5" style={{ color }}>{label}</p>
+    <div className="rounded-lg py-2 px-1.5 text-center" style={{ background: bg }}>
+      <p className="text-xs font-bold" style={{ color }}>{value}</p>
+      <p className="text-[8px] font-semibold mt-1" style={{ color }}>{label}</p>
     </div>
   )
 }
