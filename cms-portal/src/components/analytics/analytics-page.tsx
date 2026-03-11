@@ -133,7 +133,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
   const router = useRouter()
   const {
     totalTasks, assignedToMe, completed, inProgress, pending,
-    overdue, dueToday, statusBreakdown, priorityBreakdown, departmentBreakdown, topUsers, allTasks,
+    overdue, dueToday, statusBreakdown, priorityBreakdown, topUsers, allTasks,
   } = analytics
 
   const [activeKpi, setActiveKpi] = useState<string | null>(null)
@@ -177,12 +177,20 @@ export function AnalyticsPage({ analytics, user }: Props) {
     color: PRIORITY_COLORS[label] || '#94A3B8',
   }))
 
-  const departmentData = Object.entries(departmentBreakdown)
-    .map(([label, value]) => ({ label: label || 'Unassigned', value }))
-    .sort((a, b) => b.value - a.value)
+  const topUsersData = topUsers
+    .map(userItem => ({ label: userItem.username, value: userItem.total }))
     .slice(0, 8)
 
-  const maxDeptValue = Math.max(...Object.values(departmentBreakdown), 1)
+  const kpiBreakdown = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const task of allTasks || []) {
+      const key = task.kpi_type || 'Others'
+      map[key] = (map[key] || 0) + 1
+    }
+    return Object.entries(map).sort(([, a], [, b]) => b - a)
+  }, [allTasks])
+
+  const maxKpiValue = Math.max(...kpiBreakdown.map(([, count]) => count), 1)
 
   return (
     <div>
@@ -280,6 +288,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
                   innerRadius={50}
                   outerRadius={80}
                   dataKey="value"
+                  label={({ value }) => `${value}`}
                   labelLine={false}
                   cursor="pointer"
                   onClick={(entry: unknown) => {
@@ -322,6 +331,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
                   innerRadius={50}
                   outerRadius={80}
                   dataKey="value"
+                  label={({ value }) => `${value}`}
                   labelLine={false}
                   cursor="pointer"
                 >
@@ -339,16 +349,16 @@ export function AnalyticsPage({ analytics, user }: Props) {
           )}
         </div>
 
-        {/* Department Bar */}
+        {/* Top Performers */}
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 size={16} style={{ color: 'var(--emerald-500)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>By Department</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Top Performers</h3>
             <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>top 8</span>
           </div>
-          {departmentData.length > 0 ? (
+          {topUsersData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={departmentData} layout="vertical" margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
+              <BarChart data={topUsersData} layout="vertical" margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                 <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
@@ -421,18 +431,18 @@ export function AnalyticsPage({ analytics, user }: Props) {
 
       {/* Additional insights row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
-        {/* Department Breakdown */}
+        {/* KPI Breakdown */}
         <div className="card p-5">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Tasks by Department</h2>
-          {Object.keys(departmentBreakdown).length === 0 ? (
-            <p className="text-xs" style={{ color: 'var(--slate-400)' }}>No department data</p>
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Tasks by KPI Type</h2>
+          {kpiBreakdown.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--slate-400)' }}>No KPI data</p>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {Object.entries(departmentBreakdown).sort(([, a], [, b]) => b - a).map(([dept, count]) => (
-                <div key={dept} className="flex items-center gap-3">
-                  <span className="text-xs font-medium w-28 truncate" style={{ color: 'var(--slate-600)' }}>{dept || 'Unassigned'}</span>
+              {kpiBreakdown.map(([kpi, count]) => (
+                <div key={kpi} className="flex items-center gap-3">
+                  <span className="text-xs font-medium w-28 truncate" style={{ color: 'var(--slate-600)' }}>{kpi}</span>
                   <div className="flex-1 h-6 rounded-lg overflow-hidden relative" style={{ background: 'var(--slate-50)' }}>
-                    <div className="h-full rounded-lg flex items-center justify-end pr-2" style={{ width: `${Math.max((count / maxDeptValue) * 100, 8)}%`, background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
+                    <div className="h-full rounded-lg flex items-center justify-end pr-2" style={{ width: `${Math.max((count / maxKpiValue) * 100, 8)}%`, background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
                       <span className="text-[10px] font-bold text-white">{count}</span>
                     </div>
                   </div>

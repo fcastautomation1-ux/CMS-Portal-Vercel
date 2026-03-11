@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ExternalLink, Plus, Trash2, FileBarChart, X, Search, Sparkles, Link as LinkIcon } from 'lucide-react'
+import { ExternalLink, Plus, Trash2, FileBarChart, X, Search, Link as LinkIcon } from 'lucide-react'
 import { saveLookerReport, deleteLookerReport } from '@/app/dashboard/looker/actions'
 import type { LookerReport, SessionUser } from '@/types'
 
@@ -33,19 +33,6 @@ export function LookerPage({ reports: initial, user }: Props) {
             <Plus size={16} /> Add Report
           </button>
         )}
-      </div>
-
-      <div className="card p-5 mb-6" style={{ background: 'linear-gradient(135deg, rgba(43,127,255,0.14), rgba(99,102,241,0.10))' }}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'rgba(59,130,246,0.14)', color: '#1D4ED8' }}>
-              <Sparkles size={12} /> Live from database
-            </div>
-            <p className="text-sm mt-3" style={{ color: 'var(--color-text)' }}>
-              Reports are fetched directly from the <strong>looker_reports</strong> table.
-            </p>
-          </div>
-        </div>
       </div>
 
       <div className="card p-4 mb-6">
@@ -93,17 +80,14 @@ export function LookerPage({ reports: initial, user }: Props) {
                     : 'Allowed: All portal users'}
                 </p>
               </div>
-              <div
-                className="rounded-xl overflow-hidden border"
-                style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }}
-              >
+              <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }}>
                 <div
                   className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
-                  style={{ color: 'var(--color-text-muted)', background: 'rgba(59,130,246,0.06)' }}
+                  style={{ color: 'var(--color-text-muted)', background: 'linear-gradient(90deg, rgba(59,130,246,0.1), rgba(99,102,241,0.08))' }}
                 >
                   Preview
                 </div>
-                <div className="relative h-32">
+                <div className="relative h-40 bg-slate-50">
                   <iframe
                     src={r.report_url}
                     title={`Preview of ${r.title}`}
@@ -113,7 +97,7 @@ export function LookerPage({ reports: initial, user }: Props) {
                   />
                   <div
                     className="absolute inset-0"
-                    style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.12), transparent 40%)' }}
+                    style={{ background: 'linear-gradient(to top, rgba(15,23,42,0.14), transparent 45%)' }}
                   />
                 </div>
               </div>

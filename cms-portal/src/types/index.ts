@@ -103,6 +103,7 @@ export interface Notification {
 export interface Package {
   id: string
   name: string
+  app_name?: string | null
   description: string | null
   category: string | null
   price: number | null
@@ -110,6 +111,7 @@ export interface Package {
   created_by: string | null
   created_at: string
   updated_at: string
+  assigned_users_count?: number
 }
 
 // ─── Looker Reports ──────────────────────────────────────────

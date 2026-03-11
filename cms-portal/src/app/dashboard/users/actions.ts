@@ -93,6 +93,7 @@ export async function createUser(
     return { success: false, error: error.message }
   }
   revalidatePath('/dashboard/users')
+  revalidatePath('/dashboard/departments')
   return { success: true }
 }
 
@@ -147,6 +148,7 @@ export async function updateUser(
   const { error } = await supabase.from('users').update(update).eq('username', username)
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/users')
+  revalidatePath('/dashboard/departments')
   return { success: true }
 }
 
@@ -164,6 +166,7 @@ export async function deleteUser(
   const { error } = await supabase.from('users').delete().eq('username', username)
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/users')
+  revalidatePath('/dashboard/departments')
   return { success: true }
 }
 

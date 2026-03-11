@@ -11,6 +11,7 @@ export interface AnalyticsTask {
   completed: boolean
   task_status: string
   priority: string
+  kpi_type: string | null
   due_date: string | null
   category: string | null
   created_at: string
@@ -47,7 +48,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   const [{ data: todos }, { data: usersData }] = await Promise.all([
     supabase
       .from('todos')
-      .select('id, title, username, assigned_to, completed, task_status, priority, due_date, category, archived, created_at')
+      .select('id, title, username, assigned_to, completed, task_status, priority, kpi_type, due_date, category, archived, created_at')
       .eq('archived', false),
     supabase
       .from('users')
@@ -61,7 +62,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
 
   const tasks = todos as unknown as Array<{
     id: string; title: string; username: string; assigned_to: string | null; completed: boolean;
-    task_status: string; priority: string; due_date: string | null; category: string | null; created_at: string;
+    task_status: string; priority: string; kpi_type: string | null; due_date: string | null; category: string | null; created_at: string;
   }>
 
   const statusBreakdown: Record<string, number> = {}
@@ -126,6 +127,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
       completed: t.completed,
       task_status: t.task_status,
       priority: t.priority,
+      kpi_type: t.kpi_type,
       due_date: t.due_date,
       category: t.category,
       created_at: t.created_at,

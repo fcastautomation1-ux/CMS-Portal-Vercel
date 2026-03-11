@@ -26,14 +26,18 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Department | null>(null)
 
-  // Recompute counts from memberNames
-  const memberCounts: Record<string, number> = {}
-  for (const [dept, names] of Object.entries(memberNames)) {
-    memberCounts[dept] = names.length
+  const normalizeDepartment = (value: string) => value.trim().toLowerCase()
+  const membersByNormalizedDept: Record<string, string[]> = {}
+  for (const [deptName, names] of Object.entries(memberNames)) {
+    const key = normalizeDepartment(deptName)
+    if (!membersByNormalizedDept[key]) membersByNormalizedDept[key] = []
+    for (const name of names) {
+      if (!membersByNormalizedDept[key].includes(name)) membersByNormalizedDept[key].push(name)
+    }
   }
 
   async function handleDelete(dept: Department) {
-    const count = memberCounts[dept.name] || 0
+    const count = (membersByNormalizedDept[normalizeDepartment(dept.name)] ?? []).length
     if (count > 0 && !confirm(`"${dept.name}" has ${count} members. Delete anyway?`)) return
     if (count === 0 && !confirm(`Delete "${dept.name}"?`)) return
     const res = await deleteDepartment(dept.id)
@@ -67,8 +71,8 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {departments.map((dept, i) => {
             const theme = DEPT_THEMES[i % DEPT_THEMES.length]
-            const count = memberCounts[dept.name] || 0
-            const names = (memberNames[dept.name] ?? []).slice(0, 4)
+            const names = membersByNormalizedDept[normalizeDepartment(dept.name)] ?? []
+            const count = names.length
 
             return (
               <div key={dept.id} className="card p-0 overflow-hidden group hover:shadow-lg transition-shadow duration-300 animate-fade-in">
@@ -122,25 +126,17 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
                   {/* Avatar bubbles */}
                   {names.length > 0 && (
                     <div className="flex items-center gap-1" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
-                      <div className="flex -space-x-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {names.map((name, idx) => (
                           <div
                             key={name}
                             title={name}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-white shrink-0"
-                            style={{ background: AVATAR_COLORS[idx % AVATAR_COLORS.length], zIndex: names.length - idx }}
+                            className="h-7 px-2 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                            style={{ background: AVATAR_COLORS[idx % AVATAR_COLORS.length] }}
                           >
-                            {name.charAt(0).toUpperCase()}
+                            {name}
                           </div>
                         ))}
-                        {count > 4 && (
-                          <div
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold ring-2 ring-white shrink-0"
-                            style={{ background: 'var(--slate-200)', color: 'var(--slate-600)', zIndex: 0 }}
-                          >
-                            +{count - 4}
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}
