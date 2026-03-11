@@ -12,7 +12,6 @@ import {
   Users,
   GitBranch,
   Settings,
-  FolderOpen,
   BarChart2,
   CheckSquare,
   Building2,
@@ -40,7 +39,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Users', href: '/dashboard/users', icon: <Users size={17} />, color: '#8B5CF6' },
   { label: 'Workflows', href: '/dashboard/workflows', icon: <GitBranch size={17} />, color: '#10B981' },
   { label: 'Rules', href: '/dashboard/rules', icon: <Settings size={17} />, color: '#F59E0B' },
-  { label: 'Drive Manager', href: '/dashboard/drive', icon: <FolderOpen size={17} />, color: '#3B82F6' },
   { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
   { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
   { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={17} />, color: '#0D9488' },
@@ -50,7 +48,7 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 function isNavItemVisible(href: string, user: SessionUser): boolean {
-  const { role, moduleAccess: ma, allowedAccounts, allowedCampaigns, allowedDriveFolders, allowedLookerReports, teamMembers } = user
+  const { role, moduleAccess: ma, allowedAccounts, allowedCampaigns, allowedLookerReports, teamMembers } = user
   const isAdminOrSM = role === 'Admin' || role === 'Super Manager'
   const isManager = role === 'Manager'
 
@@ -78,10 +76,6 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       if (isAdminOrSM) return true
       if (isManager) return ma?.googleAccount?.accessLevel === 'all'
       return false
-
-    case '/dashboard/drive':
-      if (isAdminOrSM || isManager) return true
-      return allowedDriveFolders.length > 0
 
     case '/dashboard/looker':
       if (isAdminOrSM) return true
