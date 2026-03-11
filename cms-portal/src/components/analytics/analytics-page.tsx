@@ -1,10 +1,16 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   BarChart3, CheckCircle, Clock, AlertTriangle, TrendingUp,
-  Users, CalendarCheck, X,
+  Users, CalendarCheck, X, Activity,
 } from 'lucide-react'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
+  PieChart, Pie, Cell, CartesianGrid, Legend,
+  type PieLabelRenderProps,
+} from 'recharts'
 import type { SessionUser } from '@/types'
 import type { AnalyticsData, AnalyticsTask } from '@/app/dashboard/analytics/actions'
 
@@ -19,6 +25,21 @@ const PRIORITY_COLORS: Record<string, string> = {
 const PRIORITY_BG: Record<string, string> = {
   low: 'rgba(148,163,184,0.12)', medium: 'rgba(59,130,246,0.12)',
   high: 'rgba(245,158,11,0.12)', urgent: 'rgba(239,68,68,0.12)',
+}
+
+// ── Custom Tooltip ────────────────────────────────────────────────────────
+
+function CustomTooltip({ active, payload, label }: Record<string, unknown>) {
+  if (!active || !payload) return null
+  const p = payload as Array<{ color: string; name: string; value: number }>
+  return (
+    <div className="card p-2.5 text-sm shadow-lg">
+      <p className="font-semibold mb-1" style={{ color: 'var(--color-text)' }}>{label as string}</p>
+      {p.map((entry, i) => (
+        <p key={i} style={{ color: entry.color }}>{entry.name}: {entry.value}</p>
+      ))}
+    </div>
+  )
 }
 
 // ── Filtered Task Table ───────────────────────────────────────────────────────
@@ -110,6 +131,7 @@ function TaskTable({ tasks, label, onClose }: { tasks: AnalyticsTask[]; label: s
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function AnalyticsPage({ analytics, user }: Props) {
+  const router = useRouter()
   const {
     totalTasks, assignedToMe, completed, inProgress, pending,
     overdue, dueToday, statusBreakdown, priorityBreakdown, departmentBreakdown, topUsers, allTasks,
@@ -143,15 +165,44 @@ export function AnalyticsPage({ analytics, user }: Props) {
     }
   }, [activeKpi, allTasks, user.username, today])
 
+  // Prepare chart data
+  const statusData = Object.entries(statusBreakdown).map(([label, value]) => ({
+    label: label.replace('_', ' '),
+    value,
+    color: STATUS_COLORS[label] || '#94A3B8',
+  }))
+
+  const priorityData = Object.entries(priorityBreakdown).map(([label, value]) => ({
+    label,
+    value,
+    color: PRIORITY_COLORS[label] || '#94A3B8',
+  }))
+
+  const departmentData = Object.entries(departmentBreakdown)
+    .map(([label, value]) => ({ label: label || 'Unassigned', value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8)
+
   const maxDeptValue = Math.max(...Object.values(departmentBreakdown), 1)
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Analytics</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-          Task performance overview — click any card to drill down
-        </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Analytics</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            Task performance overview — click any card to drill down
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+          style={{ background: 'var(--slate-100)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+        >
+          <Activity size={14} />
+          Refresh
+        </button>
       </div>
 
       {/* KPI Cards — clickable */}
@@ -175,59 +226,191 @@ export function AnalyticsPage({ analytics, user }: Props) {
               <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: k.bg, color: k.color }}>
                 {k.icon}
               </div>
-              <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{k.value}</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{activeKpi === k.label ? filteredTasks.length : k.value}</p>
               <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{k.label}</p>
             </button>
           )
         })}
       </div>
 
+      {/* Active Filter Banner */}
+      {activeKpi && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: 'var(--blue-50)', border: '1px solid var(--blue-200)' }}>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--blue-700)' }}>Active Filter</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{activeKpi}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveKpi(null)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+            style={{ background: 'white', color: 'var(--blue-700)', border: '1px solid var(--blue-200)' }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Filtered Task Table */}
       {activeKpi && (
         <div className="mb-6">
           <TaskTable
             tasks={filteredTasks}
-            label={`${activeKpi} — filtered tasks`}
+            label={`${activeKpi} — filtered tasks (${filteredTasks.length})`}
             onClose={() => setActiveKpi(null)}
           />
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        {/* Status Breakdown */}
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* Status Donut */}
         <div className="card p-5">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>By Status</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={16} style={{ color: 'var(--blue-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Task Status</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click to filter</span>
+          </div>
+          {statusData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={statusData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={80}
+                  dataKey="value"
+                  labelLine={false}
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const label = entry.payload?.label
+                    if (!label) return
+                    const statusKey = Object.keys(statusBreakdown).find(k => k.replace('_', ' ') === label)
+                    if (statusKey === 'done') setActiveKpi('Completed')
+                    else if (statusKey === 'in_progress') setActiveKpi('In Progress')
+                    else if (statusKey === 'todo' || statusKey === 'backlog') setActiveKpi('Pending')
+                  }}
+                >
+                  {statusData.map((entry, index) => (
+                    <Cell key={index} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+              No data
+            </div>
+          )}
+        </div>
+
+        {/* Priority Donut */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle size={16} style={{ color: 'var(--orange-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>By Priority</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click to filter</span>
+          </div>
+          {priorityData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={priorityData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={80}
+                  dataKey="value"
+                  labelLine={false}
+                  cursor="pointer"
+                >
+                  {priorityData.map((entry, index) => (
+                    <Cell key={index} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+              No data
+            </div>
+          )}
+        </div>
+
+        {/* Department Bar */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={16} style={{ color: 'var(--emerald-500)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>By Department</h3>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>top 8</span>
+          </div>
+          {departmentData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={departmentData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+              No data
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Status Breakdown — Clickable bars */}
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Status Breakdown</h2>
           <div className="flex flex-col gap-3">
             {Object.entries(statusBreakdown).map(([status, count]) => {
               const pct = totalTasks > 0 ? (count / totalTasks) * 100 : 0
+              let filterLabel = 'Total Tasks'
+              if (status === 'done') filterLabel = 'Completed'
+              else if (status === 'in_progress') filterLabel = 'In Progress'
+              else if (status === 'todo' || status === 'backlog') filterLabel = 'Pending'
+              
               return (
-                <div key={status}>
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setActiveKpi(prev => prev === filterLabel ? null : filterLabel)}
+                  className="text-left transition-opacity"
+                  style={{ opacity: !activeKpi || activeKpi === filterLabel ? 1 : 0.5 }}
+                >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-medium capitalize" style={{ color: 'var(--slate-600)' }}>{status.replace('_', ' ')}</span>
                     <span className="text-xs font-bold" style={{ color: 'var(--slate-900)' }}>{count}</span>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                  <div className="h-2.5 rounded-full overflow-hidden cursor-pointer hover:opacity-80" style={{ background: 'var(--slate-100)' }}>
                     <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: STATUS_COLORS[status] || '#94A3B8' }} />
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
 
-        {/* Priority Breakdown */}
+        {/* Priority Breakdown — Clickable bars */}
         <div className="card p-5">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>By Priority</h2>
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Priority Breakdown</h2>
           <div className="flex flex-col gap-3">
             {Object.entries(priorityBreakdown).map(([priority, count]) => {
               const pct = totalTasks > 0 ? (count / totalTasks) * 100 : 0
               return (
-                <div key={priority}>
+                <div key={priority} className="text-left">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-medium capitalize" style={{ color: 'var(--slate-600)' }}>{priority}</span>
                     <span className="text-xs font-bold" style={{ color: 'var(--slate-900)' }}>{count}</span>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                  <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
                     <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: PRIORITY_COLORS[priority] || '#94A3B8' }} />
                   </div>
                 </div>
@@ -237,17 +420,18 @@ export function AnalyticsPage({ analytics, user }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Additional insights row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
         {/* Department Breakdown */}
         <div className="card p-5">
-          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>By Department</h2>
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Tasks by Department</h2>
           {Object.keys(departmentBreakdown).length === 0 ? (
             <p className="text-xs" style={{ color: 'var(--slate-400)' }}>No department data</p>
           ) : (
             <div className="flex flex-col gap-2.5">
               {Object.entries(departmentBreakdown).sort(([, a], [, b]) => b - a).map(([dept, count]) => (
                 <div key={dept} className="flex items-center gap-3">
-                  <span className="text-xs font-medium w-24 truncate" style={{ color: 'var(--slate-600)' }}>{dept || 'Unassigned'}</span>
+                  <span className="text-xs font-medium w-28 truncate" style={{ color: 'var(--slate-600)' }}>{dept || 'Unassigned'}</span>
                   <div className="flex-1 h-6 rounded-lg overflow-hidden relative" style={{ background: 'var(--slate-50)' }}>
                     <div className="h-full rounded-lg flex items-center justify-end pr-2" style={{ width: `${Math.max((count / maxDeptValue) * 100, 8)}%`, background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
                       <span className="text-[10px] font-bold text-white">{count}</span>
