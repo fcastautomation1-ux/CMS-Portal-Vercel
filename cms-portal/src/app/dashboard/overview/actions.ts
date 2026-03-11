@@ -16,7 +16,7 @@ export interface OverviewStats {
     dueToday: number
   }
   departments: { total: number }
-  topPerformers: Array<{ username: string; completed: number; total: number; completion: number }>
+  topPerformers: Array<{ username: string; completed: number; total: number; completion: number; avatarData: string | null }>
   tasksByStatus: Array<{ label: string; value: number; color: string }>
   tasksByDept: Array<{ label: string; value: number }>
   recentTasks: Array<{
@@ -43,7 +43,7 @@ export interface OverviewStats {
     category: string | null
     created_at: string
   }>
-  userRecords: Array<{ username: string; role: string }>
+  userRecords: Array<{ username: string; role: string; avatarData: string | null }>
 }
 
 export interface ManagerOverviewStats {
@@ -79,7 +79,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const [accountsRes, campaignsRes, usersRes, todosRes, deptsRes] = await Promise.all([
     supabase.from('accounts').select('customer_id,enabled,status'),
     supabase.from('campaigns').select('customer_id,enabled'),
-    supabase.from('users').select('username,role'),
+    supabase.from('users').select('username,role,avatar_data'),
     supabase.from('todos').select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at,archived').eq('archived', false).order('created_at', { ascending: false }),
     supabase.from('departments').select('id'),
   ])
@@ -101,9 +101,10 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   }
 
   // Users
-  const usersData = (usersRes.data ?? []) as Array<{ username: string; role: string }>
+  const usersData = (usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>
   const byRole: Record<string, number> = {}
   usersData.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1 })
+  const avatarMap = Object.fromEntries(usersData.map(u => [u.username, u.avatar_data ?? null]))
 
   // Todos
   const todos = (todosRes.data ?? []) as Array<{
@@ -153,6 +154,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
       completed: s.completed,
       total: s.total,
       completion: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
+      avatarData: avatarMap[username] ?? null,
     }))
     .sort((a, b) => b.completed - a.completed)
     .slice(0, 8)
@@ -193,7 +195,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     tasksByDept,
     recentTasks,
     taskRecords: todos,
-    userRecords: usersData,
+    userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: u.avatar_data ?? null })),
   }
 }
 

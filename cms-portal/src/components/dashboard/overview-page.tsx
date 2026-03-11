@@ -214,6 +214,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
         completed: value.completed,
         total: value.total,
         completion: value.total > 0 ? Math.round((value.completed / value.total) * 100) : 0,
+        avatarData: usersByName[username]?.avatarData ?? null,
       }))
       .sort((a, b) => b.completed - a.completed)
       .slice(0, 8)
@@ -634,6 +635,14 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                   >
                     {i + 1}
                   </span>
+                  <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #8B5CF6)' }}>
+                    {p.avatarData ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.avatarData} alt={p.username} className="w-full h-full object-cover" />
+                    ) : (
+                      p.username.charAt(0).toUpperCase()
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="text-xs font-semibold truncate" style={{ color: 'var(--color-text)' }}>{p.username}</span>

@@ -8,8 +8,7 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell, CartesianGrid, Legend,
-  type PieLabelRenderProps,
+  PieChart, Pie, Cell, CartesianGrid,
 } from 'recharts'
 import type { SessionUser } from '@/types'
 import type { AnalyticsData, AnalyticsTask } from '@/app/dashboard/analytics/actions'
@@ -99,7 +98,7 @@ function TaskTable({ tasks, label, onClose }: { tasks: AnalyticsTask[]; label: s
                     onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--slate-50)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = '' }}
                   >
-                    <td className="py-2.5 px-4 max-w-[200px]">
+                    <td className="py-2.5 px-4 max-w-50">
                       <span className="truncate block font-medium" style={{ color: 'var(--color-text)' }}>{t.title || '(no title)'}</span>
                       <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>{t.username}</span>
                     </td>
@@ -283,8 +282,8 @@ export function AnalyticsPage({ analytics, user }: Props) {
                   dataKey="value"
                   labelLine={false}
                   cursor="pointer"
-                  onClick={(entry: any) => {
-                    const label = entry.payload?.label
+                  onClick={(entry: unknown) => {
+                    const label = ((entry as { payload?: { label?: string } }).payload?.label) ?? null
                     if (!label) return
                     const statusKey = Object.keys(statusBreakdown).find(k => k.replace('_', ' ') === label)
                     if (statusKey === 'done') setActiveKpi('Completed')
@@ -296,7 +295,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
                     <Cell key={index} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -330,7 +329,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
                     <Cell key={index} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -349,12 +348,12 @@ export function AnalyticsPage({ analytics, user }: Props) {
           </div>
           {departmentData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={departmentData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={departmentData} layout="vertical" margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" />
+                <Bar dataKey="value" fill="#2B7FFF" radius={[0, 4, 4, 0]} name="Tasks" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -455,7 +454,14 @@ export function AnalyticsPage({ analytics, user }: Props) {
                 return (
                   <div key={u.username} className="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50/30 transition-colors">
                     <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: i < 3 ? 'linear-gradient(135deg, #F59E0B, #D97706)' : 'var(--slate-100)', color: i < 3 ? '#FFF' : 'var(--slate-500)' }}>{i + 1}</span>
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>{u.username.charAt(0).toUpperCase()}</div>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white overflow-hidden" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
+                      {u.avatarData ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={u.avatarData} alt={u.username} className="w-full h-full object-cover" />
+                      ) : (
+                        u.username.charAt(0).toUpperCase()
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-xs font-medium truncate block" style={{ color: 'var(--slate-900)' }}>{u.username}</span>
                     </div>

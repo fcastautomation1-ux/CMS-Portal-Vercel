@@ -19,11 +19,27 @@ type RawLookerReport = {
   active?: boolean | null
 }
 
+function normalizeReportUrl(value: string | null | undefined): string {
+  if (!value) return ''
+  let url = value.trim()
+
+  if (url.includes('<iframe')) {
+    const match = url.match(/src="([^"]+)"/i)
+    if (match?.[1]) url = match[1]
+  }
+
+  if (url.includes('lookerstudio.google.com/reporting/') && !url.includes('/embed/')) {
+    url = url.replace('/reporting/', '/embed/reporting/')
+  }
+
+  return url
+}
+
 function normalizeReport(row: RawLookerReport): LookerReport {
   return {
     id: row.id,
     title: row.title ?? row.name ?? 'Untitled Report',
-    report_url: row.report_url ?? row.url ?? '',
+    report_url: normalizeReportUrl(row.report_url ?? row.url ?? ''),
     allowed_users: row.allowed_users ?? '',
     created_by: row.created_by ?? null,
     sort_order: row.sort_order ?? 0,
@@ -37,19 +53,32 @@ export async function getLookerReports(): Promise<LookerReport[]> {
   if (!user) return []
 
   const supabase = createServerClient()
-  const { data, error } = await supabase
+  const bySortOrder = await supabase
     .from('looker_reports')
     .select('*')
-    .order('sort_order')
+    .order('sort_order', { ascending: true })
 
-  if (error) { console.error('getLookerReports error:', error); return [] }
+  const byUpdatedAt = bySortOrder.error
+    ? await supabase
+      .from('looker_reports')
+      .select('*')
+      .order('updated_at', { ascending: false })
+    : bySortOrder
 
-  const reports = ((data as RawLookerReport[]) ?? [])
+  if (byUpdatedAt.error) { console.error('getLookerReports error:', byUpdatedAt.error); return [] }
+
+  const reports = ((byUpdatedAt.data as RawLookerReport[]) ?? [])
     .map(normalizeReport)
+    .filter(r => {
+      const raw = (byUpdatedAt.data as RawLookerReport[]).find(x => x.id === r.id)
+      return raw?.active !== false
+    })
     .filter(r => Boolean(r.report_url))
 
   // Non-Admin/Manager users only see reports they are allowed to view
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
+  const normalizedRole = user.role.toLowerCase()
+  const isPrivileged = normalizedRole === 'admin' || normalizedRole === 'super manager' || normalizedRole === 'manager'
+  if (!isPrivileged) {
     const allowed = user.allowedLookerReports
     if (!allowed.includes('All') && !allowed.includes('*')) {
       return reports.filter(r => {

@@ -27,7 +27,7 @@ export interface AnalyticsData {
   statusBreakdown: Record<string, number>
   priorityBreakdown: Record<string, number>
   departmentBreakdown: Record<string, number>
-  topUsers: Array<{ username: string; total: number; completed: number }>
+  topUsers: Array<{ username: string; total: number; completed: number; avatarData: string | null }>
   allTasks: AnalyticsTask[]
 }
 
@@ -44,10 +44,15 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   if (user.role !== 'Admin' && user.role !== 'Super Manager') return empty
 
   const supabase = createServerClient()
-  const { data: todos } = await supabase
-    .from('todos')
-    .select('id, title, username, assigned_to, completed, task_status, priority, due_date, category, archived, created_at')
-    .eq('archived', false)
+  const [{ data: todos }, { data: usersData }] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('id, title, username, assigned_to, completed, task_status, priority, due_date, category, archived, created_at')
+      .eq('archived', false),
+    supabase
+      .from('users')
+      .select('username, avatar_data'),
+  ])
 
   if (!todos) return empty
 
@@ -92,8 +97,12 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     if (t.assigned_to === user.username) assignedToMe++
   }
 
+  const avatarMap = Object.fromEntries(
+    ((usersData ?? []) as Array<{ username: string; avatar_data: string | null }>).map(u => [u.username, u.avatar_data ?? null])
+  )
+
   const topUsers = Object.entries(userMap)
-    .map(([username, stats]) => ({ username, ...stats }))
+    .map(([username, stats]) => ({ username, ...stats, avatarData: avatarMap[username] ?? null }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 10)
 
