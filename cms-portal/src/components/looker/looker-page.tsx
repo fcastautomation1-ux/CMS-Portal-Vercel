@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ExternalLink, Plus, Trash2, FileBarChart, X, Search } from 'lucide-react'
+import { ExternalLink, Plus, Trash2, FileBarChart, X, Search, Sparkles, Link as LinkIcon } from 'lucide-react'
 import { saveLookerReport, deleteLookerReport } from '@/app/dashboard/looker/actions'
 import type { LookerReport, SessionUser } from '@/types'
 
@@ -25,14 +25,27 @@ export function LookerPage({ reports: initial, user }: Props) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Looker Reports</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{reports.length} reports available</p>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Looker Reports</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>{reports.length} reports available</p>
         </div>
         {canEdit && (
           <button onClick={() => setModalOpen(true)} className="btn-motion h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: 'var(--blue-600)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}>
             <Plus size={16} /> Add Report
           </button>
         )}
+      </div>
+
+      <div className="card p-5 mb-6" style={{ background: 'linear-gradient(135deg, rgba(43,127,255,0.14), rgba(99,102,241,0.10))' }}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'rgba(59,130,246,0.14)', color: '#1D4ED8' }}>
+              <Sparkles size={12} /> Live from database
+            </div>
+            <p className="text-sm mt-3" style={{ color: 'var(--color-text)' }}>
+              Reports are fetched directly from the <strong>looker_reports</strong> table.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="card p-4 mb-6">
@@ -42,7 +55,7 @@ export function LookerPage({ reports: initial, user }: Props) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
-            style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
+            style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             placeholder="Search reports..."
           />
         </div>
@@ -51,14 +64,15 @@ export function LookerPage({ reports: initial, user }: Props) {
       {filtered.length === 0 ? (
         <div className="card p-12 text-center">
           <FileBarChart size={40} className="mx-auto mb-3 text-slate-300" />
-          <p className="text-sm font-medium" style={{ color: 'var(--slate-500)' }}>No reports available</p>
+          <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>No reports available</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(r => (
-            <div key={r.id} className="card p-5 flex flex-col gap-3 group">
+            <div key={r.id} className="card p-4 flex flex-col gap-3 group overflow-hidden relative" style={{ boxShadow: '0 10px 24px rgba(15,23,42,0.08)' }}>
+              <div className="absolute top-0 left-0 right-0 h-1" style={{ background: 'linear-gradient(90deg, #2B7FFF, #6366F1)' }} />
               <div className="flex items-start justify-between">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(59,130,246,0.08)' }}>
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(59,130,246,0.12)' }}>
                   <FileBarChart size={20} style={{ color: '#2563EB' }} />
                 </div>
                 {canEdit && (
@@ -68,15 +82,21 @@ export function LookerPage({ reports: initial, user }: Props) {
                 )}
               </div>
               <div>
-                <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--slate-900)' }}>{r.title}</h3>
-                <p className="text-xs" style={{ color: 'var(--slate-400)' }}>
-                  {r.allowed_users ? `Shared with: ${r.allowed_users.split(',').length} users` : 'All users'}
+                <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--color-text)' }}>{r.title}</h3>
+                <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  <LinkIcon size={12} />
+                  <span className="truncate">{r.report_url}</span>
+                </div>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                  {r.allowed_users && r.allowed_users.trim() && r.allowed_users.trim().toLowerCase() !== 'empty'
+                    ? `Allowed: ${r.allowed_users}`
+                    : 'Allowed: All portal users'}
                 </p>
               </div>
               <a
                 href={r.report_url} target="_blank" rel="noopener noreferrer"
-                className="btn-motion mt-auto inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
-                style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}
+                className="btn-motion mt-auto inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors text-white"
+                style={{ background: 'linear-gradient(135deg, #2B7FFF, #1D4ED8)' }}
               >
                 <ExternalLink size={12} /> Open Report
               </a>
@@ -114,24 +134,24 @@ function ReportModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r: L
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:rounded-2xl rounded-t-2xl sm:max-w-md overflow-hidden animate-slide-up" style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid var(--slate-200)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
-          <h2 className="font-bold text-base" style={{ color: 'var(--slate-900)' }}>Add Report</h2>
+      <div className="w-full sm:rounded-2xl rounded-t-2xl sm:max-w-md overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Add Report</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
         <form onSubmit={handleSubmit} className="px-5 py-5 flex flex-col gap-4">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Title</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} required className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
+            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} required className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Report URL</label>
-            <input value={reportUrl} onChange={e => setReportUrl(e.target.value)} type="url" required className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
+            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report URL</label>
+            <input value={reportUrl} onChange={e => setReportUrl(e.target.value)} type="url" required className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Allowed Users <span className="font-normal">(comma-separated, blank = all)</span></label>
-            <input value={allowedUsers} onChange={e => setAllowedUsers(e.target.value)} placeholder="user1, user2" className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
+            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Allowed Users <span className="font-normal">(comma-separated, blank = all)</span></label>
+            <input value={allowedUsers} onChange={e => setAllowedUsers(e.target.value)} placeholder="user1, user2" className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
           <button type="submit" disabled={saving} className="h-10 rounded-lg text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)' }}>{saving ? 'Saving...' : 'Add Report'}</button>
         </form>
