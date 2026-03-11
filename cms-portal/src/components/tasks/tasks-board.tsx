@@ -311,7 +311,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
                 {selected.size} selected <ChevronDown size={14} />
               </button>
               {showBulkMenu && (
-                <div className="absolute right-0 top-10 bg-white border border-slate-200 rounded-xl shadow-xl z-20 min-w-40 py-1">
+                <div className="absolute right-0 top-10 border rounded-xl shadow-xl z-20 min-w-40 py-1" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
                   <button onClick={bulkArchive} className="w-full px-4 py-2.5 text-sm text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                     <Archive size={14}/> Archive All
                   </button>
@@ -333,7 +333,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
           </button>
 
           {/* View toggle */}
-          <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-1">
+          <div className="flex items-center gap-0.5 rounded-xl p-1" style={{ background: 'var(--slate-100)' }}>
             {[
               { mode: 'list' as ViewMode, icon: <LayoutList size={16}/> },
               { mode: 'kanban' as ViewMode, icon: <LayoutGrid size={16}/> },
@@ -346,6 +346,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
                   'p-1.5 rounded-lg transition-colors',
                   viewMode === mode ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 )}
+                style={viewMode === mode ? { background: 'var(--color-surface)' } : undefined}
                 title={mode}
               >
                 {icon}
@@ -374,6 +375,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
             />
           </div>
 
@@ -386,6 +388,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
               setSortDir(d as typeof sortDir)
             }}
             className="border border-slate-200 rounded-xl px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
           >
             <option value="created_at_desc">Newest</option>
             <option value="created_at_asc">Oldest</option>
@@ -400,6 +403,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
             className="border border-slate-200 rounded-xl px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
           >
             <option value="all">All Statuses</option>
             <option value="backlog">Backlog</option>
@@ -413,6 +417,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
             className="border border-slate-200 rounded-xl px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
           >
             <option value="all">All Priorities</option>
             <option value="urgent">Urgent</option>
@@ -476,7 +481,7 @@ export function TasksBoard({ currentUsername, initialTasks, initialStats }: Task
                     <div className={cn('rounded-xl border-2 p-1', col.color)}>
                       <div className="flex items-center justify-between px-3 py-2">
                         <span className="text-sm font-bold text-slate-700">{col.label}</span>
-                        <span className="text-xs text-slate-400 bg-white px-2 py-0.5 rounded-full font-medium">
+                        <span className="text-xs text-slate-400 px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--color-surface)' }}>
                           {colTasks.length}
                         </span>
                       </div>
@@ -633,6 +638,7 @@ function CalendarView({
                 !day && 'bg-slate-50',
                 isToday && 'bg-blue-50 ring-1 ring-inset ring-blue-300'
               )}
+              style={{ background: day ? 'var(--color-surface)' : 'var(--slate-50)' }}
             >
               {day && (
                 <>

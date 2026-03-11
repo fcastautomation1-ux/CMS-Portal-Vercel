@@ -114,9 +114,9 @@ export function TeamPage({ members }: Props) {
                 key={m.username}
                 className="rounded-2xl p-6 text-center transition-all duration-300 animate-fade-in"
                 style={{
-                  background: 'var(--color-card)',
+                  background: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
-                  boxShadow: '0 4px 12px rgba(15,23,42,0.06)',
+                  boxShadow: '0 8px 20px rgba(15,23,42,0.06)',
                 }}
               >
                 {/* Avatar */}

@@ -260,7 +260,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                       className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all"
                       style={{
                         border: `1.5px solid ${allOnPageSelected ? 'var(--blue-600)' : 'var(--slate-300)'}`,
-                        background: allOnPageSelected ? 'var(--blue-600)' : 'white',
+                        background: allOnPageSelected ? 'var(--blue-600)' : 'var(--color-surface)',
                       }}
                       onClick={toggleSelectAll}
                       role="checkbox"
@@ -302,11 +302,11 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                       key={account.customer_id}
                       className="group transition-colors"
                       style={{
-                        background: isSelected ? 'var(--blue-50)' : idx % 2 === 0 ? 'white' : 'var(--slate-50)',
+                        background: isSelected ? 'var(--blue-50)' : idx % 2 === 0 ? 'var(--color-surface)' : 'var(--slate-50)',
                         borderBottom: '1px solid var(--slate-100)',
                       }}
                       onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--slate-50)'; }}
-                      onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = idx % 2 === 0 ? 'white' : 'var(--slate-50)'; }}
+                      onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = idx % 2 === 0 ? 'var(--color-surface)' : 'var(--slate-50)'; }}
                     >
                       {canEdit && (
                         <td className="py-3.5 pl-4 pr-2">
@@ -314,7 +314,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                             className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all"
                             style={{
                               border: `1.5px solid ${isSelected ? 'var(--blue-600)' : 'var(--slate-300)'}`,
-                              background: isSelected ? 'var(--blue-600)' : 'white',
+                              background: isSelected ? 'var(--blue-600)' : 'var(--color-surface)',
                             }}
                             onClick={() => toggleSelect(account.customer_id)}
                           >

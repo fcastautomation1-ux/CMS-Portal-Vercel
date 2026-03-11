@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   LayoutGrid, TrendingUp, Users, CheckSquare, Building2,
-  AlertCircle, Clock, CheckCircle2, Activity, ArrowUp,
+  AlertCircle, Clock, CheckCircle2, Activity,
   BarChart3, Star, Calendar
 } from 'lucide-react'
 import type { SessionUser } from '@/types'
@@ -18,13 +18,14 @@ import {
 // ── KPI Card ─────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, sub, icon, gradient, delay = 0, onClick, active = false,
+  label, value, sub, icon, color, iconBg, delay = 0, onClick, active = false,
 }: {
   label: string
   value: number | string
   sub?: string
   icon: React.ReactNode
-  gradient: string
+  color: string
+  iconBg: string
   delay?: number
   onClick?: () => void
   active?: boolean
@@ -33,36 +34,29 @@ function KpiCard({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-2xl p-5 text-white relative overflow-hidden animate-fade-in text-left focus:outline-none transition-all duration-200 hover:scale-[1.02]"
+      className="card p-4 text-center relative animate-fade-in focus:outline-none transition-all duration-200 hover:scale-[1.03]"
       style={{
-        background: gradient,
         animationDelay: `${delay}ms`,
-        boxShadow: active ? '0 0 0 3px rgba(255,255,255,0.8), 0 8px 24px rgba(0,0,0,0.25)' : undefined,
-        transform: active ? 'scale(1.02)' : undefined,
+        boxShadow: active ? `0 0 0 2px ${color}, 0 4px 16px ${color}30` : undefined,
+        transform: active ? 'scale(1.03)' : undefined,
       }}
     >
       {active && (
-        <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full bg-white opacity-90" />
+        <span className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ background: color }} />
       )}
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-center justify-center mb-2">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ background: 'rgba(255,255,255,0.2)' }}
+          style={{ background: iconBg, color }}
         >
           {icon}
         </div>
-        <ArrowUp size={14} className="opacity-60 mt-1" />
       </div>
-      <div className="text-3xl font-bold tracking-tight animate-count-up">
+      <div className="text-3xl font-bold tracking-tight animate-count-up" style={{ color: 'var(--color-text)' }}>
         {value}
       </div>
-      <div className="text-sm font-semibold opacity-90 mt-0.5">{label}</div>
-      {sub && <div className="text-xs opacity-70 mt-0.5">{sub}</div>}
-      {/* decorative circle */}
-      <div
-        className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full"
-        style={{ background: 'rgba(255,255,255,0.1)' }}
-      />
+      <div className="text-sm font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{label}</div>
+      {sub && <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{sub}</div>}
     </button>
   )
 }
@@ -311,7 +305,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           value={stats.accounts.total}
           sub={`${stats.accounts.running} running`}
           icon={<LayoutGrid size={18} />}
-          gradient="linear-gradient(135deg, #2B7FFF, #1A6AE4)"
+          color="#3B82F6"
+          iconBg="rgba(59,130,246,0.12)"
           delay={0}
           active={activeFilter === 'Total Accounts'}
           onClick={() => setActiveFilter(activeFilter === 'Total Accounts' ? null : 'Total Accounts')}
@@ -321,7 +316,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           value={stats.campaigns.total}
           sub={`${stats.campaigns.enabled} active`}
           icon={<TrendingUp size={18} />}
-          gradient="linear-gradient(135deg, #F97316, #EA580C)"
+          color="#F59E0B"
+          iconBg="rgba(245,158,11,0.12)"
           delay={60}
           active={activeFilter === 'Campaigns'}
           onClick={() => setActiveFilter(activeFilter === 'Campaigns' ? null : 'Campaigns')}
@@ -330,7 +326,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           label="Team Members"
           value={activeFilter ? filtered.visibleUsers.length : stats.users.total}
           icon={<Users size={18} />}
-          gradient="linear-gradient(135deg, #8B5CF6, #7C3AED)"
+          color="#8B5CF6"
+          iconBg="rgba(139,92,246,0.12)"
           delay={120}
           active={activeFilter === 'Team Members' || Boolean(activeFilter && stats.users.byRole[activeFilter])}
           onClick={() => setActiveFilter(activeFilter === 'Team Members' ? null : 'Team Members')}
@@ -340,7 +337,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           value={activeFilter ? filtered.taskTotals.total : stats.tasks.total}
           sub={`${activeFilter ? filtered.taskTotals.completed : stats.tasks.completed} done`}
           icon={<CheckSquare size={18} />}
-          gradient="linear-gradient(135deg, #10B981, #059669)"
+          color="#22C55E"
+          iconBg="rgba(34,197,94,0.12)"
           delay={180}
           active={activeFilter === 'Total Tasks'}
           onClick={() => setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')}
@@ -350,7 +348,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           value={activeFilter ? filtered.taskTotals.overdue : stats.tasks.overdue}
           sub="need attention"
           icon={<AlertCircle size={18} />}
-          gradient="linear-gradient(135deg, #EF4444, #DC2626)"
+          color="#EF4444"
+          iconBg="rgba(239,68,68,0.12)"
           delay={240}
           active={activeFilter === 'Overdue'}
           onClick={() => setActiveFilter(activeFilter === 'Overdue' ? null : 'Overdue')}
@@ -359,7 +358,8 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           label="Departments"
           value={activeFilter ? filtered.tasksByDept.length : stats.departments.total}
           icon={<Building2 size={18} />}
-          gradient="linear-gradient(135deg, #14B8A6, #0D9488)"
+          color="#14B8A6"
+          iconBg="rgba(20,184,166,0.12)"
           delay={300}
           active={activeFilter === 'Departments' || Boolean(activeFilter && filtered.tasksByDept.some(item => item.label === activeFilter))}
           onClick={() => setActiveFilter(activeFilter === 'Departments' ? null : (filtered.tasksByDept[0]?.label ?? stats.tasksByDept[0]?.label ?? 'Departments'))}
@@ -742,10 +742,10 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <KpiCard label="Team Members" value={stats.teamCount} icon={<Users size={18} />} gradient="linear-gradient(135deg, #8B5CF6, #7C3AED)" />
-        <KpiCard label="Tasks Done" value={stats.teamTasks.completed} sub={`${completionRate}% rate`} icon={<CheckCircle2 size={18} />} gradient="linear-gradient(135deg, #10B981, #059669)" delay={60} />
-        <KpiCard label="In Progress" value={stats.teamTasks.inProgress} icon={<Activity size={18} />} gradient="linear-gradient(135deg, #2B7FFF, #1A6AE4)" delay={120} />
-        <KpiCard label="Overdue" value={stats.teamTasks.overdue} icon={<AlertCircle size={18} />} gradient="linear-gradient(135deg, #EF4444, #DC2626)" delay={180} />
+        <KpiCard label="Team Members" value={stats.teamCount} icon={<Users size={18} />} color="#8B5CF6" iconBg="rgba(139,92,246,0.12)" />
+        <KpiCard label="Tasks Done" value={stats.teamTasks.completed} sub={`${completionRate}% rate`} icon={<CheckCircle2 size={18} />} color="#22C55E" iconBg="rgba(34,197,94,0.12)" delay={60} />
+        <KpiCard label="In Progress" value={stats.teamTasks.inProgress} icon={<Activity size={18} />} color="#3B82F6" iconBg="rgba(59,130,246,0.12)" delay={120} />
+        <KpiCard label="Overdue" value={stats.teamTasks.overdue} icon={<AlertCircle size={18} />} color="#EF4444" iconBg="rgba(239,68,68,0.12)" delay={180} />
       </div>
 
       {/* Team members */}

@@ -70,6 +70,7 @@
 
   /* Surfaces */
   --color-surface: #FFFFFF;
+  --color-card: #FFFFFF;
   --color-border:  #E4E8EF;
   --color-text:     var(--slate-800);
   --color-text-muted: var(--slate-500);
@@ -123,6 +124,7 @@
 .dark {
   --color-bg:           #0F172A;
   --color-surface:      #1E293B;
+  --color-card:         #1E293B;
   --color-border:       #334155;
   --color-text:         #F1F5F9;
   --color-text-muted:   #94A3B8;
