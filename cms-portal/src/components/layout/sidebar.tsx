@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Home,
+  Mail,
 } from 'lucide-react'
 
 interface NavItem {
@@ -45,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
   { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
   { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
+  { label: 'Integrations', href: '/dashboard/settings', icon: <Mail size={17} />, color: '#0EA5E9' },
 ]
 
 function isNavItemVisible(href: string, user: SessionUser): boolean {
@@ -94,6 +96,9 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       return teamMembers.length > 0
 
     case '/dashboard/analytics':
+      return isAdminOrSM
+
+    case '/dashboard/settings':
       return isAdminOrSM
 
     default:

@@ -104,6 +104,12 @@ export interface Package {
   id: string
   name: string
   app_name?: string | null
+  department?: string | null
+  playconsole_account?: string | null
+  marketer?: string | null
+  product_owner?: string | null
+  monetization?: string | null
+  admob?: string | null
   description: string | null
   category: string | null
   price: number | null

@@ -203,9 +203,13 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
     setMarkingAllRead(true)
     const res = await markAllNotificationsRead()
     if (res.success) {
+      // Update local state immediately — do NOT re-fetch from DB right away
+      // because a network round-trip can return stale cached counts.
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
       setUnreadCount(0)
-      await refreshUnreadCount(0)
+      prevUnreadRef.current = 0
+      // Switch to the unread tab so the "All caught up!" banner is immediately visible
+      setTab('unread')
     } else {
       await refreshNotifications(true)
     }

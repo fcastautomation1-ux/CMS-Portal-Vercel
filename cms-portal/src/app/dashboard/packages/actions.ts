@@ -11,25 +11,43 @@ type PackageAssignmentUser = {
   department: string | null
 }
 
+type UserPackageAssignment = {
+  username: string
+  package_id: string
+}
+
+function canManagePackages(role: string) {
+  return ['Admin', 'Super Manager', 'Manager'].includes(role)
+}
+
+async function getUserPackageRows(supabase: ReturnType<typeof createServerClient>): Promise<Array<{ package_id: string; username: string }>> {
+  const byUserId = await supabase.from('user_packages').select('package_id,user_id')
+  if (!byUserId.error) {
+    return ((byUserId.data ?? []) as Array<{ package_id: string; user_id: string }>).map(r => ({ package_id: r.package_id, username: r.user_id }))
+  }
+
+  const byUsername = await supabase.from('user_packages').select('package_id,username')
+  if (!byUsername.error) {
+    return ((byUsername.data ?? []) as Array<{ package_id: string; username: string }>).map(r => ({ package_id: r.package_id, username: r.username }))
+  }
+
+  return []
+}
+
 export async function getPackages(): Promise<Package[]> {
   const user = await getSession()
-  if (!user) return []
+  if (!user || !canManagePackages(user.role)) return []
 
   const supabase = createServerClient()
-  const [{ data, error }, { data: assignmentRows }] = await Promise.all([
-    supabase
-      .from('packages')
-      .select('*')
-      .order('name'),
-    supabase
-      .from('user_packages')
-      .select('package_id,user_id'),
+  const [{ data, error }, assignmentRows] = await Promise.all([
+    supabase.from('packages').select('*').order('name'),
+    getUserPackageRows(supabase),
   ])
 
   if (error) { console.error('getPackages error:', error); return [] }
 
   const assignedCountByPackage: Record<string, number> = {}
-  for (const row of (assignmentRows ?? []) as Array<{ package_id?: string }>) {
+  for (const row of assignmentRows) {
     if (!row.package_id) continue
     assignedCountByPackage[row.package_id] = (assignedCountByPackage[row.package_id] || 0) + 1
   }
@@ -40,61 +58,9 @@ export async function getPackages(): Promise<Package[]> {
   }))
 }
 
-export async function savePackage(
-  pkg: {
-    id?: string
-    name: string
-    app_name: string
-    description: string
-    category: string
-    price: number | null
-    is_active: boolean
-  }
-): Promise<{ success: boolean; error?: string }> {
-  const user = await getSession()
-  if (!user) return { success: false, error: 'Not authenticated.' }
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
-    return { success: false, error: 'Permission denied.' }
-  }
-
-  const supabase = createServerClient()
-
-  if (pkg.id) {
-    const { error } = await supabase
-      .from('packages')
-      .update({
-        name: pkg.name,
-        app_name: pkg.app_name || null,
-        description: pkg.description || null,
-        category: pkg.category || null,
-        price: pkg.price,
-        is_active: pkg.is_active,
-      })
-      .eq('id', pkg.id)
-    if (error) return { success: false, error: error.message }
-  } else {
-    const { error } = await supabase
-      .from('packages')
-      .insert({
-        name: pkg.name,
-        app_name: pkg.app_name || null,
-        description: pkg.description || null,
-        category: pkg.category || null,
-        price: pkg.price,
-        is_active: pkg.is_active,
-        created_by: user.username,
-      })
-    if (error) return { success: false, error: error.message }
-  }
-
-  revalidatePath('/dashboard/packages')
-  return { success: true }
-}
-
 export async function getPackageAssignmentUsers(): Promise<PackageAssignmentUser[]> {
   const user = await getSession()
-  if (!user) return []
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) return []
+  if (!user || !canManagePackages(user.role)) return []
 
   const supabase = createServerClient()
   const { data } = await supabase
@@ -105,57 +71,164 @@ export async function getPackageAssignmentUsers(): Promise<PackageAssignmentUser
   return (data as PackageAssignmentUser[] | null) ?? []
 }
 
-export async function getAssignedUsersForPackage(packageId: string): Promise<string[]> {
+export async function getUserPackageAssignments(): Promise<UserPackageAssignment[]> {
   const user = await getSession()
-  if (!user) return []
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) return []
+  if (!user || !canManagePackages(user.role)) return []
 
   const supabase = createServerClient()
-  const { data } = await supabase
-    .from('user_packages')
-    .select('user_id')
-    .eq('package_id', packageId)
-
-  return ((data ?? []) as Array<{ user_id: string }>).map(r => r.user_id)
+  const rows = await getUserPackageRows(supabase)
+  return rows.map(r => ({ username: r.username, package_id: r.package_id }))
 }
 
-export async function setAssignedUsersForPackage(
-  packageId: string,
-  usernames: string[]
+export async function assignPackagesToUser(
+  username: string,
+  packageIds: string[]
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
-    return { success: false, error: 'Permission denied.' }
-  }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
 
   const supabase = createServerClient()
-  const { error: deleteError } = await supabase
-    .from('user_packages')
-    .delete()
-    .eq('package_id', packageId)
 
-  if (deleteError) return { success: false, error: deleteError.message }
+  const deleteByUserId = await supabase.from('user_packages').delete().eq('user_id', username)
+  if (deleteByUserId.error) {
+    const deleteByUsername = await supabase.from('user_packages').delete().eq('username', username)
+    if (deleteByUsername.error) return { success: false, error: deleteByUsername.error.message }
+  }
 
-  const cleanUsers = Array.from(new Set(usernames.map(u => u.trim()).filter(Boolean)))
-  if (cleanUsers.length > 0) {
-    const rows = cleanUsers.map(username => ({
+  const cleanIds = Array.from(new Set(packageIds.filter(Boolean)))
+  if (cleanIds.length > 0) {
+    const rowsWithUserId = cleanIds.map(packageId => ({
       user_id: username,
       package_id: packageId,
       assigned_by: user.username,
     }))
 
-    const { error: insertError } = await supabase.from('user_packages').insert(rows)
-    if (insertError) {
-      const fallbackRows = cleanUsers.map(username => ({ user_id: username, package_id: packageId }))
-      const { error: fallbackError } = await supabase.from('user_packages').insert(fallbackRows)
-      if (fallbackError) return { success: false, error: fallbackError.message }
+    const insertByUserId = await supabase.from('user_packages').insert(rowsWithUserId)
+    if (insertByUserId.error) {
+      const rowsWithUsername = cleanIds.map(packageId => ({
+        username,
+        package_id: packageId,
+        assigned_by: user.username,
+      }))
+      const insertByUsername = await supabase.from('user_packages').insert(rowsWithUsername)
+      if (insertByUsername.error) return { success: false, error: insertByUsername.error.message }
     }
   }
 
   revalidatePath('/dashboard/packages')
-  revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+export async function addPackagesBulk(
+  packageNames: string[],
+  department: string
+): Promise<{ success: boolean; total?: number; inserted?: number; skipped?: number; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
+
+  const normalized = Array.from(new Set(
+    (packageNames || []).map(n => (n || '').trim()).filter(Boolean)
+  ))
+
+  if (normalized.length === 0) {
+    return { success: false, error: 'No valid package names found.' }
+  }
+
+  const supabase = createServerClient()
+  const { data: existing, error: existingError } = await supabase
+    .from('packages')
+    .select('name')
+    .in('name', normalized)
+
+  if (existingError) return { success: false, error: existingError.message }
+
+  const existingSet = new Set(((existing ?? []) as Array<{ name: string }>).map(p => (p.name || '').toLowerCase()))
+  const toInsert = normalized
+    .filter(name => !existingSet.has(name.toLowerCase()))
+    .map(name => ({
+      name,
+      app_name: null,
+      description: '',
+      department: department || null,
+      created_by: user.username,
+    }))
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from('packages').insert(toInsert)
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath('/dashboard/packages')
+  return {
+    success: true,
+    total: normalized.length,
+    inserted: toInsert.length,
+    skipped: normalized.length - toInsert.length,
+  }
+}
+
+export async function savePackage(
+  pkg: {
+    id?: string
+    name: string
+    app_name: string
+    playconsole_account: string
+    marketer: string
+    product_owner: string
+    monetization: string
+    admob: string
+    description: string
+    department: string
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
+
+  if (!pkg.name?.trim()) return { success: false, error: 'Package name is required.' }
+  if (!pkg.app_name?.trim()) return { success: false, error: 'APP/Games name is required.' }
+
+  const supabase = createServerClient()
+
+  if (pkg.id) {
+    const { error } = await supabase
+      .from('packages')
+      .update({
+        app_name: pkg.app_name.trim(),
+        description: (pkg.description || '').trim(),
+        department: pkg.department || null,
+        playconsole_account: (pkg.playconsole_account || '').trim(),
+        marketer: (pkg.marketer || '').trim(),
+        product_owner: (pkg.product_owner || '').trim(),
+        monetization: (pkg.monetization || '').trim(),
+        admob: (pkg.admob || '').trim(),
+      })
+      .eq('id', pkg.id)
+
+    if (error) return { success: false, error: error.message }
+  } else {
+    const { error } = await supabase
+      .from('packages')
+      .insert({
+        name: pkg.name.trim(),
+        app_name: pkg.app_name.trim(),
+        description: (pkg.description || '').trim(),
+        department: pkg.department || null,
+        playconsole_account: (pkg.playconsole_account || '').trim(),
+        marketer: (pkg.marketer || '').trim(),
+        product_owner: (pkg.product_owner || '').trim(),
+        monetization: (pkg.monetization || '').trim(),
+        admob: (pkg.admob || '').trim(),
+        created_by: user.username,
+      })
+
+    if (error) return { success: false, error: error.message }
+  }
+
+  revalidatePath('/dashboard/packages')
   return { success: true }
 }
 
@@ -164,9 +237,7 @@ export async function deletePackage(
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
-  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
-    return { success: false, error: 'Permission denied.' }
-  }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
 
   const supabase = createServerClient()
   await supabase.from('user_packages').delete().eq('package_id', id)
@@ -175,3 +246,82 @@ export async function deletePackage(
   revalidatePath('/dashboard/packages')
   return { success: true }
 }
+
+// ─── Bulk assign departments to packages ──────────────────────
+// Sets/merges the department field for all given package IDs.
+export async function bulkAssignDepartments(
+  packageIds: string[],
+  departments: string[]   // multi-select list of department names
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
+  if (!packageIds.length) return { success: false, error: 'No packages selected.' }
+
+  const supabase = createServerClient()
+  const deptStr = departments.join(', ')   // stored as comma-separated string
+
+  const { error } = await supabase
+    .from('packages')
+    .update({ department: deptStr || null })
+    .in('id', packageIds)
+
+  if (error) return { success: false, error: error.message }
+  revalidatePath('/dashboard/packages')
+  return { success: true }
+}
+
+// ─── Bulk assign packages to multiple users ───────────────────
+// For each username, REPLACES their package list with a union of
+// their existing assignments + the newly selected packageIds.
+export async function bulkAssignPackagesToUsers(
+  usernames: string[],
+  packageIds: string[]
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canManagePackages(user.role)) return { success: false, error: 'Permission denied.' }
+  if (!usernames.length || !packageIds.length) {
+    return { success: false, error: 'Select at least one user and one package.' }
+  }
+
+  const supabase = createServerClient()
+  const cleanIds = Array.from(new Set(packageIds.filter(Boolean)))
+
+  for (const username of usernames) {
+    // Get existing assignments for this user
+    const existingRows = await getUserPackageRows(supabase)
+    const existing = existingRows
+      .filter(r => r.username === username)
+      .map(r => r.package_id)
+    const merged = Array.from(new Set([...existing, ...cleanIds]))
+
+    // Delete & re-insert (use same dual-column fallback as assignPackagesToUser)
+    const delById = await supabase.from('user_packages').delete().eq('user_id', username)
+    if (delById.error) {
+      await supabase.from('user_packages').delete().eq('username', username)
+    }
+
+    if (merged.length > 0) {
+      const rows = merged.map(packageId => ({
+        user_id: username,
+        package_id: packageId,
+        assigned_by: user.username,
+      }))
+      const ins = await supabase.from('user_packages').insert(rows)
+      if (ins.error) {
+        const rowsFallback = merged.map(packageId => ({
+          username,
+          package_id: packageId,
+          assigned_by: user.username,
+        }))
+        const insFallback = await supabase.from('user_packages').insert(rowsFallback)
+        if (insFallback.error) return { success: false, error: insFallback.error.message }
+      }
+    }
+  }
+
+  revalidatePath('/dashboard/packages')
+  return { success: true }
+}
+

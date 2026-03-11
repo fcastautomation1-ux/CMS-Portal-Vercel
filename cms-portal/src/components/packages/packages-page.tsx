@@ -1,198 +1,415 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Package as PackageIcon, Plus, Pencil, Trash2, X, DollarSign, Tag, Search, Users } from 'lucide-react'
-import { savePackage, deletePackage, getAssignedUsersForPackage, getPackageAssignmentUsers, setAssignedUsersForPackage } from '@/app/dashboard/packages/actions'
+import { useRouter } from 'next/navigation'
+import { Plus, X, Search, RefreshCw, Upload, CheckSquare, Square, Users, Building2, Check } from 'lucide-react'
+import {
+  addPackagesBulk,
+  assignPackagesToUser,
+  getPackageAssignmentUsers,
+  getUserPackageAssignments,
+  savePackage,
+  bulkAssignDepartments,
+  bulkAssignPackagesToUsers,
+} from '@/app/dashboard/packages/actions'
 import type { Package, SessionUser } from '@/types'
 
 interface Props { packages: Package[]; user: SessionUser }
 
-export function PackagesPage({ packages: initial, user }: Props) {
-  const canEdit = ['Admin', 'Super Manager'].includes(user.role)
-  const [packages, setPackages] = useState(initial)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Package | null>(null)
-  const [manageUsersOpen, setManageUsersOpen] = useState(false)
-  const [selectedPackage, setSelectedPackage] = useState<Package | null>(null)
+type AssignmentRow = { username: string; package_id: string }
+type UserRow = { username: string; role: string; department: string | null }
 
-  const categories = useMemo(() => {
-    return Array.from(new Set(packages.map(p => p.category).filter(Boolean) as string[])).sort()
-  }, [packages])
+export function PackagesPage({ packages: initial, user }: Props) {
+  const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
+  const router = useRouter()
+
+  const packages = initial
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+
+  const [packageSearch, setPackageSearch] = useState('')
+  const [selectedUser, setSelectedUser] = useState('')
+  const [assignSearch, setAssignSearch] = useState('')
+  const [selectedPackageIds, setSelectedPackageIds] = useState<Set<string>>(new Set())
+
+  // Bulk-edit: row selection
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
+  const [bulkDeptOpen, setBulkDeptOpen] = useState(false)
+  const [bulkUsersOpen, setBulkUsersOpen] = useState(false)
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [editing, setEditing] = useState<Package | null>(null)
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [userRows, assignmentRows] = await Promise.all([
+        getPackageAssignmentUsers(),
+        getUserPackageAssignments(),
+      ])
+      if (cancelled) return
+      setUsers(userRows)
+      setAssignments(assignmentRows)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const departments = useMemo(() => {
+    return Array.from(new Set(users.map(u => (u.department || '').trim()).filter(Boolean))).sort()
+  }, [users])
 
   const filteredPackages = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = packageSearch.trim().toLowerCase()
+    if (!q) return packages
     return packages.filter(pkg => {
-      if (statusFilter === 'active' && !pkg.is_active) return false
-      if (statusFilter === 'inactive' && pkg.is_active) return false
-      if (categoryFilter !== 'all' && (pkg.category || '') !== categoryFilter) return false
-      if (!q) return true
-      return (
-        pkg.name.toLowerCase().includes(q) ||
-        (pkg.app_name || '').toLowerCase().includes(q) ||
-        (pkg.description || '').toLowerCase().includes(q)
-      )
+      const blob = [
+        pkg.app_name || '',
+        pkg.name || '',
+        pkg.playconsole_account || '',
+        pkg.marketer || '',
+        pkg.product_owner || '',
+        pkg.monetization || '',
+        pkg.admob || '',
+        pkg.department || '',
+        pkg.description || '',
+      ].join(' ').toLowerCase()
+      return blob.includes(q)
     })
-  }, [packages, search, statusFilter, categoryFilter])
+  }, [packages, packageSearch])
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this package?')) return
-    const res = await deletePackage(id)
-    if (res.success) setPackages(prev => prev.filter(p => p.id !== id))
+  const filteredAssignPackages = useMemo(() => {
+    const q = assignSearch.trim().toLowerCase()
+    if (!q) return packages
+    return packages.filter(p => p.name.toLowerCase().includes(q) || (p.app_name || '').toLowerCase().includes(q))
+  }, [packages, assignSearch])
+
+  const assignedByPackage = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const row of assignments) {
+      if (!map[row.package_id]) map[row.package_id] = []
+      map[row.package_id].push(row.username)
+    }
+    return map
+  }, [assignments])
+
+  // Row selection helpers
+  const allRowsSelected = filteredPackages.length > 0 && filteredPackages.every(p => selectedRows.has(p.id))
+  function toggleAllRows() {
+    if (allRowsSelected) {
+      setSelectedRows(new Set())
+    } else {
+      setSelectedRows(new Set(filteredPackages.map(p => p.id)))
+    }
+  }
+  function toggleRow(id: string) {
+    setSelectedRows(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function openAddModal() {
+    setEditing(null)
+    setModalOpen(true)
+  }
+
+  function openEditModal(pkg: Package) {
+    setEditing(pkg)
+    setModalOpen(true)
+  }
+
+  async function handleSaveAssignments() {
+    if (!selectedUser) return
+    setSaving(true)
+    setError('')
+
+    const selected = Array.from(selectedPackageIds)
+    const res = await assignPackagesToUser(selectedUser, selected)
+    if (!res.success) {
+      setError(res.error || 'Failed to save assignment.')
+      setSaving(false)
+      return
+    }
+
+    const refreshed = await getUserPackageAssignments()
+    setAssignments(refreshed)
+    setSaving(false)
+  }
+
+  function toggleAssignment(packageId: string, checked: boolean) {
+    setSelectedPackageIds(prev => {
+      const next = new Set(prev)
+      if (checked) next.add(packageId)
+      else next.delete(packageId)
+      return next
+    })
   }
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Packages</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{packages.length} packages</p>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Package Management</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>Manage packages and assign them to users</p>
         </div>
         {canEdit && (
-          <button onClick={() => { setEditing(null); setModalOpen(true) }} className="h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}>
-            <Plus size={16} /> Add Package
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={openAddModal} className="h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: '#16A34A' }}>
+              <Plus size={16} /> Add Package
+            </button>
+            <button onClick={() => setBulkOpen(true)} className="h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2" style={{ background: '#2563EB' }}>
+              <Upload size={16} /> Bulk Import
+            </button>
+            <button onClick={() => router.refresh()} className="h-10 px-4 rounded-xl text-sm font-semibold flex items-center gap-2" style={{ background: '#F1F5F9', color: '#334155' }}>
+              <RefreshCw size={16} /> Refresh
+            </button>
+          </div>
         )}
       </div>
 
-      <div className="card p-4 mb-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <div className="relative sm:col-span-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search package, app, description..."
-              className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
-              style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
-            />
-          </div>
+      <div className="card p-4 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <strong className="text-sm" style={{ color: 'var(--slate-800)' }}>Assign Multiple Apps to User</strong>
           <select
-            value={categoryFilter}
-            onChange={e => setCategoryFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg text-sm outline-none"
-            style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
+            value={selectedUser}
+            onChange={e => {
+              const nextUser = e.target.value
+              setSelectedUser(nextUser)
+              if (!nextUser) {
+                setSelectedPackageIds(new Set())
+                return
+              }
+              const ids = assignments.filter(a => a.username === nextUser).map(a => a.package_id)
+              setSelectedPackageIds(new Set(ids))
+            }}
+            className="h-10 px-3 rounded-lg text-sm outline-none min-w-55"
+            style={{ border: '1px solid #CBD5E1', background: '#fff' }}
           >
-            <option value="all">All Categories</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="">-- Select a user --</option>
+            {users.map(u => <option key={u.username} value={u.username}>{u.username} ({u.role})</option>)}
           </select>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-            className="h-10 px-3 rounded-lg text-sm outline-none"
-            style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
+          <button onClick={handleSaveAssignments} disabled={!selectedUser || saving} className="h-10 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: '#16A34A', opacity: (!selectedUser || saving) ? 0.6 : 1 }}>
+            {saving ? 'Saving...' : 'Save Assignment'}
+          </button>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <input
+            value={assignSearch}
+            onChange={e => setAssignSearch(e.target.value)}
+            placeholder="Search app names for assignment..."
+            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-65"
+            style={{ border: '1px solid #CBD5E1', background: '#fff' }}
+          />
+          <span className="text-xs font-semibold" style={{ color: '#64748B' }}>
+            {filteredAssignPackages.length} / {packages.length} app names • {selectedPackageIds.size} selected
+          </span>
+        </div>
+
+        <div className="rounded-lg p-2 max-h-72 overflow-y-auto" style={{ border: '1px dashed #CBD5E1', background: '#fff' }}>
+          {filteredAssignPackages.length === 0 ? (
+            <div className="text-sm p-3" style={{ color: '#94A3B8' }}>No app names match your search.</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {filteredAssignPackages.map(pkg => {
+                const checked = selectedPackageIds.has(pkg.id)
+                return (
+                  <label key={pkg.id} className="flex items-center gap-2 px-3 py-2 rounded-lg min-w-55" style={{ border: `2px solid ${checked ? '#2563EB' : '#E2E8F0'}`, background: '#fff' }}>
+                    <input type="checkbox" checked={checked} onChange={e => toggleAssignment(pkg.id, e.target.checked)} />
+                    <span className="text-sm font-semibold" style={{ color: '#1E293B' }}>{pkg.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        {error && <div className="mt-3 text-sm" style={{ color: '#DC2626' }}>{error}</div>}
       </div>
 
-      {filteredPackages.length === 0 ? (
-        <div className="card p-12 text-center">
-          <PackageIcon size={40} className="mx-auto mb-3 text-slate-300" />
-          <p className="text-sm font-medium" style={{ color: 'var(--slate-500)' }}>No packages found</p>
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={packageSearch}
+            onChange={e => setPackageSearch(e.target.value)}
+            placeholder="Search package name..."
+            className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
+            style={{ border: '1px solid #E2E8F0', background: '#fff' }}
+          />
         </div>
-      ) : (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-215">
+        <span className="text-xs font-semibold" style={{ color: '#64748B' }}>{filteredPackages.length} / {packages.length} packages</span>
+      </div>
+
+      {/* ── Bulk action bar ─────────────────────────────── */}
+      {canEdit && selectedRows.size > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl mb-4 animate-fade-in"
+          style={{ background: 'rgba(37,99,235,0.06)', border: '1.5px solid rgba(37,99,235,0.2)' }}
+        >
+          <CheckSquare size={16} style={{ color: '#2563EB' }} />
+          <span className="text-sm font-semibold" style={{ color: '#2563EB' }}>
+            {selectedRows.size} package{selectedRows.size !== 1 ? 's' : ''} selected
+          </span>
+          <div className="h-4 w-px" style={{ background: 'rgba(37,99,235,0.3)' }} />
+          <button
+            onClick={() => setBulkDeptOpen(true)}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold text-white"
+            style={{ background: '#0D9488' }}
+          >
+            <Building2 size={13} /> Assign Departments
+          </button>
+          <button
+            onClick={() => setBulkUsersOpen(true)}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold text-white"
+            style={{ background: '#7C3AED' }}
+          >
+            <Users size={13} /> Assign to Users
+          </button>
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="ml-auto text-xs"
+            style={{ color: '#64748B' }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-270">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
-                {['Name', 'App Name', 'Category', 'Price', 'Assigned', 'Status', 'Actions'].map(h => (
-                  <th key={h} className="text-left px-5 py-3 font-semibold text-xs uppercase tracking-wider" style={{ color: 'var(--slate-400)' }}>{h}</th>
+              <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                {canEdit && (
+                  <th className="text-left px-3 py-3 w-10">
+                    <button
+                      type="button"
+                      onClick={toggleAllRows}
+                      className="flex items-center justify-center"
+                      title={allRowsSelected ? 'Deselect all' : 'Select all'}
+                    >
+                      {allRowsSelected
+                        ? <CheckSquare size={16} style={{ color: '#2563EB' }} />
+                        : <Square size={16} style={{ color: '#CBD5E1' }} />}
+                    </button>
+                  </th>
+                )}
+                {['APP/Games Name', 'Package Name', 'Playconsole', 'Marketer', 'Product Owner', 'Monitization', 'Admob', 'Department', 'Assigned Users', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: '#64748B' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filteredPackages.map(pkg => (
-                <tr key={pkg.id} className="hover:bg-blue-50/30 transition-colors" style={{ borderBottom: '1px solid var(--slate-50)' }}>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.08)' }}>
-                        <PackageIcon size={16} style={{ color: '#2563EB' }} />
-                      </div>
-                      <div>
-                        <span className="font-medium" style={{ color: 'var(--slate-900)' }}>{pkg.name}</span>
-                        {pkg.description && <p className="text-xs mt-0.5 truncate max-w-50" style={{ color: 'var(--slate-400)' }}>{pkg.description}</p>}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3" style={{ color: 'var(--slate-600)' }}>{pkg.app_name || '—'}</td>
-                  <td className="px-5 py-3">
-                    {pkg.category ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: 'var(--slate-100)', color: 'var(--slate-600)' }}>
-                        <Tag size={10} /> {pkg.category}
-                      </span>
-                    ) : <span style={{ color: 'var(--slate-400)' }}>—</span>}
-                  </td>
-                  <td className="px-5 py-3">
-                    {pkg.price != null ? (
-                      <span className="inline-flex items-center gap-0.5 text-sm font-semibold" style={{ color: 'var(--slate-900)' }}>
-                        <DollarSign size={13} />{pkg.price.toFixed(2)}
-                      </span>
-                    ) : <span className="text-xs" style={{ color: 'var(--slate-400)' }}>Free</span>}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}>
-                      <Users size={12} /> {pkg.assigned_users_count || 0}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium">
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: pkg.is_active ? '#22C55E' : '#94A3B8' }} />
-                      {pkg.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    {canEdit && (
-                      <div className="flex items-center gap-1">
+              {filteredPackages.length === 0 ? (
+                <tr><td colSpan={canEdit ? 11 : 10} className="px-4 py-12 text-center text-sm" style={{ color: '#94A3B8' }}>No packages match your search.</td></tr>
+              ) : (
+                filteredPackages.map(pkg => {
+                  const assignedUsers = assignedByPackage[pkg.id] || []
+                  const rowSelected = selectedRows.has(pkg.id)
+                  return (
+                    <tr key={pkg.id} style={{ borderBottom: '1px solid #F1F5F9', background: rowSelected ? 'rgba(37,99,235,0.04)' : undefined }}>
+                      {canEdit && (
+                        <td className="px-3 py-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleRow(pkg.id)}
+                            className="flex items-center justify-center"
+                          >
+                            {rowSelected
+                              ? <CheckSquare size={16} style={{ color: '#2563EB' }} />
+                              : <Square size={16} style={{ color: '#CBD5E1' }} />}
+                          </button>
+                        </td>
+                      )}
+                      <td className="px-4 py-3 font-semibold" style={{ color: '#1E293B' }}>{pkg.app_name || '—'}</td>
+                      <td className="px-4 py-3 text-xs" style={{ color: '#64748B' }}>{pkg.name}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.playconsole_account || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.marketer || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.product_owner || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.monetization || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.admob || '—'}</td>
+                      <td className="px-4 py-3 text-xs">{pkg.department || '—'}</td>
+                      <td className="px-4 py-3">
+                        {assignedUsers.length === 0 ? (
+                          <span className="text-xs" style={{ color: '#94A3B8' }}>No users assigned</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {assignedUsers.map(u => (
+                              <span key={`${pkg.id}-${u}`} className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#EEF2FF', color: '#6366F1' }}>{u}</span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
                         <button
-                          onClick={() => { setSelectedPackage(pkg); setManageUsersOpen(true) }}
-                          className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
-                          title="Manage users"
+                          onClick={() => openEditModal(pkg)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'rgba(59,130,246,0.12)', color: '#2563EB' }}
                         >
-                          <Users size={14} />
+                          Edit
                         </button>
-                        <button onClick={() => { setEditing(pkg); setModalOpen(true) }} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={14} /></button>
-                        <button onClick={() => handleDelete(pkg.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
-          </div>
         </div>
-      )}
+      </div>
 
       {modalOpen && (
         <PackageModal
           pkg={editing}
+          departments={departments}
           onClose={() => { setModalOpen(false); setEditing(null) }}
-          onSaved={(p, isNew) => {
-            if (isNew) setPackages(prev => [...prev, p])
-            else setPackages(prev => prev.map(x => x.id === p.id ? p : x))
-            setModalOpen(false); setEditing(null)
+          onSaved={async () => {
+            router.refresh()
+            setModalOpen(false)
+            setEditing(null)
           }}
         />
       )}
 
-      {manageUsersOpen && selectedPackage && (
-        <PackageUsersModal
-          pkg={selectedPackage}
-          onClose={() => { setManageUsersOpen(false); setSelectedPackage(null) }}
-          onSaved={(selectedUsers) => {
-            setPackages(prev => prev.map(p => p.id === selectedPackage.id
-              ? { ...p, assigned_users_count: selectedUsers.length }
-              : p
-            ))
-            setManageUsersOpen(false)
-            setSelectedPackage(null)
+      {bulkOpen && (
+        <BulkImportModal
+          departments={departments}
+          onClose={() => setBulkOpen(false)}
+          onSaved={async () => {
+            router.refresh()
+            setBulkOpen(false)
+          }}
+        />
+      )}
+
+      {bulkDeptOpen && canEdit && (
+        <BulkDeptModal
+          selectedPackageIds={Array.from(selectedRows)}
+          departments={departments}
+          onClose={() => setBulkDeptOpen(false)}
+          onSaved={async () => {
+            router.refresh()
+            setBulkDeptOpen(false)
+            setSelectedRows(new Set())
+          }}
+        />
+      )}
+
+      {bulkUsersOpen && canEdit && (
+        <BulkUsersModal
+          selectedPackageIds={Array.from(selectedRows)}
+          users={users}
+          onClose={() => setBulkUsersOpen(false)}
+          onSaved={async () => {
+            const refreshed = await getUserPackageAssignments()
+            setAssignments(refreshed)
+            setBulkUsersOpen(false)
+            setSelectedRows(new Set())
           }}
         />
       )}
@@ -200,159 +417,452 @@ export function PackagesPage({ packages: initial, user }: Props) {
   )
 }
 
-function PackageModal({ pkg, onClose, onSaved }: { pkg: Package | null; onClose: () => void; onSaved: (p: Package, isNew: boolean) => void }) {
-  const isEdit = !!pkg
-  const [form, setForm] = useState({
-    name: pkg?.name || '',
-    app_name: pkg?.app_name || '',
-    description: pkg?.description || '',
-    category: pkg?.category || '',
-    price: pkg?.price?.toString() || '',
-    is_active: pkg?.is_active ?? true,
-  })
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true); setError('')
-    const res = await savePackage({ id: pkg?.id, name: form.name, app_name: form.app_name, description: form.description, category: form.category, price: form.price ? parseFloat(form.price) : null, is_active: form.is_active })
-    if (res.success) {
-      onSaved({
-        id: pkg?.id || crypto.randomUUID(), name: form.name, description: form.description || null,
-        app_name: form.app_name || null,
-        category: form.category || null, price: form.price ? parseFloat(form.price) : null,
-        is_active: form.is_active, created_by: pkg?.created_by || null,
-        created_at: pkg?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(),
-      }, !isEdit)
-    } else setError(res.error || 'Failed')
-    setSaving(false)
-  }
-
-  const set = (k: string, v: string | boolean) => setForm(prev => ({ ...prev, [k]: v }))
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid var(--slate-200)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
-          <h2 className="font-bold text-base" style={{ color: 'var(--slate-900)' }}>{isEdit ? 'Edit Package' : 'Add Package'}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="px-5 py-5 flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
-          {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Name</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} required className="h-9 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>App Name</label>
-            <input value={form.app_name} onChange={e => set('app_name', e.target.value)} className="h-9 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Description</label>
-            <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={2} className="px-3 py-2 rounded-lg text-sm outline-none resize-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Category</label>
-              <input value={form.category} onChange={e => set('category', e.target.value)} className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Price</label>
-              <input value={form.price} onChange={e => set('price', e.target.value)} type="number" step="0.01" placeholder="Free" className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: 'rgba(255,255,255,0.7)' }} />
-            </div>
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} className="w-4 h-4 rounded" style={{ accentColor: '#2563EB' }} />
-            <span className="text-sm" style={{ color: 'var(--slate-600)' }}>Active</span>
-          </label>
-          <button type="submit" disabled={saving} className="h-10 rounded-lg text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)' }}>{saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}</button>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function PackageUsersModal({
+function PackageModal({
   pkg,
+  departments,
   onClose,
   onSaved,
 }: {
-  pkg: Package
+  pkg: Package | null
+  departments: string[]
   onClose: () => void
-  onSaved: (selectedUsers: string[]) => void
+  onSaved: () => void
 }) {
-  const [loading, setLoading] = useState(true)
+  const isEdit = !!pkg
+
+  const [name, setName] = useState(pkg?.name || '')
+  const [appName, setAppName] = useState(pkg?.app_name || '')
+  const [playconsole, setPlayconsole] = useState(pkg?.playconsole_account || '')
+  const [marketer, setMarketer] = useState(pkg?.marketer || '')
+  const [productOwner, setProductOwner] = useState(pkg?.product_owner || '')
+  const [monetization, setMonetization] = useState(pkg?.monetization || '')
+  const [admob, setAdmob] = useState(pkg?.admob || '')
+  const [description, setDescription] = useState(pkg?.description || '')
+  const [selectedDepts, setSelectedDepts] = useState<string[]>(pkg?.department ? pkg.department.split(',').map(d => d.trim()).filter(Boolean) : [])
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [users, setUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
-  const [selected, setSelected] = useState<string[]>([])
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      const [allUsers, assigned] = await Promise.all([
-        getPackageAssignmentUsers(),
-        getAssignedUsersForPackage(pkg.id),
-      ])
-      if (cancelled) return
-      setUsers(allUsers)
-      setSelected(assigned)
-      setLoading(false)
-    })()
-    return () => { cancelled = true }
-  }, [pkg.id])
-
-  function toggleUser(username: string) {
-    setSelected(prev => prev.includes(username) ? prev.filter(u => u !== username) : [...prev, username])
+  function toggleDept(dept: string) {
+    setSelectedDepts(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
   }
 
   async function handleSave() {
     setSaving(true)
     setError('')
-    const res = await setAssignedUsersForPackage(pkg.id, selected)
+
+    const res = await savePackage({
+      id: pkg?.id,
+      name,
+      app_name: appName,
+      playconsole_account: playconsole,
+      marketer,
+      product_owner: productOwner,
+      monetization,
+      admob,
+      description,
+      department: selectedDepts.join(', '),
+    })
+
     if (!res.success) {
-      setError(res.error || 'Failed to update package users.')
+      setError(res.error || 'Failed to save package.')
       setSaving(false)
       return
     }
-    onSaved(selected)
+
+    await onSaved()
     setSaving(false)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-xl sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid var(--slate-200)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
-          <h2 className="font-bold text-base" style={{ color: 'var(--slate-900)' }}>Manage Users • {pkg.name}</h2>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+          <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>{isEdit ? 'Edit App Name' : 'Add New App Name'}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
 
-        <div className="px-5 py-4 max-h-[65vh] overflow-y-auto">
-          {loading ? (
-            <p className="text-sm" style={{ color: 'var(--slate-500)' }}>Loading users...</p>
-          ) : users.length === 0 ? (
-            <p className="text-sm" style={{ color: 'var(--slate-500)' }}>No users available</p>
-          ) : (
-            <div className="space-y-1.5">
-              {users.map(u => (
-                <label key={u.username} className="flex items-center gap-2.5 p-2 rounded-lg" style={{ background: selected.includes(u.username) ? 'var(--blue-50)' : 'transparent' }}>
-                  <input type="checkbox" checked={selected.includes(u.username)} onChange={() => toggleUser(u.username)} />
-                  <span className="text-sm font-medium" style={{ color: 'var(--slate-800)' }}>{u.username}</span>
-                  <span className="text-xs" style={{ color: 'var(--slate-500)' }}>({u.role}{u.department ? ` • ${u.department}` : ''})</span>
+        <div className="px-5 py-5 flex flex-col gap-3 max-h-[70vh] overflow-y-auto">
+          {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
+
+          <Field label="APP/Games Name *">
+            <input value={appName} onChange={e => setAppName(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Package Name *">
+            <input value={name} onChange={e => setName(e.target.value)} disabled={isEdit} className="h-10 px-3 rounded-lg text-sm outline-none w-full disabled:bg-slate-100" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Playconsole Account Name">
+            <input value={playconsole} onChange={e => setPlayconsole(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Marketer">
+            <input value={marketer} onChange={e => setMarketer(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Product Owner">
+            <input value={productOwner} onChange={e => setProductOwner(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Monitization">
+            <input value={monetization} onChange={e => setMonetization(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Admob">
+            <input value={admob} onChange={e => setAdmob(e.target.value)} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Description">
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="px-3 py-2 rounded-lg text-sm outline-none w-full" style={{ border: '1px solid #CBD5E1' }} />
+          </Field>
+
+          <Field label="Departments">
+            <div className="rounded-lg p-2 max-h-32 overflow-y-auto" style={{ border: '1px solid #CBD5E1' }}>
+              {departments.map(dept => (
+                <label key={dept} className="flex items-center gap-2 text-sm py-1">
+                  <input type="checkbox" checked={selectedDepts.includes(dept)} onChange={() => toggleDept(dept)} />
+                  <span>{dept}</span>
                 </label>
               ))}
             </div>
-          )}
-          {error && <div className="text-sm p-3 rounded-lg mt-3" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
+          </Field>
+
+          <div className="flex justify-end gap-2 mt-2">
+            <button onClick={onClose} className="h-9 px-4 rounded-lg text-sm" style={{ color: '#64748B' }}>Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="h-9 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: '#16A34A', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Saving...' : isEdit ? 'Update App Name' : 'Save App Name'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BulkImportModal({
+  departments,
+  onClose,
+  onSaved,
+}: {
+  departments: string[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [selectedDepts, setSelectedDepts] = useState<string[]>([])
+  const [rawText, setRawText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function toggleDept(dept: string) {
+    setSelectedDepts(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
+  }
+
+  function parseInput(text: string): string[] {
+    return text
+      .split(/\r?\n|,|;/)
+      .map(x => x.trim())
+      .filter(Boolean)
+  }
+
+  async function handleImport() {
+    const names = parseInput(rawText)
+    if (names.length === 0) {
+      setError('Please paste at least one package name.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    const res = await addPackagesBulk(names, selectedDepts.join(', '))
+    if (!res.success) {
+      setError(res.error || 'Bulk import failed.')
+      setSaving(false)
+      return
+    }
+
+    await onSaved()
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+          <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Bulk Import Packages</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
 
-        <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--slate-100)' }}>
-          <button onClick={onClose} className="h-9 px-4 rounded-lg text-sm font-medium" style={{ color: 'var(--slate-600)' }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="h-9 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)' }}>
-            {saving ? 'Saving...' : 'Save Assignment'}
-          </button>
+        <div className="px-5 py-5 flex flex-col gap-3">
+          <p className="text-sm" style={{ color: '#475569' }}>Paste one package name per line. Duplicates are skipped automatically.</p>
+
+          <Field label="Assign to Departments">
+            <div className="rounded-lg p-2 max-h-32 overflow-y-auto" style={{ border: '1px solid #CBD5E1' }}>
+              {departments.map(dept => (
+                <label key={dept} className="flex items-center gap-2 text-sm py-1">
+                  <input type="checkbox" checked={selectedDepts.includes(dept)} onChange={() => toggleDept(dept)} />
+                  <span>{dept}</span>
+                </label>
+              ))}
+            </div>
+          </Field>
+
+          <textarea
+            value={rawText}
+            onChange={e => setRawText(e.target.value)}
+            rows={12}
+            placeholder={'com.example.app\ncom.example.app2'}
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ border: '1px solid #CBD5E1', fontFamily: 'monospace' }}
+          />
+
+          {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
+
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="h-9 px-4 rounded-lg text-sm" style={{ color: '#64748B' }}>Cancel</button>
+            <button onClick={handleImport} disabled={saving} className="h-9 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: '#16A34A', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Importing...' : 'Import to DB'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-semibold" style={{ color: '#334155' }}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+// ── Bulk-assign departments modal ─────────────────────────────
+function BulkDeptModal({
+  selectedPackageIds,
+  departments,
+  onClose,
+  onSaved,
+}: {
+  selectedPackageIds: string[]
+  departments: string[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [selectedDepts, setSelectedDepts] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function toggleDept(dept: string) {
+    setSelectedDepts(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
+  }
+
+  async function handleSave() {
+    if (selectedDepts.length === 0) { setError('Select at least one department.'); return }
+    setSaving(true)
+    setError('')
+    const res = await bulkAssignDepartments(selectedPackageIds, selectedDepts)
+    setSaving(false)
+    if (!res.success) { setError(res.error || 'Failed to assign departments.'); return }
+    await onSaved()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+          <div>
+            <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Assign Departments</h2>
+            <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>
+              Applying to {selectedPackageIds.length} selected package{selectedPackageIds.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+        </div>
+
+        <div className="px-5 py-5 flex flex-col gap-4">
+          {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
+
+          <p className="text-sm" style={{ color: '#475569' }}>
+            Select one or more departments. This will <strong>replace</strong> the department field for all selected packages.
+          </p>
+
+          <Field label="Departments (multi-select)">
+            <div className="rounded-lg p-2 max-h-48 overflow-y-auto" style={{ border: '1px solid #CBD5E1' }}>
+              {departments.length === 0 ? (
+                <p className="text-xs p-2" style={{ color: '#94A3B8' }}>No departments found.</p>
+              ) : departments.map(dept => {
+                const checked = selectedDepts.includes(dept)
+                return (
+                  <label
+                    key={dept}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm"
+                    style={{ background: checked ? 'rgba(13,148,136,0.08)' : undefined }}
+                  >
+                    <div
+                      className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-all"
+                      style={{
+                        border: `1.5px solid ${checked ? '#0D9488' : '#CBD5E1'}`,
+                        background: checked ? '#0D9488' : '#fff',
+                      }}
+                      onClick={() => toggleDept(dept)}
+                    >
+                      {checked && <Check size={10} className="text-white" strokeWidth={3} />}
+                    </div>
+                    <span style={{ color: '#1E293B' }}>{dept}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </Field>
+
+          {selectedDepts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedDepts.map(d => (
+                <span key={d} className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: 'rgba(13,148,136,0.1)', color: '#0D9488' }}>
+                  {d}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-1">
+            <button onClick={onClose} className="h-9 px-4 rounded-lg text-sm" style={{ color: '#64748B' }}>Cancel</button>
+            <button
+              onClick={handleSave}
+              disabled={saving || selectedDepts.length === 0}
+              className="h-9 px-4 rounded-lg text-sm font-semibold text-white"
+              style={{ background: '#0D9488', opacity: (saving || selectedDepts.length === 0) ? 0.6 : 1 }}
+            >
+              {saving ? 'Applying...' : 'Apply to Selected'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Bulk-assign users modal ───────────────────────────────────
+function BulkUsersModal({
+  selectedPackageIds,
+  users,
+  onClose,
+  onSaved,
+}: {
+  selectedPackageIds: string[]
+  users: Array<{ username: string; role: string; department: string | null }>
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+  const [userSearch, setUserSearch] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase()
+    if (!q) return users
+    return users.filter(u => u.username.toLowerCase().includes(q) || (u.department || '').toLowerCase().includes(q))
+  }, [users, userSearch])
+
+  function toggleUser(username: string) {
+    setSelectedUsers(prev => prev.includes(username) ? prev.filter(u => u !== username) : [...prev, username])
+  }
+
+  async function handleSave() {
+    if (selectedUsers.length === 0) { setError('Select at least one user.'); return }
+    setSaving(true)
+    setError('')
+    const res = await bulkAssignPackagesToUsers(selectedUsers, selectedPackageIds)
+    setSaving(false)
+    if (!res.success) { setError(res.error || 'Failed to assign packages.'); return }
+    await onSaved()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+          <div>
+            <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Assign to Multiple Users</h2>
+            <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>
+              Assign {selectedPackageIds.length} package{selectedPackageIds.length !== 1 ? 's' : ''} to selected users (merges with existing)
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+        </div>
+
+        <div className="px-5 py-4 flex flex-col gap-3">
+          {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
+
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={userSearch}
+              onChange={e => setUserSearch(e.target.value)}
+              placeholder="Search users..."
+              className="w-full h-9 pl-9 pr-3 rounded-lg text-sm outline-none"
+              style={{ border: '1px solid #CBD5E1', background: '#fff' }}
+            />
+          </div>
+
+          <div className="rounded-lg overflow-hidden max-h-64 overflow-y-auto" style={{ border: '1px solid #E2E8F0' }}>
+            {filteredUsers.length === 0 ? (
+              <p className="text-xs p-3" style={{ color: '#94A3B8' }}>No users found.</p>
+            ) : filteredUsers.map(u => {
+              const checked = selectedUsers.includes(u.username)
+              return (
+                <label
+                  key={u.username}
+                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer border-b last:border-b-0"
+                  style={{
+                    borderColor: '#F1F5F9',
+                    background: checked ? 'rgba(124,58,237,0.05)' : '#fff',
+                  }}
+                >
+                  <div
+                    className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-all"
+                    style={{
+                      border: `1.5px solid ${checked ? '#7C3AED' : '#CBD5E1'}`,
+                      background: checked ? '#7C3AED' : '#fff',
+                    }}
+                    onClick={() => toggleUser(u.username)}
+                  >
+                    {checked && <Check size={10} className="text-white" strokeWidth={3} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: '#1E293B' }}>{u.username}</p>
+                    <p className="text-xs" style={{ color: '#64748B' }}>{u.role}{u.department ? ` · ${u.department}` : ''}</p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+
+          {selectedUsers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedUsers.map(u => (
+                <span key={u} className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: 'rgba(124,58,237,0.1)', color: '#7C3AED' }}>
+                  {u}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-1">
+            <button onClick={onClose} className="h-9 px-4 rounded-lg text-sm" style={{ color: '#64748B' }}>Cancel</button>
+            <button
+              onClick={handleSave}
+              disabled={saving || selectedUsers.length === 0}
+              className="h-9 px-4 rounded-lg text-sm font-semibold text-white"
+              style={{ background: '#7C3AED', opacity: (saving || selectedUsers.length === 0) ? 0.6 : 1 }}
+            >
+              {saving ? 'Assigning...' : `Assign to ${selectedUsers.length || ''} User${selectedUsers.length !== 1 ? 's' : ''}`}
+            </button>
+          </div>
         </div>
       </div>
     </div>
