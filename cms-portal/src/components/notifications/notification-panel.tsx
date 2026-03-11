@@ -82,7 +82,7 @@ function fireDesktopNotification(notif: Notification) {
       icon: '/favicon.ico',
       tag: notif.id,
     })
-    setTimeout(() => n.close(), 6000)
+    setTimeout(() => n.close(), 8000)
     n.onclick = () => { window.focus(); n.close() }
   } catch { /* ignore */ }
 }
@@ -357,22 +357,25 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                       key={notif.id}
                       type="button"
                       onClick={() => handleNotifClick(notif)}
-                      className="w-full flex items-start gap-3 px-5 py-3.5 text-left transition-all group"
+                      className="w-full flex items-start gap-3 px-5 py-3.5 text-left transition-all group border-l-4"
                       style={{
-                        background: notif.is_read ? 'transparent' : 'rgba(59,130,246,0.04)',
-                        borderLeft: notif.is_read ? '3px solid transparent' : '3px solid #3B82F6',
+                        background: notif.is_read ? 'rgba(100,116,139,0.02)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))',
+                        borderLeft: notif.is_read ? '4px solid transparent' : '4px solid #3B82F6',
+                        opacity: notif.is_read ? 0.7 : 1,
                       }}
                       onMouseEnter={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = 'var(--slate-50)'
+                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'var(--slate-50)' : 'rgba(59,130,246,0.12)'
+                        ;(e.currentTarget as HTMLButtonElement).style.opacity = '1'
                       }}
                       onMouseLeave={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'transparent' : 'rgba(59,130,246,0.04)'
+                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'rgba(100,116,139,0.02)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))'
+                        ;(e.currentTarget as HTMLButtonElement).style.opacity = notif.is_read ? '0.7' : '1'
                       }}
                     >
                       {/* Icon */}
                       <div
                         className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-                        style={{ background: cfg.bg }}
+                        style={{ background: cfg.bg, opacity: notif.is_read ? 0.5 : 1 }}
                       >
                         <Icon size={16} style={{ color: cfg.color }} />
                       </div>
@@ -380,21 +383,24 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                       {/* Content */}
                       <div className="flex-1 min-w-0">
                         <p
-                          className="text-sm font-semibold leading-snug truncate"
-                          style={{ color: 'var(--color-text)' }}
+                          className="text-sm leading-snug truncate"
+                          style={{
+                            color: notif.is_read ? 'var(--slate-400)' : 'var(--color-text)',
+                            fontWeight: notif.is_read ? '500' : '600',
+                          }}
                         >
                           {notif.title}
                         </p>
                         {notif.body && (
                           <p
                             className="text-xs mt-0.5 line-clamp-2"
-                            style={{ color: 'var(--color-text-muted)' }}
+                            style={{ color: notif.is_read ? 'var(--slate-400)' : 'var(--color-text-muted)' }}
                           >
                             {notif.body}
                           </p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>
+                          <span className="text-[11px]" style={{ color: notif.is_read ? 'var(--slate-350)' : 'var(--slate-400)' }}>
                             {timeAgo(notif.created_at)}
                           </span>
                           <span
@@ -409,9 +415,13 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                       {/* Unread indicator or check */}
                       <div className="shrink-0 mt-1">
                         {notif.is_read ? (
-                          <Check size={13} style={{ color: 'var(--slate-300)' }} />
+                          <div className="flex items-center justify-center w-5 h-5 rounded-full" style={{ background: 'rgba(148,163,184,0.2)' }}>
+                            <Check size={12} style={{ color: 'var(--slate-400)' }} />
+                          </div>
                         ) : (
-                          <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#3B82F6' }} />
+                          <div className="flex items-center justify-center">
+                            <div className="w-3 h-3 rounded-full" style={{ background: '#3B82F6', boxShadow: '0 0 8px rgba(59,130,246,0.6)' }} />
+                          </div>
                         )}
                       </div>
                     </button>
