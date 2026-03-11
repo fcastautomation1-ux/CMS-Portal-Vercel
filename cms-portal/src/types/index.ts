@@ -92,10 +92,16 @@ export interface Notification {
   id: string
   user_id: string
   title: string
-  body: string | null
+  // DB schema (old system): message / read / link / created_by
+  message: string | null
+  body: string | null          // alias kept for new inserts
   type: string | null
+  link: string | null          // old-system navigation link
   related_id: string | null
-  is_read: boolean
+  read: boolean                // old DB column
+  is_read: boolean             // alias kept for compat
+  created_by: string | null
+  metadata: Record<string, unknown> | string | null
   created_at: string
 }
 

@@ -1238,15 +1238,32 @@
             const parts = splitDepartmentValues(row.department || '');
             return parts[0] || '';
         }
+        function getAllDepartmentsForUsername(username) {
+            const uLower = (username || '').toString().toLowerCase().trim();
+            if (!uLower) return [];
+
+            const row = (window.allUsers || []).find(u => (u.username || '').toLowerCase() === uLower);
+            if (row && row.department) {
+                return splitDepartmentValues(row.department);
+            }
+
+            if (uLower === (currentUser?.username || '').toLowerCase()) {
+                return splitDepartmentValues(currentUser?.department || '');
+            }
+
+            return [];
+        }
         function isQueuedTaskForDepartmentUser(task, username) {
             if (!task || task.queue_status !== 'queued' || task.completed || task.archived) return false;
             const qDept = normalizeDepartmentName(task.queue_department);
             if (!qDept) return false;
-            const userDept = getPrimaryDepartmentForUsername(username) ||
-                ((username || '').toLowerCase() === (currentUser?.username || '').toLowerCase()
-                    ? (currentUser?.department || '')
-                    : '');
-            return qDept === normalizeDepartmentName(userDept);
+
+            const userDeptNorms = new Set(
+                getAllDepartmentsForUsername(username)
+                    .map(d => normalizeDepartmentName(d))
+                    .filter(Boolean)
+            );
+            return userDeptNorms.has(qDept);
         }
         function getLatestDepartmentNames() {
             // Keep one canonical label per normalized department key.
@@ -2715,6 +2732,12 @@
                         if (m && !myTeamUsernames.includes(m)) myTeamUsernames.push(m);
                     });
 
+                    const userDeptNorms = new Set(
+                        splitDepartmentValues(user.department || '')
+                            .map(d => normalizeDepartmentName(d))
+                            .filter(Boolean)
+                    );
+
                     // Run all queries in parallel for performance
                     const [ownedResult, assignedResult, completedByResult, sharedResult, deptQueuedResult] = await Promise.all([
                         // 1. Tasks I created
@@ -2726,11 +2749,11 @@
                         // 3. Tasks shared with me
                         client.from('todo_shares').select('todo_id').eq('shared_with', user.username)
                         ,
-                        // 3b. Department queued tasks (unassigned) for my department
-                        (user.department ? client.from('todos').select('*')
+                        // 3b. Department queued tasks (unassigned) for my department(s)
+                        (userDeptNorms.size > 0 ? client.from('todos').select('*')
                             .eq('queue_status', 'queued')
                             .or('assigned_to.is.null,assigned_to.eq.')
-                            .ilike('queue_department', user.department)
+                            .not('queue_department', 'is', null)
                             : Promise.resolve({ data: [] }))
                     ]);
 
@@ -2765,7 +2788,9 @@
                     (completedByResult.data || []).forEach(t => addTask(t, { is_completed_by_me: true }));
 
                     // 3b. Department queued tasks visible to department members
-                    (deptQueuedResult?.data || []).forEach(t => addTask(t, { is_department_queue: true }));
+                    (deptQueuedResult?.data || [])
+                        .filter(t => userDeptNorms.has(normalizeDepartmentName(t.queue_department)))
+                        .forEach(t => addTask(t, { is_department_queue: true }));
 
                     // 3. Tasks where I'm the manager_id (assignee's manager stored on task - supports multiple managers)
                     (managedOnTaskData || []).forEach(t => {
@@ -12094,7 +12119,7 @@
                                 </div>
 
                                 <!-- ===== Priority + Due Date Row ===== -->
-                                <div
+                                <div id="todoDueDateRow"
                                     style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
                                     <div class="form-group">
                                         <label
@@ -12283,11 +12308,17 @@
                                                         style="margin-left: auto; font-size: 12px; font-weight: 700; color: #0e7490;">0
                                                         selected</span>
                                                 </div>
+                                                <div id="maExistingSelectionSummary"
+                                                    style="display:none; margin-bottom: 10px; padding: 10px 12px; background: white; border: 1.5px solid #bae6fd; border-radius: 10px;">
+                                                </div>
                                                 <div id="maUserList"
                                                     style="max-height: 220px; overflow-y: auto; background: white; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 6px;">
                                                     <div
                                                         style="text-align: center; padding: 20px; color: #94a3b8; font-size: 13px;">
                                                         Loading users...</div>
+                                                </div>
+                                                <div id="maDueDatesEditor"
+                                                    style="display:none; margin-top: 12px; background: white; border: 1.5px solid #bae6fd; border-radius: 10px; padding: 12px;">
                                                 </div>
                                             </div>
                                         </div>
@@ -17983,11 +18014,14 @@
                     if (top) {
                         const st = (top.status || '').toLowerCase();
                         const done = st === 'accepted' || st === 'completed' || top.completed === true;
+                        const personalDue = top.actual_due_date || task.actual_due_date || task.expected_due_date || task.due_date || null;
                         entries.push({
                             ...task,
                             assigned_to: top.username || username,
                             completed: done,
                             task_status: st === 'in_progress' ? 'in_progress' : (done ? 'done' : (task.task_status || 'todo')),
+                            due_date: personalDue,
+                            actual_due_date: top.actual_due_date || null,
                             _maEntry: true,
                             _assigneeStatus: st
                         });
@@ -18000,11 +18034,14 @@
                         if (!sub) continue;
                         const subStatus = (sub.status || '').toLowerCase();
                         const subDone = subStatus === 'accepted' || subStatus === 'completed' || sub.completed === true;
+                        const personalDue = sub.actual_due_date || task.actual_due_date || task.expected_due_date || task.due_date || null;
                         entries.push({
                             ...task,
                             assigned_to: sub.username || username,
                             completed: subDone,
                             task_status: subStatus === 'in_progress' ? 'in_progress' : (subDone ? 'done' : (task.task_status || 'todo')),
+                            due_date: personalDue,
+                            actual_due_date: sub.actual_due_date || null,
                             _maEntry: true,
                             _assigneeStatus: subStatus,
                             _isDelegatedSubEntry: true
@@ -27107,13 +27144,8 @@
                     const isMainTaskCreator = todo.username === currentUser?.username;
                     const canEdit = isMainTaskCreator;
 
-                    const canPickQueuedTask = (
-                        !todo.assigned_to &&
-                        todo.queue_status === 'queued' &&
-                        normalizeDepartmentName(todo.queue_department) &&
-                        normalizeDepartmentName(currentUser?.department) &&
-                        normalizeDepartmentName(todo.queue_department) === normalizeDepartmentName(currentUser?.department)
-                    );
+                    const canPickQueuedTask = !todo.assigned_to &&
+                        isQueuedTaskForDepartmentUser(todo, currentUser?.username || '');
 
                     const msgCount = getTaskMessageCount(todo);
                     // Debug: Log message count for troubleshooting
@@ -27191,7 +27223,7 @@
                         </span>
                         ` : ''}
                     ` : ''}
-                    ${(todo.expected_due_date || todo.actual_due_date || todo.due_date) ? `
+                    ${(!isMaEnabled && (todo.expected_due_date || todo.actual_due_date || todo.due_date)) ? `
                         ${todo.expected_due_date ? `
                             <span style="display: flex; align-items: center; gap: 4px; color: #92400e; font-weight: 600; background: #fef3c7; padding: 4px 10px; border-radius: 20px; font-size: 12px;">
                             🗓️ Expected: ${formatDueDate(todo.expected_due_date)}
@@ -27394,6 +27426,7 @@
                     const isMe = (a.username || '').toLowerCase() === (currentUser?.username || '').toLowerCase();
                     const sColor = statusColors[a.status] || '#94a3b8';
                     const sLabel = statusLabels[a.status] || a.status;
+                    const assigneeDueDate = a.actual_due_date || '';
 
                     // Get assignee's department from window.allUsers
                     const assigneeUser = (window.allUsers || []).find(u => (u.username || '').toLowerCase() === (a.username || '').toLowerCase());
@@ -27483,6 +27516,7 @@
                                 <span style="font-size:11px;font-weight:700;color:${sColor};background:${sColor}15;padding:3px 10px;border-radius:20px;white-space:nowrap;">${sLabel}</span>
                             </div>
                             <div style="display:flex;align-items:center;gap:6px;">
+                                ${assigneeDueDate ? `<span style="font-size:11px;color:#1d4ed8;font-weight:800;padding:6px 10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;white-space:nowrap;">📅 ${formatDateTime(assigneeDueDate)}</span>` : `<span style="font-size:11px;color:#64748b;font-weight:700;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;white-space:nowrap;">📅 Not set</span>`}
                                 ${reassignBtn}
                                 <button onclick="event.stopPropagation(); openTodoDetail('${todo.id}')" style="display:flex;align-items:center;gap:4px;font-size:12px;color:#0284c7;font-weight:700;padding:6px 12px;background:#e0f2fe;border:none;border-radius:6px;cursor:pointer;transition:all 0.2s;white-space:nowrap;" onmouseover="this.style.background='#cffafe'; this.style.color='#0269a1';" onmouseout="this.style.background='#e0f2fe'; this.style.color='#0284c7';">👁️ View</button>
                             </div>
@@ -27620,7 +27654,7 @@
                         </div>
                     </div>
                     <div class="kanban-task-actions">
-                        ${(!todo.assigned_to && todo.queue_status === 'queued' && normalizeDepartmentName(todo.queue_department) && normalizeDepartmentName(currentUser?.department) && normalizeDepartmentName(todo.queue_department) === normalizeDepartmentName(currentUser?.department) && !todo.completed) ? `<button onclick="claimQueuedTask('${todo.id}')" class="kanban-task-action-btn" style="background: #0ea5e9; color: white; font-weight: 800;">📥 Pick</button>` : ''}
+                    ${(!todo.assigned_to && isQueuedTaskForDepartmentUser(todo, currentUser?.username || '') && !todo.completed) ? `<button onclick="claimQueuedTask('${todo.id}')" class="kanban-task-action-btn" style="background: #0ea5e9; color: white; font-weight: 800;">📥 Pick</button>` : ''}
                         ${todo.assigned_to === currentUser?.username && !todo.completed && (todo.task_status === 'backlog') && todo.approval_status !== 'pending_approval' ? `<button onclick="acknowledgeTaskAssignment('${todo.id}')" class="kanban-task-action-btn" style="background: #f59e0b; color: white; font-weight: 700;">✅ Ack</button>` : ''}
                         ${todo.assigned_to === currentUser?.username && !todo.completed && (todo.task_status === 'backlog' || todo.task_status === 'todo' || !todo.task_status) && todo.approval_status !== 'pending_approval' ? `<button onclick="startTaskWork('${todo.id}')" class="kanban-task-action-btn" style="background: #10b981; color: white; font-weight: 700;">🚀 Start</button>` : ''}
                         ${(todo.approval_status === 'pending_approval' && (todo.completed_by || '').toLowerCase() === (currentUser?.username || '').toLowerCase() && !todo.completed)
@@ -28863,10 +28897,13 @@
 
                 // Reset multi routing
                 window._maSelected = new Set();
+                window._maExistingAssigneesMap = {};
+                window._maIndividualDueDates = {};
                 const multiDetails = document.getElementById('todoMultiRoutingDetails');
                 const multiRadio = document.getElementById('todoRouteMulti');
                 if (multiDetails) multiDetails.style.display = 'none';
                 if (multiRadio) multiRadio.checked = false;
+                updateDueDateVisibilityForRouting(null);
 
                 // Reset radio buttons and hide detail panels
                 const deptRadio = document.getElementById('todoRouteDept');
@@ -29042,10 +29079,13 @@
                     if (mgrRadio) mgrRadio.checked = false;
                     if (multiRadio) multiRadio.checked = false;
                     window._maSelected = new Set();
+                    window._maIndividualDueDates = {};
+                    renderMultiAssigneeDueDateEditor();
 
                     // When deselected, show due date as required (default state)
                     const dueDateRequired = document.getElementById('dueDateRequired');
                     if (dueDateRequired) dueDateRequired.style.display = 'inline';
+                    updateDueDateVisibilityForRouting(null);
 
                     // When nothing is selected, keep Department dropdown hidden
                     if (deptSection) deptSection.style.display = 'none';
@@ -29055,8 +29095,10 @@
                 // Clear multi selection when switching away from multi
                 if (currentRoutingSelection === 'multi' && type !== 'multi') {
                     window._maSelected = new Set();
+                    window._maIndividualDueDates = {};
                     const cnt = document.getElementById('maSelectedCount');
                     if (cnt) cnt.textContent = '0 selected';
+                    renderMultiAssigneeDueDateEditor();
                 }
 
                 currentRoutingSelection = type;
@@ -29098,10 +29140,7 @@
                 if (multiRadio) multiRadio.checked = (type === 'multi');
 
                 // Toggle due date requirement: mandatory for non-self tasks, optional for self tasks
-                const dueDateRequired = document.getElementById('dueDateRequired');
-                if (dueDateRequired) {
-                    dueDateRequired.style.display = (type === 'self') ? 'none' : 'inline';
-                }
+                updateDueDateVisibilityForRouting(type);
 
                 // Show/hide detail panels
                 if (deptDetails) deptDetails.style.display = (type === 'department') ? 'block' : 'none';
@@ -29114,7 +29153,9 @@
                 // Load users when multi routing is selected
                 if (type === 'multi') {
                     window._maSelected = window._maSelected || new Set();
+                    window._maIndividualDueDates = window._maIndividualDueDates || {};
                     maLoadUsers();
+                    renderMultiAssigneeDueDateEditor();
                 }
 
                 // Department dropdown visibility rules
@@ -29202,6 +29243,10 @@
                 }
                 // Clear multi-assignment selection
                 window._maSelected = new Set();
+                window._maExistingAssigneesMap = {};
+                window._maIndividualDueDates = {};
+                renderMaExistingSelectionSummary();
+                renderMultiAssigneeDueDateEditor();
                 // Reset save button so it's not stuck on "Saving..." when modal reopens
                 const btn = document.querySelector('#todoForm button[type="submit"]');
                 if (btn) {
@@ -29217,6 +29262,114 @@
                 const progressList = document.getElementById('creationAttachmentUploadProgressList');
                 if (progressList) {
                     progressList.innerHTML = '';
+                }
+            }
+
+            function ensureSelectHasValue(selectEl, value, label) {
+                if (!selectEl) return;
+                const safeValue = (value || '').toString().trim();
+                if (!safeValue) {
+                    selectEl.value = '';
+                    return;
+                }
+
+                let found = false;
+                for (let i = 0; i < selectEl.options.length; i++) {
+                    const optValue = (selectEl.options[i].value || '').toString().trim();
+                    if (optValue === safeValue) {
+                        selectEl.value = selectEl.options[i].value;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = safeValue;
+                    opt.textContent = (label || safeValue).toString().trim();
+                    selectEl.appendChild(opt);
+                    selectEl.value = safeValue;
+                }
+            }
+
+            function formatDateTimeForInput(dateStr) {
+                if (!dateStr) return '';
+                const d = new Date(dateStr);
+                if (Number.isNaN(d.getTime())) return '';
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const hour = String(d.getHours()).padStart(2, '0');
+                const minute = String(d.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hour}:${minute}`;
+            }
+
+            function getDefaultMultiAssigneeDueDate(username) {
+                const existing = window._maExistingAssigneesMap?.[username];
+                if (existing?.actual_due_date) return formatDateTimeForInput(existing.actual_due_date);
+                const taskDueInput = document.getElementById('todoDueDate');
+                if (taskDueInput?.value) return taskDueInput.value;
+                return '';
+            }
+
+            function renderMultiAssigneeDueDateEditor() {
+                const container = document.getElementById('maDueDatesEditor');
+                if (!container) return;
+
+                const selectedUsers = Array.from(window._maSelected || new Set());
+                if (selectedUsers.length === 0) {
+                    container.style.display = 'none';
+                    container.innerHTML = '';
+                    return;
+                }
+
+                if (!window._maIndividualDueDates) window._maIndividualDueDates = {};
+                selectedUsers.forEach(username => {
+                    if (window._maIndividualDueDates[username] === undefined) {
+                        window._maIndividualDueDates[username] = getDefaultMultiAssigneeDueDate(username);
+                    }
+                });
+
+                container.innerHTML = `
+                    <div style="font-size:12px;font-weight:800;color:#0e7490;margin-bottom:8px;">Individual deadlines for selected users</div>
+                    <div style="font-size:11px;color:#64748b;margin-bottom:10px;">These dates are saved per user for this multi-task. You can set different deadlines for each assignee.</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        ${selectedUsers.map(username => {
+                            const userRow = (window._maAllUsers || []).find(u => (u.username || '').toLowerCase() === username.toLowerCase());
+                            const deptLabel = userRow?.department ? ` (${escapeHtml(userRow.department)})` : '';
+                            const value = window._maIndividualDueDates[username] || '';
+                            return `
+                                <div style="display:grid;grid-template-columns:minmax(160px,1fr) minmax(180px,240px);gap:10px;align-items:center;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+                                    <div style="font-size:13px;font-weight:700;color:#1e293b;">${escapeHtml(username)}<span style="font-size:11px;font-weight:500;color:#64748b;">${deptLabel}</span></div>
+                                    <input type="datetime-local" value="${escapeHtml(value)}" onchange="setMultiAssigneeDueDate('${escapeHtml(username)}', this.value)"
+                                        style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px;background:white;">
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                container.style.display = 'block';
+            }
+
+            function setMultiAssigneeDueDate(username, value) {
+                if (!window._maIndividualDueDates) window._maIndividualDueDates = {};
+                window._maIndividualDueDates[username] = value || '';
+            }
+
+            function updateDueDateVisibilityForRouting(type) {
+                const dueDateRow = document.getElementById('todoDueDateRow');
+                const dueDateRequired = document.getElementById('dueDateRequired');
+                const dueDateInput = document.getElementById('todoDueDate');
+                if (!dueDateRow || !dueDateInput) return;
+
+                if (type === 'multi') {
+                    dueDateRow.style.display = 'none';
+                    if (dueDateRequired) dueDateRequired.style.display = 'none';
+                    dueDateInput.dataset.hiddenForMulti = '1';
+                } else {
+                    dueDateRow.style.display = 'grid';
+                    if (dueDateRequired) dueDateRequired.style.display = (type === 'self') ? 'none' : 'inline';
+                    delete dueDateInput.dataset.hiddenForMulti;
                 }
             }
 
@@ -29278,8 +29431,11 @@
                 document.getElementById('todoDescription').value = todo.description || '';
                 document.getElementById('todoPriority').value = todo.priority;
                 // Task status preserved during edit (removed from form)
-                document.getElementById('todoCategory').value = todo.category;
-                document.getElementById('todoKpiType').value = todo.kpi_type || '';
+                loadDepartmentsForTodoModal();
+                const todoCategorySelect = document.getElementById('todoCategory');
+                ensureSelectHasValue(todoCategorySelect, todo.category, todo.category);
+                const todoKpiSelect = document.getElementById('todoKpiType');
+                ensureSelectHasValue(todoKpiSelect, todo.kpi_type, todo.kpi_type);
 
                 if (todo.due_date) {
                     const d = new Date(todo.due_date);
@@ -29297,32 +29453,14 @@
                 if (pkgSelect) {
                     await loadPackagesForTodoDropdown();
 
-                    // Set the package value after dropdown is populated
-                    if (todo.package_name) {
-                        let found = false;
-                        for (let i = 0; i < pkgSelect.options.length; i++) {
-                            if (pkgSelect.options[i].value === todo.package_name) {
-                                pkgSelect.value = todo.package_name;
-                                found = true;
-                                break;
-                            }
-                        }
+                    ensureSelectHasValue(pkgSelect, todo.package_name, todo.package_name);
+                    syncPackageToAppName();
 
-                        if (!found) {
-                            const opt = document.createElement('option');
-                            opt.value = todo.package_name;
-                            opt.textContent = todo.package_name;
-                            pkgSelect.appendChild(opt);
-                            pkgSelect.value = todo.package_name;
-                        }
-                        // Sync the App/Game Name dropdown
+                    const appSelect = document.getElementById('todoAppName');
+                    ensureSelectHasValue(appSelect, todo.app_name, todo.app_name);
+                    if ((!appSelect?.value || appSelect.value === '') && todo.package_name) {
                         syncPackageToAppName();
-                    } else {
-                        pkgSelect.value = '';
-                        const appSelect = document.getElementById('todoAppName');
-                        if (appSelect) appSelect.value = '';
                     }
-
                 }
 
                 // Pre-select routing state based on the existing task
@@ -29330,8 +29468,18 @@
                     const existingMA = (() => { try { return todo.multi_assignment ? (typeof todo.multi_assignment === 'string' ? JSON.parse(todo.multi_assignment) : todo.multi_assignment) : null; } catch (e) { return null; } })();
                     if (existingMA && existingMA.enabled) {
                         // Pre-populate multi-assignment assignees
+                        window._maExistingAssigneesMap = {};
+                        window._maIndividualDueDates = {};
+                        (existingMA.assignees || []).forEach(a => {
+                            if (a && a.username) {
+                                window._maExistingAssigneesMap[a.username] = a;
+                                window._maIndividualDueDates[a.username] = formatDateTimeForInput(a.actual_due_date || todo.expected_due_date || todo.due_date || '');
+                            }
+                        });
                         window._maSelected = new Set((existingMA.assignees || []).map(a => a.username).filter(Boolean));
                         selectRouting('multi');
+                        renderMaExistingSelectionSummary();
+                        renderMultiAssigneeDueDateEditor();
                     } else if (todo.assigned_to && todo.manager_id) {
                         selectRouting('manager');
                         const mgr = document.getElementById('todoDirectManager');
@@ -29422,10 +29570,19 @@
                     return;
                 }
 
-                // Due date is mandatory for non-self tasks
-                if (!isSelfTodo && !todoData.due_date) {
+                // Due date is mandatory for non-self tasks except multi-assignment,
+                // where each assignee gets an individual due date.
+                if (!isSelfTodo && !routeMulti && !todoData.due_date) {
                     showToast('Please set a due date for this task.', 'error');
                     return;
+                }
+
+                if (routeMulti) {
+                    const missingMultiDueDates = selectedMultiAssignees.filter(username => !(window._maIndividualDueDates?.[username] || '').trim());
+                    if (missingMultiDueDates.length > 0) {
+                        showToast(`Please set an individual deadline for: ${missingMultiDueDates.join(', ')}`, 'error');
+                        return;
+                    }
                 }
 
                 if (!todoData.package_name) {
@@ -29438,10 +29595,6 @@
                         showToast('Please select a routing option: Self Todo, Department, Manager, or Multi-Assignment.', 'error');
                         return;
                     }
-                    if (routeMulti && selectedMultiAssignees.length === 0) {
-                        showToast('Please select at least one user for multi-assignment.', 'error');
-                        return;
-                    }
                     if (routeDept && !selectedDepartment) {
                         showToast('Please select a department to send this task to.', 'error');
                         return;
@@ -29450,6 +29603,11 @@
                         showToast('Please select a manager to send this task to.', 'error');
                         return;
                     }
+                }
+
+                if (routeMulti && selectedMultiAssignees.length === 0) {
+                    showToast('Please select at least one user for multi-assignment.', 'error');
+                    return;
                 }
 
                 // For direct-to-manager routing, set the assigned_to and manager fields
@@ -29531,9 +29689,31 @@
                         const _maData = {
                             enabled: assigneesToSave.length > 0,
                             created_by: currentUser?.username,
-                            assignees: assigneesToSave.map(uname =>
-                                existingMap[uname] || { username: uname, status: 'pending', assigned_at: _maNow, completed_at: null, accepted_at: null, accepted_by: null, rejection_reason: null, notes: null }
-                            )
+                            assignees: assigneesToSave.map(uname => {
+                                const existingEntry = existingMap[uname];
+                                const chosenDue = window._maIndividualDueDates?.[uname] || '';
+                                const normalizedChosenDue = chosenDue ? new Date(chosenDue).toISOString() : null;
+                                const fallbackDue = todoData.due_date ? new Date(todoData.due_date).toISOString() : null;
+
+                                if (existingEntry) {
+                                    return {
+                                        ...existingEntry,
+                                        actual_due_date: normalizedChosenDue || existingEntry.actual_due_date || fallbackDue || null
+                                    };
+                                }
+
+                                return {
+                                    username: uname,
+                                    status: 'pending',
+                                    assigned_at: _maNow,
+                                    completed_at: null,
+                                    accepted_at: null,
+                                    accepted_by: null,
+                                    rejection_reason: null,
+                                    notes: null,
+                                    actual_due_date: normalizedChosenDue || fallbackDue || null
+                                };
+                            })
                         };
                         const completedCount = _maData.assignees.filter(a => ['completed', 'accepted'].includes(a.status)).length;
                         _maData.completion_percentage = _maData.assignees.length > 0 ? Math.round((completedCount / _maData.assignees.length) * 100) : 0;
@@ -29567,6 +29747,8 @@
                             }
                         }
                         window._maSelected = new Set();
+                        window._maExistingAssigneesMap = {};
+                        window._maIndividualDueDates = {};
                         const actionWord = todoId ? 'Updated' : 'Assigned';
                         showToast(`✅ ${actionWord}! Task sent to ${assigneesToSave.length} user${assigneesToSave.length !== 1 ? 's' : ''}.`, 'success');
                     } else {
@@ -30474,7 +30656,7 @@
                             </div>
 
                             <!-- Due Date Section -->
-                            ${(details.expected_due_date || details.actual_due_date || details.due_date) ? `
+                            ${(!(maData?.enabled) && (details.expected_due_date || details.actual_due_date || details.due_date)) ? `
                             <div style="margin-bottom: 16px; padding: 14px; background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%); border: 2px solid #fbbf24; border-radius: 12px;">
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
                                     <span style="font-size: 20px;">📅</span>
@@ -35421,27 +35603,43 @@
             /** Toggle a user in the _maSelected set */
             function maToggleUser(username, checked) {
                 if (!window._maSelected) window._maSelected = new Set();
-                if (checked) window._maSelected.add(username);
-                else window._maSelected.delete(username);
+                if (!window._maIndividualDueDates) window._maIndividualDueDates = {};
+                if (checked) {
+                    window._maSelected.add(username);
+                    if (window._maIndividualDueDates[username] === undefined) {
+                        window._maIndividualDueDates[username] = getDefaultMultiAssigneeDueDate(username);
+                    }
+                } else {
+                    window._maSelected.delete(username);
+                    delete window._maIndividualDueDates[username];
+                }
                 maFilterUsers();   // re-render to update highlights
+                renderMultiAssigneeDueDateEditor();
             }
 
             /** Select all currently visible users */
             function maSelectAll() {
                 if (!window._maSelected) window._maSelected = new Set();
+                if (!window._maIndividualDueDates) window._maIndividualDueDates = {};
                 const list = document.getElementById('maUserList');
                 if (!list) return;
                 list.querySelectorAll('input[type=checkbox]').forEach(cb => {
                     window._maSelected.add(cb.value);
+                    if (window._maIndividualDueDates[cb.value] === undefined) {
+                        window._maIndividualDueDates[cb.value] = getDefaultMultiAssigneeDueDate(cb.value);
+                    }
                     cb.checked = true;
                 });
                 maFilterUsers();
+                renderMultiAssigneeDueDateEditor();
             }
 
             /** Clear all selected users */
             function maClearAll() {
                 window._maSelected = new Set();
+                window._maIndividualDueDates = {};
                 maFilterUsers();
+                renderMultiAssigneeDueDateEditor();
             }
 
             /** Update the selected-count badge */
@@ -35452,6 +35650,63 @@
                     cnt.textContent = `${n} user${n !== 1 ? 's' : ''} selected`;
                     cnt.style.background = n > 0 ? '#06b6d4' : '#94a3b8';
                 }
+                renderMaExistingSelectionSummary();
+            }
+
+            function renderMaExistingSelectionSummary() {
+                const summary = document.getElementById('maExistingSelectionSummary');
+                if (!summary) return;
+
+                const existingMap = window._maExistingAssigneesMap || {};
+                const existingEntries = Object.values(existingMap);
+                const selectedUsers = Array.from(window._maSelected || new Set());
+
+                if (existingEntries.length === 0 && selectedUsers.length === 0) {
+                    summary.style.display = 'none';
+                    summary.innerHTML = '';
+                    return;
+                }
+
+                const statusLabels = {
+                    pending: 'Pending',
+                    in_progress: 'In Progress',
+                    completed: 'Submitted',
+                    accepted: 'Accepted',
+                    rejected: 'Rejected'
+                };
+                const statusColors = {
+                    pending: '#64748b',
+                    in_progress: '#0891b2',
+                    completed: '#7c3aed',
+                    accepted: '#16a34a',
+                    rejected: '#dc2626'
+                };
+
+                const existingHtml = existingEntries.length > 0
+                    ? existingEntries.map(entry => {
+                        const username = entry.username || '';
+                        const status = (entry.status || 'pending').toLowerCase();
+                        const color = statusColors[status] || '#64748b';
+                        const label = statusLabels[status] || status;
+                        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:${color}15;color:${color};font-size:12px;font-weight:700;border:1px solid ${color}33;">
+                            <span>${escapeHtml(username)}</span>
+                            <span style="font-size:11px;font-weight:600;">${escapeHtml(label)}</span>
+                        </span>`;
+                    }).join('')
+                    : '<span style="font-size:12px;color:#94a3b8;">No existing assignees</span>';
+
+                const newUsers = selectedUsers.filter(username => !existingMap[username]);
+                const newHtml = newUsers.length > 0
+                    ? newUsers.map(username => `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-size:12px;font-weight:700;border:1px solid #86efac;">${escapeHtml(username)} <span style="font-size:11px;font-weight:600;">New</span></span>`).join('')
+                    : '<span style="font-size:12px;color:#94a3b8;">No new users selected</span>';
+
+                summary.innerHTML = `
+                    <div style="font-size:12px;font-weight:800;color:#0e7490;margin-bottom:8px;">Current multi-assignment members</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">${existingHtml}</div>
+                    <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:8px;">Users to add on save</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">${newHtml}</div>
+                `;
+                summary.style.display = 'block';
             }
 
             // ========== DELEGATION MODAL FUNCTIONS ==========
@@ -36659,6 +36914,11 @@
                     const blockingReason = hasIncompleteSubAssignees ?
                         `⏳ Waiting for ${a.delegated_to.filter(s => s.status !== 'accepted' && s.status !== 'completed').length} user(s) to complete` : '';
 
+                    const userDueDate = a.actual_due_date || null;
+                    const dueDateNote = userDueDate
+                        ? `<div style="margin-top:8px;padding:8px 10px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;font-size:11px;color:#1d4ed8;font-weight:700;">📅 Individual Deadline: ${formatDateTime(userDueDate)}</div>`
+                        : `<div style="margin-top:8px;padding:8px 10px;background:#f8fafc;border-left:3px solid #cbd5e1;border-radius:6px;font-size:11px;color:#64748b;font-weight:600;">📅 Individual Deadline: Not set</div>`;
+
                     const actionBtns = isCreator && !isMe && a.status === 'completed'
                         ? `<button onclick="maAcceptAssignee('${details.id}','${a.username}',this)" style="background:#10b981;color:white;border:none;border-radius:8px;height:36px;padding:0 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(16,185,129,0.3);transition:all 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#10b981';">✅ Accept</button>
                        <button onclick="maRejectAssignee('${details.id}','${a.username}',this)" style="background:#ef4444;color:white;border:none;border-radius:8px;height:36px;padding:0 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(239,68,68,0.3);transition:all 0.2s;margin-left:6px;" onmouseover="this.style.background='#dc2626';" onmouseout="this.style.background='#ef4444';">❌ Reject</button>`
@@ -36697,6 +36957,11 @@
                             const subHasIncompleteDelegations = Array.isArray(sub.delegated_to) &&
                                 sub.delegated_to.some(s2 => s2.status !== 'accepted' && s2.status !== 'completed');
 
+                            const subDueDate = sub.actual_due_date || null;
+                            const subDueDateNote = subDueDate
+                                ? `<div style="margin-top:4px;padding:6px 8px;background:#eff6ff;border-left:2px solid #3b82f6;border-radius:4px;font-size:10px;color:#1d4ed8;font-weight:700;">📅 ${formatDateTime(subDueDate)}</div>`
+                                : `<div style="margin-top:4px;padding:6px 8px;background:#f8fafc;border-left:2px solid #cbd5e1;border-radius:4px;font-size:10px;color:#64748b;font-weight:600;">📅 No deadline set</div>`;
+
                             const subActionBtns = isMe && sub.status === 'completed'
                                 ? `<button onclick="maAcceptSubAssignee('${details.id}','${a.username}','${sub.username}',this)" style="background:#10b981;color:white;border:none;border-radius:8px;height:36px;padding:0 14px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(16,185,129,0.3);transition:all 0.2s;" onmouseover="this.style.background='#059669';" onmouseout="this.style.background='#10b981';">✅ Accept</button>
                                <button onclick="maRejectSubAssignee('${details.id}','${a.username}','${sub.username}',this)" style="background:#ef4444;color:white;border:none;border-radius:8px;height:36px;padding:0 14px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 4px rgba(239,68,68,0.3);transition:all 0.2s;margin-left:6px;" onmouseover="this.style.background='#dc2626';" onmouseout="this.style.background='#ef4444';">❌ Reject</button>`
@@ -36721,6 +36986,7 @@
                                     <span style="font-size:12px;font-weight:700;color:#1e293b;">${escapeHtml(sub.username)}${subIsMe ? ' <span style="background:#06b6d4;color:white;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;">(YOU)</span>' : ''}</span>
                                     <span style="font-size:11px;font-weight:700;color:${subColor};background:${subColor}15;padding:2px 10px;border-radius:12px;">${subLabel}</span>
                                 </div>
+                                ${subDueDateNote}
                                 ${subFeedback}
                             </div>
                             <div style="display:flex;gap:4px;">${subActionBtns}</div>
@@ -36739,7 +37005,7 @@
                         <span style="font-size:12px;font-weight:700;color:${sColor};background:${sColor}15;padding:3px 10px;border-radius:20px;">${sLabel}</span>
                         <div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">${actionBtns}</div>
                     </div>
-                    <div>${rejNote}${feedbackNote}</div>
+                    <div>${dueDateNote}${rejNote}${feedbackNote}</div>
                     ${delegationHTML}
                 </div>`;
                 }).join('');
