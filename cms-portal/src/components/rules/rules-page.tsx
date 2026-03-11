@@ -21,9 +21,9 @@ export function RulesPage({ rules: initial, user }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Rules</h1>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Rules</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>{rules.length} removal condition definitions</p>
         </div>
         {canEdit && (
@@ -40,7 +40,8 @@ export function RulesPage({ rules: initial, user }: Props) {
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                 {['ID', 'Name', 'Description', 'Actions'].map(h => (
@@ -68,6 +69,7 @@ export function RulesPage({ rules: initial, user }: Props) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -104,13 +106,13 @@ function RuleModal({ rule, onClose, onSaved }: { rule: Rule | null; onClose: () 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="rounded-2xl w-full max-w-md overflow-hidden animate-slide-up" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full sm:rounded-2xl rounded-t-2xl sm:max-w-md overflow-hidden animate-slide-up" style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid var(--slate-200)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--slate-100)' }}>
           <h2 className="font-bold text-base" style={{ color: 'var(--slate-900)' }}>{isEdit ? 'Edit Rule' : 'Add Rule'}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
-        <form id="rule-form" onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
+        <form id="rule-form" onSubmit={handleSubmit} className="px-5 py-5 flex flex-col gap-4">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Name</label>

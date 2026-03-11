@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { Search, Plus, Trash2, Pencil, Check, ChevronDown, Copy, RefreshCw } from 'lucide-react'
 import { StatusBadge, WorkflowBadge } from '@/components/ui/badges'
 import { EnabledToggle } from '@/components/ui/enabled-toggle'
@@ -43,6 +44,7 @@ interface AccountsTableProps {
 }
 
 export function AccountsTable({ accounts, user }: AccountsTableProps) {
+  const router = useRouter()
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
 
   // ── Filters ───────────────────────────────────────────────
@@ -134,7 +136,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
         {canEdit && (
           <button
             onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+            className="btn-motion flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
             style={{ background: 'var(--blue-600)', boxShadow: '0 2px 8px rgba(37,99,235,0.25)' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--blue-700)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--blue-600)'; }}
@@ -146,9 +148,9 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       </div>
 
       {/* ── Filters ───────────────────────────────────────── */}
-      <div className="card p-4 flex flex-wrap gap-3 items-center">
+      <div className="card p-4 flex flex-col sm:flex-row flex-wrap gap-3 items-start sm:items-center">
         {/* Search */}
-        <div className="relative flex-1 min-w-50">
+        <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--slate-400)' }} />
           <input
             type="text"
@@ -163,12 +165,12 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
         </div>
 
         {/* Status filter */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center flex-wrap gap-1">
           {STATUS_OPTIONS.map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
                 background: statusFilter === s ? 'var(--blue-600)' : 'var(--slate-100)',
                 color: statusFilter === s ? 'white' : 'var(--slate-600)',
@@ -213,7 +215,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       {/* ── Batch action bar ──────────────────────────────── */}
       {selected.size > 0 && canEdit && (
         <div
-          className="flex items-center gap-3 px-4 py-3 rounded-xl animate-fade-in"
+          className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl animate-fade-in"
           style={{ background: 'var(--blue-50)', border: '1.5px solid var(--blue-200)' }}
         >
           <span className="text-sm font-semibold" style={{ color: 'var(--blue-700)' }}>
@@ -249,7 +251,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
       {/* ── Table ─────────────────────────────────────────── */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm border-collapse min-w-[880px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
                 {canEdit && (
@@ -258,7 +260,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                       className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all"
                       style={{
                         border: `1.5px solid ${allOnPageSelected ? 'var(--blue-600)' : 'var(--slate-300)'}`,
-                        background: allOnPageSelected ? 'var(--blue-600)' : 'white',
+                        background: allOnPageSelected ? 'var(--blue-600)' : 'var(--color-surface)',
                       }}
                       onClick={toggleSelectAll}
                       role="checkbox"
@@ -268,7 +270,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                     </div>
                   </th>
                 )}
-                {['Customer ID', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Actions'].map(h => (
+                {['Customer ID', 'Account Name', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Actions'].map(h => (
                   <th
                     key={h}
                     className="py-3.5 px-4 text-left font-semibold text-xs uppercase tracking-wider whitespace-nowrap"
@@ -283,7 +285,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 8 : 7}
+                    colSpan={canEdit ? 9 : 8}
                     className="py-20 text-center"
                     style={{ color: 'var(--slate-400)' }}
                   >
@@ -300,11 +302,11 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                       key={account.customer_id}
                       className="group transition-colors"
                       style={{
-                        background: isSelected ? 'var(--blue-50)' : idx % 2 === 0 ? 'white' : 'var(--slate-50)',
+                        background: isSelected ? 'var(--blue-50)' : idx % 2 === 0 ? 'var(--color-surface)' : 'var(--slate-50)',
                         borderBottom: '1px solid var(--slate-100)',
                       }}
                       onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--slate-50)'; }}
-                      onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = idx % 2 === 0 ? 'white' : 'var(--slate-50)'; }}
+                      onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = idx % 2 === 0 ? 'var(--color-surface)' : 'var(--slate-50)'; }}
                     >
                       {canEdit && (
                         <td className="py-3.5 pl-4 pr-2">
@@ -312,7 +314,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                             className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all"
                             style={{
                               border: `1.5px solid ${isSelected ? 'var(--blue-600)' : 'var(--slate-300)'}`,
-                              background: isSelected ? 'var(--blue-600)' : 'white',
+                              background: isSelected ? 'var(--blue-600)' : 'var(--color-surface)',
                             }}
                             onClick={() => toggleSelect(account.customer_id)}
                           >
@@ -339,6 +341,10 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                             <Copy size={13} />
                           </button>
                         </div>
+                      </td>
+
+                      <td className="py-3.5 px-4" style={{ color: 'var(--slate-600)' }}>
+                        {account.account_name || account.drive_code_comments || '—'}
                       </td>
 
                       {/* Workflow */}
@@ -383,6 +389,14 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                               title="Edit"
                             >
                               <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => router.push(`/dashboard/campaigns?account=${encodeURIComponent(account.customer_id)}`)}
+                              className="btn-motion px-2.5 h-8 rounded-lg text-xs font-semibold"
+                              style={{ background: 'var(--slate-100)', color: 'var(--slate-700)' }}
+                              title="Manage campaigns"
+                            >
+                              Manage
                             </button>
                             <button
                               onClick={() => setDeletingAccount(account)}

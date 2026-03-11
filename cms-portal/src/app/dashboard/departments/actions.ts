@@ -31,6 +31,20 @@ export async function getDepartmentMembers(): Promise<Record<string, number>> {
   return counts
 }
 
+export async function getDepartmentMembersWithNames(): Promise<Record<string, string[]>> {
+  const supabase = createServerClient()
+  const { data } = await supabase.from('users').select('username,department')
+  if (!data) return {}
+  const map: Record<string, string[]> = {}
+  for (const row of data as Array<{ username: string; department: string | null }>) {
+    if (row.department) {
+      if (!map[row.department]) map[row.department] = []
+      map[row.department].push(row.username)
+    }
+  }
+  return map
+}
+
 export async function saveDepartment(
   dept: { id?: string; name: string }
 ): Promise<{ success: boolean; error?: string }> {

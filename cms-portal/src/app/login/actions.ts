@@ -23,15 +23,10 @@ export async function loginAction(
 
   const supabase = createServerClient()
 
-  // Fetch user — exclude avatar_data for performance
+  // Fetch user — use * to avoid errors when optional columns don't exist
   const { data: users, error } = await supabase
     .from('users')
-    .select(
-      'username,email,role,department,password,password_hash,password_salt,' +
-      'allowed_accounts,allowed_campaigns,allowed_drive_folders,' +
-      'allowed_looker_reports,drive_access_level,module_access,' +
-      'manager_id,team_members'
-    )
+    .select('*')
     .eq('username', username)
     .limit(1)
 
@@ -69,7 +64,7 @@ export async function loginAction(
     role: user.role as UserRole,
     department: user.department ?? null,
     email: user.email,
-    avatarData: null,
+    avatarData: user.avatar_data ?? null,
     allowedAccounts: parseCSV(user.allowed_accounts),
     allowedCampaigns: parseCSV(user.allowed_campaigns),
     allowedDriveFolders: parseCSV(user.allowed_drive_folders),
@@ -78,6 +73,7 @@ export async function loginAction(
     teamMembers: parseCSV(user.team_members),
     managerId: user.manager_id ?? null,
     driveAccessLevel: (user.drive_access_level ?? 'none') as DriveAccessLevel,
+    themePreference: (user.theme_preference ?? null) as 'light' | 'dark' | null,
   }
 
   const token = await createSession(sessionUser)
@@ -91,7 +87,7 @@ export async function loginAction(
     path: '/',
   })
 
-  redirect('/dashboard/accounts')
+  redirect('/dashboard')
 }
 
 export async function logoutAction() {

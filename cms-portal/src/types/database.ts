@@ -69,6 +69,7 @@ export type Database = {
           avatar_data: string | null
           last_login: string | null
           email_notifications_enabled: boolean
+          theme_preference: string | null
           created_at: string
           updated_at: string
         }
@@ -91,6 +92,7 @@ export type Database = {
           avatar_data?: string | null
           last_login?: string | null
           email_notifications_enabled?: boolean
+          theme_preference?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -113,6 +115,7 @@ export type Database = {
           avatar_data?: string | null
           last_login?: string | null
           email_notifications_enabled?: boolean
+          theme_preference?: string | null
           created_at?: string
           updated_at?: string
         }

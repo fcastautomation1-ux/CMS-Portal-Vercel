@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useTransition } from 'react'
+import { useEffect, useTransition } from 'react'
 import { logoutAction } from '@/app/login/actions'
 import type { SessionUser } from '@/types'
 import { cn } from '@/lib/cn'
@@ -21,40 +21,43 @@ import {
   Package,
   ShieldCheck,
   LogOut,
+  ChevronLeft,
   ChevronRight,
+  Home,
 } from 'lucide-react'
 
 interface NavItem {
   label: string
   href: string
   icon: React.ReactNode
+  color: string
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Accounts', href: '/dashboard/accounts', icon: <LayoutGrid size={18} /> },
-  { label: 'Campaigns', href: '/dashboard/campaigns', icon: <TrendingUp size={18} /> },
-  { label: 'Users', href: '/dashboard/users', icon: <Users size={18} /> },
-  { label: 'Workflows', href: '/dashboard/workflows', icon: <GitBranch size={18} /> },
-  { label: 'Rules', href: '/dashboard/rules', icon: <Settings size={18} /> },
-  { label: 'Drive Manager', href: '/dashboard/drive', icon: <FolderOpen size={18} /> },
-  { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={18} /> },
-  { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={18} /> },
-  { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={18} /> },
-  { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={18} /> },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={18} /> },
-  { label: 'Packages', href: '/dashboard/packages', icon: <Package size={18} /> },
+  { label: 'Dashboard', href: '/dashboard', icon: <Home size={17} />, color: '#2B7FFF' },
+  { label: 'Accounts', href: '/dashboard/accounts', icon: <LayoutGrid size={17} />, color: '#14B8A6' },
+  { label: 'Campaigns', href: '/dashboard/campaigns', icon: <TrendingUp size={17} />, color: '#F97316' },
+  { label: 'Users', href: '/dashboard/users', icon: <Users size={17} />, color: '#8B5CF6' },
+  { label: 'Workflows', href: '/dashboard/workflows', icon: <GitBranch size={17} />, color: '#10B981' },
+  { label: 'Rules', href: '/dashboard/rules', icon: <Settings size={17} />, color: '#F59E0B' },
+  { label: 'Drive Manager', href: '/dashboard/drive', icon: <FolderOpen size={17} />, color: '#3B82F6' },
+  { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
+  { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
+  { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={17} />, color: '#0D9488' },
+  { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
+  { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
+  { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
 ]
 
-/**
- * Mirrors the frontend.html updateNavigationVisibility() logic.
- * Determines which nav items each role can see.
- */
 function isNavItemVisible(href: string, user: SessionUser): boolean {
   const { role, moduleAccess: ma, allowedAccounts, allowedCampaigns, allowedDriveFolders, allowedLookerReports, teamMembers } = user
   const isAdminOrSM = role === 'Admin' || role === 'Super Manager'
   const isManager = role === 'Manager'
 
   switch (href) {
+    case '/dashboard':
+      return true // always visible
+
     case '/dashboard/accounts':
       if (isAdminOrSM) return true
       if (isManager) return ma?.googleAccount?.enabled === true
@@ -68,13 +71,13 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
     case '/dashboard/users':
       if (isAdminOrSM) return true
       if (isManager) return ma?.users?.enabled === true
-      return false // Supervisor/User: never
+      return false
 
     case '/dashboard/workflows':
     case '/dashboard/rules':
       if (isAdminOrSM) return true
       if (isManager) return ma?.googleAccount?.accessLevel === 'all'
-      return false // Supervisor/User: never
+      return false
 
     case '/dashboard/drive':
       if (isAdminOrSM || isManager) return true
@@ -86,40 +89,48 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       return allowedLookerReports.length > 0
 
     case '/dashboard/tasks':
-      return true // always visible
+      return true
 
     case '/dashboard/departments':
     case '/dashboard/packages':
-      return isAdminOrSM || isManager // Supervisor/User: never
+      return isAdminOrSM || isManager
 
     case '/dashboard/team':
       if (isAdminOrSM) return true
       return teamMembers.length > 0
 
     case '/dashboard/analytics':
-      return isAdminOrSM // Admin and Super Manager only
+      return isAdminOrSM
 
     default:
       return true
   }
 }
 
-const ROLE_BADGE_COLORS: Record<string, string> = {
-  Admin: 'bg-purple-100 text-purple-700',
-  'Super Manager': 'bg-blue-100 text-blue-700',
-  Manager: 'bg-sky-100 text-sky-700',
-  Supervisor: 'bg-teal-100 text-teal-700',
-  User: 'bg-slate-100 text-slate-600',
-}
-
 interface SidebarProps {
   user: SessionUser
+  mobileOpen?: boolean
+  onClose?: () => void
+  collapsed?: boolean
+  onCollapsedChange?: (v: boolean) => void
 }
 
-export function Sidebar({ user }: SidebarProps) {
+export function Sidebar({
+  user,
+  mobileOpen = false,
+  onClose,
+  collapsed = false,
+  onCollapsedChange,
+}: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+
+    useEffect(() => {
+      NAV_ITEMS.filter(item => isNavItemVisible(item.href, user)).forEach(item => {
+      router.prefetch(item.href)
+    })
+  }, [router, user])
 
   const handleLogout = () => {
     startTransition(async () => {
@@ -131,120 +142,145 @@ export function Sidebar({ user }: SidebarProps) {
 
   return (
     <aside
-      className="glass-sidebar fixed left-0 top-0 h-screen flex flex-col z-30"
-      style={{ width: 'var(--sidebar-width)' }}
+      className={cn(
+        'glass-sidebar fixed left-0 top-0 h-screen flex flex-col z-40 transition-all duration-300',
+        'md:translate-x-0',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      )}
+      style={{ width: collapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)' }}
     >
       {/* ── Logo ─────────────────────────────────────────────── */}
       <div
-        className="flex items-center gap-3 px-5 h-16 shrink-0"
-        style={{ borderBottom: '1px solid var(--color-border)' }}
+        className="flex items-center h-16 shrink-0 overflow-hidden"
+        style={{ borderBottom: '1px solid var(--color-border)', padding: collapsed ? '0 14px' : '0 20px' }}
       >
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: 'var(--blue-600)' }}
+          style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--violet-600))' }}
         >
           <ShieldCheck size={15} className="text-white" />
         </div>
-        <div className="min-w-0">
-          <div
-            className="font-bold text-sm leading-tight truncate"
-            style={{ color: 'var(--slate-800)', letterSpacing: '-0.01em' }}
-          >
-            CMS Portal
+        {!collapsed && (
+          <div className="ml-3 min-w-0">
+            <div className="font-bold text-sm leading-tight truncate" style={{ color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+              CMS Portal
+            </div>
+            <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Operations Hub</div>
           </div>
-          <div className="text-[11px] font-medium" style={{ color: 'var(--slate-400)' }}>Operations Hub</div>
-        </div>
+        )}
       </div>
 
       {/* ── Navigation ───────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-3 px-3">
-        <div className="mb-1.5 px-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.10em]" style={{ color: 'var(--slate-400)' }}>
-            Main
-          </span>
-        </div>
+      <nav className="flex-1 overflow-y-auto py-3" style={{ padding: collapsed ? '12px 8px' : '12px' }}>
+        {!collapsed && (
+          <div className="mb-1.5 px-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--color-text-muted)' }}>
+              Main
+            </span>
+          </div>
+        )}
         <ul className="flex flex-col gap-0.5">
           {NAV_ITEMS.map(item => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            const isActive = item.href === '/dashboard'
+              ? (pathname === '/dashboard' || pathname === '/dashboard/')
+              : (pathname === item.href || pathname.startsWith(item.href + '/'))
             if (!isNavItemVisible(item.href, user)) return null
+
+            const navLink = (
+              <Link
+                href={item.href}
+                onClick={onClose}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  'flex items-center rounded-lg text-sm font-medium transition-all duration-150 group relative',
+                  collapsed ? 'justify-center w-10 h-10 mx-auto' : 'gap-2.5 px-3 py-2',
+                  isActive ? 'text-white' : ''
+                )}
+                style={
+                  isActive
+                    ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` }
+                    : {}
+                }
+              >
+                {!isActive && (
+                  <span
+                    className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: `${item.color}12` }}
+                  />
+                )}
+                <span
+                  className="shrink-0 relative z-10"
+                  style={{ color: isActive ? 'white' : item.color }}
+                >
+                  {item.icon}
+                </span>
+                {!collapsed && (
+                  <>
+                    <span className="truncate flex-1 relative z-10" style={{ color: isActive ? 'white' : 'var(--color-text)' }}>
+                      {item.label}
+                    </span>
+                    {isActive && <ChevronRight size={12} className="shrink-0 opacity-60" />}
+                  </>
+                )}
+              </Link>
+            )
 
             return (
               <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group',
-                    isActive
-                      ? 'text-white'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  )}
-                  style={
-                    isActive
-                      ? {
-                          background: 'var(--blue-600)',
-                          boxShadow: 'var(--nav-active-shadow)',
-                        }
-                      : {}
-                  }
-                >
-                  <span className={cn('shrink-0', isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-500')}>
-                    {item.icon}
-                  </span>
-                  <span className="truncate flex-1">{item.label}</span>
-                  {isActive && <ChevronRight size={13} className="shrink-0 opacity-60" />}
-                </Link>
+                {navLink}
               </li>
             )
           })}
         </ul>
       </nav>
 
-      {/* ── User Profile ─────────────────────────────────────── */}
+      {/* ── Collapse toggle + Logout ─────────────────────── */}
       <div
-        className="px-3 py-4 shrink-0"
-        style={{ borderTop: '1px solid var(--color-border)' }}
+        className="shrink-0"
+        style={{ borderTop: '1px solid var(--color-border)', padding: collapsed ? '12px 8px' : '12px' }}
       >
-        <div
-          className="flex items-center gap-3 p-2.5 rounded-lg mb-2"
-          style={{ background: 'var(--slate-50)', border: '1px solid var(--color-border)' }}
+        {/* Collapse toggle (desktop only) */}
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          className="hidden md:flex btn-motion w-full items-center rounded-lg text-sm font-medium transition-all hover:bg-red-50 hover:text-red-600 mb-1"
+          style={{
+            color: 'var(--color-text-muted)',
+            gap: collapsed ? 0 : '10px',
+            padding: collapsed ? '8px 0' : '8px 12px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+          }}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {/* Avatar */}
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 text-white"
-            style={{ background: 'var(--blue-600)' }}
-          >
-            {user.username.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div
-              className="text-sm font-semibold truncate"
-              style={{ color: 'var(--slate-800)' }}
-            >
-              {user.username}
-            </div>
-            <span
-              className={cn(
-                'text-xs font-medium px-1.5 py-0.5 rounded inline-block',
-                ROLE_BADGE_COLORS[user.role] ?? 'bg-slate-100 text-slate-600'
-              )}
-            >
-              {user.role}
-            </span>
-          </div>
-        </div>
+          {collapsed ? <ChevronRight size={15} /> : (
+            <>
+              <ChevronLeft size={15} />
+              <span>Collapse</span>
+            </>
+          )}
+        </button>
 
         {/* Logout */}
         <button
           type="button"
           onClick={handleLogout}
           disabled={isPending}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 hover:bg-red-50 hover:text-red-600"
-          style={{ color: 'var(--slate-500)' }}
+          className="btn-motion w-full flex items-center rounded-lg text-sm font-medium transition-all disabled:opacity-50 hover:bg-red-50 hover:text-red-600"
+          style={{
+            color: 'var(--color-text-muted)',
+            gap: collapsed ? 0 : '10px',
+            padding: collapsed ? '8px 0' : '8px 12px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+          }}
+          title={collapsed ? 'Sign out' : undefined}
         >
           <LogOut size={15} />
-          {isPending ? 'Signing out…' : 'Sign out'}
+          {!collapsed && <span>{isPending ? 'Signing out…' : 'Sign out'}</span>}
         </button>
       </div>
     </aside>
   )
 }
+
+
+

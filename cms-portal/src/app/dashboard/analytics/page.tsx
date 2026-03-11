@@ -9,7 +9,7 @@ export default async function Page() {
     getAnalytics().catch(() => ({
       totalTasks: 0, assignedToMe: 0, completed: 0, inProgress: 0, pending: 0,
       overdue: 0, dueToday: 0, statusBreakdown: {}, priorityBreakdown: {},
-      departmentBreakdown: {}, topUsers: [],
+      departmentBreakdown: {}, topUsers: [], allTasks: [],
     })),
   ])
   if (!user) redirect('/login')

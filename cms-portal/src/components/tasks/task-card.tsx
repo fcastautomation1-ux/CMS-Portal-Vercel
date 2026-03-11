@@ -71,10 +71,15 @@ export function TaskCard({
       className={cn(
         'group relative rounded-xl border transition-all duration-150',
         isPending && 'opacity-60 pointer-events-none',
-        isCompleted ? 'border-white/50 opacity-75' : 'border-white/60 hover:border-blue-200/60 hover:shadow-md',
+        isCompleted ? 'opacity-75' : 'hover:shadow-md',
         compact ? 'p-3' : 'p-4'
       )}
-      style={{ background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(10px) saturate(160%)', WebkitBackdropFilter: 'blur(10px) saturate(160%)' }}
+      style={{
+        background: 'var(--color-surface)',
+        borderColor: isCompleted ? 'var(--color-border)' : 'var(--color-border)',
+        backdropFilter: 'blur(10px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(10px) saturate(160%)',
+      }}
     >
       {/* ── Priority stripe ── */}
       <div
@@ -139,7 +144,13 @@ export function TaskCard({
             {menuOpen && (
               <div
                 className="absolute right-0 top-8 rounded-xl z-50 min-w-40 py-1 animate-fade-in"
-                style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.7)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}
+                style={{
+                  background: 'var(--color-surface)',
+                  backdropFilter: 'blur(20px) saturate(200%)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(200%)',
+                  border: '1px solid var(--color-border)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                }}
                 onMouseLeave={() => setMenuOpen(false)}
               >
                 <MenuBtn onClick={() => { setMenuOpen(false); onViewDetail(task) }} icon={<Eye size={14}/>} label="View Details" />

@@ -13,9 +13,9 @@ const ACCESS_COLORS: Record<string, string> = {
 export function DrivePage({ config, driveAccess }: Props) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Drive Manager</h1>
+          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--slate-900)' }}>Drive Manager</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--slate-500)' }}>Manage Google Drive access and folders</p>
         </div>
       </div>
@@ -76,7 +76,8 @@ export function DrivePage({ config, driveAccess }: Props) {
         <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--slate-100)' }}>
           <h2 className="text-sm font-semibold" style={{ color: 'var(--slate-700)' }}>User Access</h2>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[500px]">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--slate-100)' }}>
               {['User', 'Access Level', 'Allowed Folders'].map(h => (
@@ -120,6 +121,7 @@ export function DrivePage({ config, driveAccess }: Props) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Notice */}
