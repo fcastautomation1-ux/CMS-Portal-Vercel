@@ -93,6 +93,30 @@ export function LookerPage({ reports: initial, user }: Props) {
                     : 'Allowed: All portal users'}
                 </p>
               </div>
+              <div
+                className="rounded-xl overflow-hidden border"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }}
+              >
+                <div
+                  className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ color: 'var(--color-text-muted)', background: 'rgba(59,130,246,0.06)' }}
+                >
+                  Preview
+                </div>
+                <div className="relative h-32">
+                  <iframe
+                    src={r.report_url}
+                    title={`Preview of ${r.title}`}
+                    className="absolute inset-0 w-full h-full border-0 pointer-events-none"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div
+                    className="absolute inset-0"
+                    style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.12), transparent 40%)' }}
+                  />
+                </div>
+              </div>
               <a
                 href={r.report_url} target="_blank" rel="noopener noreferrer"
                 className="btn-motion mt-auto inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors text-white"

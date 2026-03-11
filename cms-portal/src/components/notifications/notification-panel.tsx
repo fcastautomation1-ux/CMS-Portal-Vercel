@@ -100,6 +100,7 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(initialCount)
   const [loading, setLoading] = useState(false)
+  const [markingAllRead, setMarkingAllRead] = useState(false)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const prevUnreadRef = useRef(initialCount)
 
@@ -198,10 +199,17 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
   }
 
   async function handleMarkAllRead() {
+    if (markingAllRead) return
+    setMarkingAllRead(true)
     const res = await markAllNotificationsRead()
-    if (!res.success) return
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-    await refreshUnreadCount()
+    if (res.success) {
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+      setUnreadCount(0)
+      await refreshUnreadCount(0)
+    } else {
+      await refreshNotifications(true)
+    }
+    setMarkingAllRead(false)
   }
 
   const displayed = tab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
@@ -277,11 +285,17 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
             {(unreadCount > 0 || notifications.some(n => !n.is_read)) && (
               <button
                 onClick={handleMarkAllRead}
+                disabled={markingAllRead}
                 className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                style={{ color: '#3B82F6', background: 'rgba(59,130,246,0.08)' }}
+                style={{
+                  color: '#3B82F6',
+                  background: 'rgba(59,130,246,0.08)',
+                  opacity: markingAllRead ? 0.6 : 1,
+                  cursor: markingAllRead ? 'not-allowed' : 'pointer',
+                }}
                 title="Mark all as read"
               >
-                <CheckCheck size={13} /> Mark all read
+                <CheckCheck size={13} /> {markingAllRead ? 'Marking...' : 'Mark all read'}
               </button>
             )}
             <button
@@ -365,17 +379,17 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                       onClick={() => handleNotifClick(notif)}
                       className="w-full flex items-start gap-3 px-5 py-3.5 text-left transition-all group border-l-4"
                       style={{
-                        background: notif.is_read ? 'rgba(100,116,139,0.02)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))',
+                        background: notif.is_read ? 'rgba(148,163,184,0.14)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))',
                         borderLeft: notif.is_read ? '4px solid transparent' : '4px solid #3B82F6',
-                        opacity: notif.is_read ? 0.7 : 1,
+                        opacity: notif.is_read ? 0.92 : 1,
                       }}
                       onMouseEnter={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'var(--slate-50)' : 'rgba(59,130,246,0.12)'
+                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'rgba(148,163,184,0.2)' : 'rgba(59,130,246,0.12)'
                         ;(e.currentTarget as HTMLButtonElement).style.opacity = '1'
                       }}
                       onMouseLeave={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'rgba(100,116,139,0.02)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))'
-                        ;(e.currentTarget as HTMLButtonElement).style.opacity = notif.is_read ? '0.7' : '1'
+                        (e.currentTarget as HTMLButtonElement).style.background = notif.is_read ? 'rgba(148,163,184,0.14)' : 'linear-gradient(90deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))'
+                        ;(e.currentTarget as HTMLButtonElement).style.opacity = notif.is_read ? '0.92' : '1'
                       }}
                     >
                       {/* Icon */}
@@ -391,7 +405,7 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                         <p
                           className="text-sm leading-snug truncate"
                           style={{
-                            color: notif.is_read ? 'var(--slate-400)' : 'var(--color-text)',
+                            color: notif.is_read ? 'var(--slate-600)' : 'var(--color-text)',
                             fontWeight: notif.is_read ? '500' : '600',
                           }}
                         >
@@ -400,13 +414,13 @@ export function NotificationPanel({ initialCount = 0 }: NotificationPanelProps) 
                         {notif.body && (
                           <p
                             className="text-xs mt-0.5 line-clamp-2"
-                            style={{ color: notif.is_read ? 'var(--slate-400)' : 'var(--color-text-muted)' }}
+                            style={{ color: notif.is_read ? 'var(--slate-500)' : 'var(--color-text-muted)' }}
                           >
                             {notif.body}
                           </p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[11px]" style={{ color: notif.is_read ? 'var(--slate-350)' : 'var(--slate-400)' }}>
+                          <span className="text-[11px]" style={{ color: notif.is_read ? 'var(--slate-600)' : 'var(--slate-400)' }}>
                             {timeAgo(notif.created_at)}
                           </span>
                           <span
