@@ -127,15 +127,132 @@ interface AdminOverviewProps {
 }
 
 function AdminOverview({ stats, user }: AdminOverviewProps) {
-  const router = useRouter()
   const [activeFilter, setActiveFilter] = useState<string | null>(null)
+  const router = useRouter()
+  const ROLE_COLORS = ['#2B7FFF', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899']
+  const today = new Date().toISOString().split('T')[0]
 
-  const roleData = useMemo(() =>
-    Object.entries(stats.users.byRole).map(([name, value]) => ({ name, value })),
+  const usersByName = useMemo(
+    () => Object.fromEntries(stats.userRecords.map(record => [record.username, record])),
+    [stats.userRecords]
+  )
+
+  const allRoleData = useMemo(
+    () => Object.entries(stats.users.byRole).map(([name, value]) => ({ name, value })),
     [stats.users.byRole]
   )
 
-  const ROLE_COLORS = ['#2B7FFF', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899']
+  const filtered = useMemo(() => {
+    const tasks = stats.taskRecords.filter(task => {
+      if (!activeFilter || activeFilter === 'Total Tasks') return true
+
+      const owner = task.assigned_to || task.username
+      const ownerRole = usersByName[owner]?.role
+      const isCompleted = task.completed || task.task_status === 'done'
+      const isOverdue = !isCompleted && Boolean(task.due_date && task.due_date < today)
+
+      switch (activeFilter) {
+        case 'Overdue':
+          return isOverdue
+        case 'Completed':
+          return isCompleted
+        case 'In Progress':
+          return !isCompleted && !isOverdue && task.task_status === 'in_progress'
+        case 'Pending':
+          return !isCompleted && !isOverdue && task.task_status !== 'in_progress'
+        case 'Total Accounts':
+        case 'Campaigns':
+        case 'Team Members':
+        case 'Departments':
+          return true
+        default:
+          if (stats.users.byRole[activeFilter]) return ownerRole === activeFilter
+          return task.category === activeFilter
+      }
+    })
+
+    const ownerSet = new Set(tasks.map(task => task.assigned_to || task.username))
+    // For filters that don't relate to a specific user/role, keep the full user list
+    const isNonUserFilter = !activeFilter
+      || activeFilter === 'Team Members'
+      || activeFilter === 'Total Accounts'
+      || activeFilter === 'Campaigns'
+      || activeFilter === 'Total Tasks'
+      || activeFilter === 'Departments'
+    const visibleUsers = isNonUserFilter
+      ? stats.userRecords
+      : stats.users.byRole[activeFilter]
+      ? stats.userRecords.filter(record => record.role === activeFilter)
+      : stats.userRecords.filter(record => ownerSet.has(record.username))
+
+    let completed = 0
+    let inProgress = 0
+    let pending = 0
+    let overdue = 0
+    const deptMap: Record<string, number> = {}
+    const userMap: Record<string, { total: number; completed: number }> = {}
+
+    for (const task of tasks) {
+      const owner = task.assigned_to || task.username
+      if (!userMap[owner]) userMap[owner] = { total: 0, completed: 0 }
+      userMap[owner].total++
+
+      const isCompleted = task.completed || task.task_status === 'done'
+      const isOverdue = !isCompleted && Boolean(task.due_date && task.due_date < today)
+
+      if (isCompleted) {
+        completed++
+        userMap[owner].completed++
+      } else if (isOverdue) {
+        overdue++
+      } else if (task.task_status === 'in_progress') {
+        inProgress++
+      } else {
+        pending++
+      }
+
+      if (task.category) deptMap[task.category] = (deptMap[task.category] || 0) + 1
+    }
+
+    const topPerformers = Object.entries(userMap)
+      .map(([username, value]) => ({
+        username,
+        completed: value.completed,
+        total: value.total,
+        completion: value.total > 0 ? Math.round((value.completed / value.total) * 100) : 0,
+      }))
+      .sort((a, b) => b.completed - a.completed)
+      .slice(0, 8)
+
+    const tasksByStatus = [
+      { label: 'Completed', value: completed, color: '#10B981' },
+      { label: 'In Progress', value: inProgress, color: '#3B82F6' },
+      { label: 'Pending', value: pending, color: '#F59E0B' },
+      { label: 'Overdue', value: overdue, color: '#EF4444' },
+    ]
+
+    const tasksByDept = Object.entries(deptMap)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6)
+
+    const roleMap: Record<string, number> = {}
+    visibleUsers.forEach(record => {
+      roleMap[record.role] = (roleMap[record.role] || 0) + 1
+    })
+
+    return {
+      taskTotals: { total: tasks.length, completed, inProgress, pending, overdue },
+      tasksByStatus,
+      tasksByDept,
+      topPerformers,
+      visibleUsers,
+      roleData: Object.entries(roleMap).map(([name, value]) => ({ name, value })),
+      recentTasks: [...tasks].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 8),
+    }
+  }, [activeFilter, stats.taskRecords, stats.userRecords, stats.users.byRole, today, usersByName])
+
+  const roleData = filtered.roleData.length > 0 ? filtered.roleData : allRoleData
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -159,7 +276,33 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
           <Calendar size={14} />
           {new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
         </div>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors hover:opacity-80"
+          style={{ background: 'var(--slate-100)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+        >
+          <Activity size={14} />
+          Refresh
+        </button>
       </div>
+
+      {activeFilter && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: 'var(--blue-50)', border: '1px solid var(--blue-200)' }}>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--blue-700)' }}>Synchronized Filter</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{activeFilter}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveFilter(null)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+            style={{ background: 'white', color: 'var(--blue-700)', border: '1px solid var(--blue-200)' }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
@@ -185,17 +328,17 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
         />
         <KpiCard
           label="Team Members"
-          value={stats.users.total}
+          value={activeFilter ? filtered.visibleUsers.length : stats.users.total}
           icon={<Users size={18} />}
           gradient="linear-gradient(135deg, #8B5CF6, #7C3AED)"
           delay={120}
-          active={activeFilter === 'Team Members'}
+          active={activeFilter === 'Team Members' || Boolean(activeFilter && stats.users.byRole[activeFilter])}
           onClick={() => setActiveFilter(activeFilter === 'Team Members' ? null : 'Team Members')}
         />
         <KpiCard
           label="Total Tasks"
-          value={stats.tasks.total}
-          sub={`${stats.tasks.completed} done`}
+          value={activeFilter ? filtered.taskTotals.total : stats.tasks.total}
+          sub={`${activeFilter ? filtered.taskTotals.completed : stats.tasks.completed} done`}
           icon={<CheckSquare size={18} />}
           gradient="linear-gradient(135deg, #10B981, #059669)"
           delay={180}
@@ -204,7 +347,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
         />
         <KpiCard
           label="Overdue"
-          value={stats.tasks.overdue}
+          value={activeFilter ? filtered.taskTotals.overdue : stats.tasks.overdue}
           sub="need attention"
           icon={<AlertCircle size={18} />}
           gradient="linear-gradient(135deg, #EF4444, #DC2626)"
@@ -214,12 +357,12 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
         />
         <KpiCard
           label="Departments"
-          value={stats.departments.total}
+          value={activeFilter ? filtered.tasksByDept.length : stats.departments.total}
           icon={<Building2 size={18} />}
           gradient="linear-gradient(135deg, #14B8A6, #0D9488)"
           delay={300}
-          active={activeFilter === 'Departments'}
-          onClick={() => setActiveFilter(activeFilter === 'Departments' ? null : 'Departments')}
+          active={activeFilter === 'Departments' || Boolean(activeFilter && filtered.tasksByDept.some(item => item.label === activeFilter))}
+          onClick={() => setActiveFilter(activeFilter === 'Departments' ? null : (filtered.tasksByDept[0]?.label ?? stats.tasksByDept[0]?.label ?? 'Departments'))}
         />
       </div>
 
@@ -273,25 +416,25 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             </div>
           )}
 
-          {activeFilter === 'Team Members' && (
+          {(activeFilter === 'Team Members' || Boolean(stats.users.byRole[activeFilter])) && (
             <div className="flex flex-wrap gap-2">
-              {Object.entries(stats.users.byRole).map(([role, count]) => (
-                <div key={role} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm" style={{ background: 'var(--slate-100)', border: '1px solid var(--color-border)' }}>
+              {roleData.map(role => (
+                <button key={role.name} type="button" onClick={() => setActiveFilter(prev => prev === role.name ? null : role.name)} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm" style={{ background: 'var(--slate-100)', border: '1px solid var(--color-border)' }}>
                   <span className="w-2 h-2 rounded-full" style={{ background: '#8B5CF6' }} />
-                  <span style={{ color: 'var(--color-text)' }}>{role}</span>
-                  <span className="font-bold" style={{ color: '#8B5CF6' }}>{count}</span>
-                </div>
+                  <span style={{ color: 'var(--color-text)' }}>{role.name}</span>
+                  <span className="font-bold" style={{ color: '#8B5CF6' }}>{role.value}</span>
+                </button>
               ))}
             </div>
           )}
 
-          {activeFilter === 'Total Tasks' && (
+          {(activeFilter === 'Total Tasks' || activeFilter === 'Completed' || activeFilter === 'In Progress' || activeFilter === 'Pending' || activeFilter === 'Overdue') && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Total', value: stats.tasks.total, color: '#10B981' },
-                { label: 'Completed', value: stats.tasks.completed, color: '#22C55E' },
-                { label: 'In Progress', value: stats.tasks.inProgress, color: '#3B82F6' },
-                { label: 'Overdue', value: stats.tasks.overdue, color: '#EF4444' },
+                { label: 'Total', value: filtered.taskTotals.total, color: '#10B981' },
+                { label: 'Completed', value: filtered.taskTotals.completed, color: '#22C55E' },
+                { label: 'In Progress', value: filtered.taskTotals.inProgress, color: '#3B82F6' },
+                { label: 'Overdue', value: filtered.taskTotals.overdue, color: '#EF4444' },
               ].map(item => (
                 <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: `${item.color}12`, border: `1px solid ${item.color}30` }}>
                   <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
@@ -303,11 +446,11 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
 
           {activeFilter === 'Overdue' && (
             <div className="flex flex-col gap-2">
-              {stats.recentTasks.filter(t => t.due_date && t.due_date < new Date().toISOString().split('T')[0] && t.task_status !== 'done').length === 0 ? (
+              {filtered.recentTasks.filter(t => t.due_date && t.due_date < today && !t.completed && t.task_status !== 'done').length === 0 ? (
                 <p className="text-sm py-2" style={{ color: 'var(--color-text-muted)' }}>No overdue tasks found in recent tasks.</p>
               ) : (
-                stats.recentTasks
-                  .filter(t => t.due_date && t.due_date < new Date().toISOString().split('T')[0] && t.task_status !== 'done')
+                filtered.recentTasks
+                  .filter(t => t.due_date && t.due_date < today && !t.completed && t.task_status !== 'done')
                   .map(t => (
                     <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: '#EF4444' }} />
@@ -319,12 +462,14 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             </div>
           )}
 
-          {activeFilter === 'Departments' && (
-            <div className="flex items-center gap-4 py-2">
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.3)' }}>
-                <p className="text-3xl font-bold" style={{ color: '#14B8A6' }}>{stats.departments.total}</p>
-                <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>Active Departments</p>
-              </div>
+          {(!['Total Accounts', 'Campaigns', 'Team Members', 'Total Tasks', 'Overdue', 'Departments', 'Completed', 'In Progress', 'Pending'].includes(activeFilter) && !stats.users.byRole[activeFilter]) && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {filtered.tasksByDept.map(item => (
+                <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.25)' }}>
+                  <p className="text-2xl font-bold" style={{ color: '#14B8A6' }}>{item.value}</p>
+                  <p className="text-xs font-medium mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{item.label}</p>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -340,11 +485,11 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Task Status</h3>
             <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click to filter</span>
           </div>
-          {stats.tasks.total > 0 ? (
+          {filtered.taskTotals.total > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
-                  data={stats.tasksByStatus.filter(d => d.value > 0)}
+                  data={filtered.tasksByStatus.filter(d => d.value > 0)}
                   cx="50%"
                   cy="50%"
                   innerRadius={50}
@@ -355,15 +500,17 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                   animationBegin={0}
                   animationDuration={800}
                   cursor="pointer"
-                  onClick={() => {
-                    setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')
+                  onClick={(entry: unknown) => {
+                    const label = ((entry as { payload?: { label?: string } }).payload?.label) ?? null
+                    if (!label) return
+                    setActiveFilter(prev => prev === label ? null : label)
                   }}
                 >
-                  {stats.tasksByStatus.map((entry, index) => (
+                  {filtered.tasksByStatus.map((entry, index) => (
                     <Cell
                       key={index}
                       fill={entry.color}
-                      opacity={activeFilter === 'Total Tasks' || activeFilter === null ? 1 : 0.4}
+                      opacity={activeFilter === entry.label || activeFilter === null || activeFilter === 'Total Tasks' ? 1 : 0.45}
                     />
                   ))}
                 </Pie>
@@ -376,13 +523,13 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             </div>
           )}
           <div className="flex flex-wrap gap-3 mt-2 justify-center">
-            {stats.tasksByStatus.map(s => (
+            {filtered.tasksByStatus.map(s => (
               <button
                 key={s.label}
                 type="button"
-                onClick={() => setActiveFilter(activeFilter === 'Total Tasks' ? null : 'Total Tasks')}
+                onClick={() => setActiveFilter(prev => prev === s.label ? null : s.label)}
                 className="flex items-center gap-1.5 transition-opacity"
-                style={{ opacity: activeFilter === 'Total Tasks' || activeFilter === null ? 1 : 0.5 }}
+                style={{ opacity: activeFilter === s.label || activeFilter === null || activeFilter === 'Total Tasks' ? 1 : 0.5 }}
               >
                 <div className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{s.label} ({s.value})</span>
@@ -398,16 +545,18 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Tasks by Department</h3>
             <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>click bar to view</span>
           </div>
-          {stats.tasksByDept.length > 0 ? (
+          {filtered.tasksByDept.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={stats.tasksByDept} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}
-                onClick={() => router.push('/dashboard/tasks')}
-              >
+              <BarChart data={filtered.tasksByDept} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(43,127,255,0.08)' }} />
-                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" animationDuration={800} cursor="pointer" />
+                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" animationDuration={800} cursor="pointer" onClick={(entry: unknown) => {
+                  const label = ((entry as { payload?: { label?: string } }).payload?.label) ?? null
+                  if (!label) return
+                  setActiveFilter(prev => prev === label ? null : label)
+                }} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -435,12 +584,15 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                   data={roleData.map((d, i) => ({ ...d, fill: ROLE_COLORS[i % ROLE_COLORS.length] }))}
                   layout="vertical"
                   margin={{ top: 0, right: 10, left: 0, bottom: 0 }}
-                  onClick={() => setActiveFilter(activeFilter === 'Team Members' ? null : 'Team Members')}
                 >
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(139,92,246,0.08)' }} />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Users" animationDuration={800} cursor="pointer">
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Users" animationDuration={800} cursor="pointer" onClick={(entry: unknown) => {
+                    const label = ((entry as { payload?: { name?: string } }).payload?.name) ?? null
+                    if (!label) return
+                    setActiveFilter(prev => prev === label ? null : label)
+                  }}>
                     {roleData.map((_, i) => (
                       <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />
                     ))}
@@ -470,11 +622,11 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             <Star size={16} style={{ color: 'var(--amber-500)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Top Performers</h3>
           </div>
-          {stats.topPerformers.length === 0 ? (
+          {filtered.topPerformers.length === 0 ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No data yet</p>
           ) : (
             <div className="flex flex-col gap-3">
-              {stats.topPerformers.slice(0, 6).map((p, i) => (
+              {filtered.topPerformers.slice(0, 6).map((p, i) => (
                 <div key={p.username} className="flex items-center gap-3">
                   <span
                     className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
@@ -509,12 +661,15 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
             <Clock size={16} style={{ color: 'var(--blue-600)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Recent Tasks</h3>
           </div>
-          {stats.recentTasks.length === 0 ? (
+          {filtered.recentTasks.length === 0 ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No tasks yet</p>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {stats.recentTasks.map(t => {
-                const st = STATUS_STYLES[t.task_status] ?? STATUS_STYLES['todo']
+              {filtered.recentTasks.map(t => {
+                const isOverdue = !t.completed && Boolean(t.due_date && t.due_date < today)
+                const st = isOverdue
+                  ? { bg: 'rgba(239,68,68,0.12)', color: '#EF4444', label: 'Overdue' }
+                  : STATUS_STYLES[t.task_status] ?? STATUS_STYLES['todo']
                 const pr = PRIORITY_STYLES[t.priority] ?? { color: '#64748B' }
                 return (
                   <div key={t.id} className="flex items-start gap-2.5">
@@ -531,9 +686,12 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                         >
                           {st.label}
                         </span>
-                        {t.assigned_to && (
+                        <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>
+                          → {t.assigned_to || t.username}
+                        </span>
+                        {t.category && (
                           <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>
-                            → {t.assigned_to}
+                            • {t.category}
                           </span>
                         )}
                       </div>
@@ -541,7 +699,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                     {t.due_date && (
                       <div
                         className="text-[10px] shrink-0 font-medium"
-                        style={{ color: t.due_date < new Date().toISOString().split('T')[0] ? 'var(--rose-500)' : 'var(--slate-400)' }}
+                        style={{ color: isOverdue ? 'var(--rose-500)' : 'var(--slate-400)' }}
                       >
                         {t.due_date}
                       </div>
