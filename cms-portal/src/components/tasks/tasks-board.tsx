@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useCallback, useMemo } from 'react'
+import type { ChangeEvent } from 'react'
 import {
   Plus,
   RefreshCw,
@@ -24,7 +25,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import type { Todo, TodoStats, TaskStatus } from '@/types'
+import type { Todo, TodoStats, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
 import { TaskDetailModal } from './task-detail-modal'
@@ -42,7 +43,6 @@ type QuickFilter =
 
 type SmartList =
   | 'all' | 'today' | 'upcoming' | 'overdue' | 'thisweek' | 'thismonth'
-  | 'my_approval_pending' | 'other_approval_pending'
 
 type StatusFilter =
   | 'all' | 'pending' | 'queue' | 'inprogress' | 'completed' | 'overdue' | 'archived'
@@ -95,16 +95,16 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   const [showBulkMenu, setShowBulkMenu] = useState(false)
 
   const extStats = useMemo(() => ({
-    assignedToMe: tasks.filter((t) =>
+    assignedToMe: tasks.filter((t: Todo) =>
       t.assigned_to === currentUsername ||
-      t.multi_assignment?.assignees?.some((a) => a.username === currentUsername)
+      t.multi_assignment?.assignees?.some((a: MultiAssignmentEntry) => a.username === currentUsername)
     ).length,
-    inProgress: tasks.filter((t) => t.task_status === 'in_progress').length,
+    inProgress: tasks.filter((t: Todo) => t.task_status === 'in_progress').length,
   }), [tasks, currentUsername])
 
   const departments = useMemo(() => {
     const depts = new Set<string>()
-    tasks.forEach((t) => {
+    tasks.forEach((t: Todo) => {
       if (t.creator_department) depts.add(t.creator_department)
       if (t.assignee_department) depts.add(t.assignee_department)
       if (t.queue_department) depts.add(t.queue_department)
@@ -114,14 +114,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   const visibleMembers = useMemo(() => {
     const members = new Set<string>()
-    tasks.forEach((task) => {
+    tasks.forEach((task: Todo) => {
       if (task.username) members.add(task.username)
       if (task.assigned_to) members.add(task.assigned_to)
-      task.multi_assignment?.assignees?.forEach((assignee) => {
+      task.multi_assignment?.assignees?.forEach((assignee: MultiAssignmentEntry) => {
         if (assignee.username) members.add(assignee.username)
       })
     })
-    return Array.from(members).sort((a, b) => a.localeCompare(b))
+    return Array.from(members).sort((a: string, b: string) => a.localeCompare(b))
   }, [tasks])
 
   const effectiveUser = memberFilter !== 'all' ? memberFilter : currentUsername
@@ -141,7 +141,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
     if (task.queue_status !== 'queued' || task.assigned_to) return false
     const normalizedUser = username.toLowerCase()
-    const userTask = tasks.find((t) =>
+    const userTask = tasks.find((t: Todo) =>
       t.username.toLowerCase() === normalizedUser ||
       (t.assigned_to || '').toLowerCase() === normalizedUser
     )
@@ -183,11 +183,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
-          const top = ma.assignees.find((a) => (a.username || '').toLowerCase() === userLower)
+          const top = ma.assignees.find((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)
           if (top && top.status !== 'accepted' && top.status !== 'completed') return true
           for (const assignee of ma.assignees) {
             if (Array.isArray(assignee.delegated_to)) {
-              const sub = assignee.delegated_to.find((s) => (s.username || '').toLowerCase() === userLower)
+              const sub = assignee.delegated_to.find((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower)
               if (sub && sub.status !== 'accepted' && sub.status !== 'completed') return true
             }
           }
@@ -202,8 +202,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)) return true
-          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
         }
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
@@ -214,9 +214,9 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
-          return ma.assignees.some((a) =>
+          return ma.assignees.some((a: MultiAssignmentEntry) =>
             (a.username || '').toLowerCase() !== userLower ||
-            (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() !== userLower))
+            (Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() !== userLower))
           )
         }
         return false
@@ -231,8 +231,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         if ((t.assigned_to || '').toLowerCase() === userLower) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)) return true
-          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
         }
         return false
       })
@@ -252,8 +252,6 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     if (smartList !== 'all') {
       list = list.filter((t) => {
         const due = t.due_date ? new Date(t.due_date) : null
-        if (smartList === 'my_approval_pending') return !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower
-        if (smartList === 'other_approval_pending') return !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() !== userLower
         if (!due) return false
         if (smartList === 'today') return due.toDateString() === today.toDateString()
         if (smartList === 'upcoming') return due >= today && !t.completed
@@ -285,8 +283,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         if ((t.assigned_to || '').toLowerCase() === target) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === target)) return true
-          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === target))) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === target)) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === target))) return true
         }
         return false
       })
@@ -363,7 +361,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   }
 
   const toggleSelect = (id: string) => {
-    setSelected((prev) => {
+    setSelected((prev: Set<string>) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -375,14 +373,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     if (selected.size === filteredTasks.length) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(filteredTasks.map((t) => t.id)))
+      setSelected(new Set(filteredTasks.map((t: Todo) => t.id)))
     }
   }
 
   const exportCSV = () => {
-    const rows = filteredTasks.map((t) => [t.title, t.task_status, t.priority, t.assigned_to ?? '', t.due_date ?? '', t.package_name ?? '', t.kpi_type ?? ''])
+    const rows = filteredTasks.map((t: Todo) => [t.title, t.task_status, t.priority, t.assigned_to ?? '', t.due_date ?? '', t.package_name ?? '', t.kpi_type ?? ''])
     const csv = [['Title', 'Status', 'Priority', 'Assigned To', 'Due Date', 'Package', 'KPI Type'], ...rows]
-      .map((r) => r.map((c) => `"${c}"`).join(','))
+      .map((r: string[]) => r.map((c: string) => `"${c}"`).join(','))
       .join('\n')
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
@@ -438,12 +436,10 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <div className="text-lg font-extrabold tracking-tight text-[#3559d8]">TaskFlow</div>
-
               <div className="grid gap-2 lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]">
                 <select
                   value={quickFilter}
-                  onChange={(e) => setQuickFilter(e.target.value as QuickFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setQuickFilter(e.target.value as QuickFilter)}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Tasks {stats.total}</option>
@@ -456,7 +452,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={deptFilter}
-                  onChange={(e) => setDeptFilter(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setDeptFilter(e.target.value)}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="">All Departments</option>
@@ -465,7 +461,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={memberFilter}
-                  onChange={(e) => setMemberFilter(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setMemberFilter(e.target.value)}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Members</option>
@@ -483,7 +479,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   type="text"
                   placeholder="Search tasks..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 />
               </div>
@@ -529,7 +525,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={smartList}
-                  onChange={(e) => setSmartList(e.target.value as SmartList)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setSmartList(e.target.value as SmartList)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Tasks</option>
@@ -538,13 +534,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   <option value="overdue">Overdue</option>
                   <option value="thisweek">This Week</option>
                   <option value="thismonth">This Month</option>
-                  <option value="my_approval_pending">My Approval Pending</option>
-                  <option value="other_approval_pending">Other Approval Pending</option>
                 </select>
 
                 <select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value as StatusFilter)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Status</option>
@@ -558,7 +552,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setPriorityFilter(e.target.value as typeof priorityFilter)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Priority</option>
@@ -570,7 +564,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setDateFilter(e.target.value as DateFilter)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Dates</option>
@@ -587,7 +581,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={messageFilter}
-                  onChange={(e) => setMessageFilter(e.target.value as MessageFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setMessageFilter(e.target.value as MessageFilter)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Messages</option>
@@ -654,7 +648,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <div className="relative">
                   <select
                     value={`${sortBy}_${sortDir}`}
-                    onChange={(e) => {
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                       const [s, d] = e.target.value.split('_')
                       setSortBy(s as typeof sortBy)
                       setSortDir(d as typeof sortDir)
