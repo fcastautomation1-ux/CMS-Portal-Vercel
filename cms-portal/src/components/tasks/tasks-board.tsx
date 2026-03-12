@@ -138,6 +138,25 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     setSelected(new Set())
   }, [initialStats])
 
+  const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
+    if (task.queue_status !== 'queued' || task.assigned_to) return false
+    const normalizedUser = username.toLowerCase()
+    const userTask = tasks.find((t) =>
+      t.username.toLowerCase() === normalizedUser ||
+      (t.assigned_to || '').toLowerCase() === normalizedUser
+    )
+    const dept = userTask?.assignee_department || userTask?.creator_department || currentUserDept
+    if (!dept) return false
+    return (task.queue_department || '').toLowerCase() === dept.toLowerCase()
+  }, [currentUserDept, tasks])
+
+  const getMessageState = useCallback((task: Todo, username: string) => {
+    const comments = task.history.filter((h) => h.type === 'comment')
+    if (!comments.length) return 'none'
+    const hasUnread = comments.some((h) => Array.isArray(h.unread_by) && h.unread_by.includes(username))
+    return hasUnread ? 'unread' : 'read'
+  }, [])
+
   const filteredTasks = useMemo(() => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -383,25 +402,6 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     onRefresh: refresh,
   })
 
-  const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
-    if (task.queue_status !== 'queued' || task.assigned_to) return false
-    const normalizedUser = username.toLowerCase()
-    const userTask = tasks.find((t) =>
-      t.username.toLowerCase() === normalizedUser ||
-      (t.assigned_to || '').toLowerCase() === normalizedUser
-    )
-    const dept = userTask?.assignee_department || userTask?.creator_department || currentUserDept
-    if (!dept) return false
-    return (task.queue_department || '').toLowerCase() === dept.toLowerCase()
-  }, [currentUserDept, tasks])
-
-  const getMessageState = useCallback((task: Todo, username: string) => {
-    const comments = task.history.filter((h) => h.type === 'comment')
-    if (!comments.length) return 'none'
-    const hasUnread = comments.some((h) => Array.isArray(h.unread_by) && h.unread_by.includes(username))
-    return hasUnread ? 'unread' : 'read'
-  }, [])
-
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
@@ -608,7 +608,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               </button>
 
               <button
-                onClick={() => setQuickFilter('queued')}
+                onClick={() => {
+                  setQuickFilter('all')
+                  setSmartList('all')
+                  setStatusFilter('queue')
+                }}
                 className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
                 <Users size={13} />
