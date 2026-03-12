@@ -1,32 +1,19 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type {
   Todo,
+  TodoAttachment,
   TodoDetails,
   TodoStats,
   HistoryEntry,
   CreateTodoInput,
   MultiAssignment,
   AssignmentChainEntry,
-  SessionUser,
 } from '@/types'
-
-type RevalidatePathFn = (path: string) => void
-
-const revalidatePath: RevalidatePathFn = (() => {
-  try {
-    const cacheModule = require('next/cache') as {
-      revalidatePath?: RevalidatePathFn
-    }
-    return typeof cacheModule.revalidatePath === 'function'
-      ? cacheModule.revalidatePath
-      : () => {}
-  } catch {
-    return () => {}
-  }
-})()
+const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +39,25 @@ function parseJson<T>(val: unknown, fallback: T): T {
     try { return JSON.parse(val) as T } catch { return fallback }
   }
   return val as T
+}
+
+async function resolveAttachmentUrl(
+  supabase: ReturnType<typeof createServerClient>,
+  row: TodoAttachment
+): Promise<TodoAttachment> {
+  const storagePath = String(row.drive_file_id || '').trim()
+  if (!storagePath) return row
+
+  const { data } = await supabase.storage
+    .from(TASK_ATTACHMENTS_BUCKET)
+    .createSignedUrl(storagePath, 60 * 60)
+
+  if (!data?.signedUrl) return row
+
+  return {
+    ...row,
+    file_url: data.signedUrl,
+  }
 }
 
 function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
@@ -332,7 +338,7 @@ export async function saveTodoAction(
     // Edit — only creator can edit
     const { data: existing } = await supabase
       .from('todos')
-      .select('username,task_status,history')
+      .select('username,task_status,history,actual_due_date,expected_due_date')
       .eq('id', input.id)
       .single()
     if (!existing) return { success: false, error: 'Task not found.' }
@@ -357,9 +363,41 @@ export async function saveTodoAction(
       expected_due_date: input.due_date || null,
       updated_at: now,
     }
-    if (input.due_date && !(task.actual_due_date) || (task.actual_due_date as string) === (task.expected_due_date as string)) {
+    if (
+      input.due_date &&
+      (
+        !(task.actual_due_date) ||
+        (task.actual_due_date as string) === (task.expected_due_date as string)
+      )
+    ) {
       payload.actual_due_date = input.due_date
     }
+
+    const nextAssignedTo =
+      input.routing === 'manager' ? (input.assigned_to || null) : null
+    const nextManagerId =
+      input.routing === 'manager'
+        ? (input.manager_id || input.assigned_to || null)
+        : null
+    const nextQueueDept =
+      input.routing === 'department'
+        ? (input.queue_department || user.department || null)
+        : null
+    const nextQueueStatus = input.routing === 'department' ? 'queued' : null
+    const nextMultiAssignment =
+      input.routing === 'multi' && input.multi_assignment?.enabled
+        ? input.multi_assignment
+        : null
+
+    payload.assigned_to = nextAssignedTo
+    payload.manager_id = nextManagerId
+    payload.queue_department = nextQueueDept
+    payload.queue_status = nextQueueStatus
+    payload.multi_assignment = nextMultiAssignment
+      ? JSON.stringify(nextMultiAssignment)
+      : null
+    payload.category =
+      input.category || (input.routing === 'department' ? nextQueueDept : null)
 
     const oldHistory = parseJson<HistoryEntry[]>(task.history, [])
     if (changes.length > 0 || true) {
@@ -968,6 +1006,54 @@ export async function unshareTodoAction(
 
 // ── Get full task detail ───────────────────────────────────────────────────────
 
+export async function saveTodoAttachmentAction(input: {
+  todo_id: string
+  file_name: string
+  file_size?: number | null
+  mime_type?: string | null
+  file_url?: string | null
+  storage_path?: string | null
+}): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('id,username,assigned_to,manager_id')
+    .eq('id', input.todo_id)
+    .single()
+
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const canAttach =
+    (task.username as string) === user.username ||
+    (task.assigned_to as string | null) === user.username ||
+    isUserInManagerList((task.manager_id as string | null) ?? null, user.username) ||
+    user.role === 'Admin' ||
+    user.role === 'Super Manager'
+
+  if (!canAttach) {
+    return { success: false, error: 'No permission to attach files.' }
+  }
+
+  const { error } = await supabase.from('todo_attachments').insert({
+    todo_id: input.todo_id,
+    file_name: input.file_name,
+    file_size: input.file_size ?? null,
+    mime_type: input.mime_type ?? null,
+    file_url: input.file_url || input.storage_path || '',
+    drive_file_id: input.storage_path || null,
+    uploaded_by: user.username,
+  })
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
 export async function getTodoDetails(todoId: string): Promise<TodoDetails | null> {
   const user = await getSession()
   if (!user) return null
@@ -986,8 +1072,6 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   const isAssignee = task.assigned_to === user.username
   const isAssigneeManager = isUserInManagerList(task.manager_id, user.username)
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager' || user.role === 'Manager'
-  const isSharedWith = (sharesRes.data || []).some((s: Record<string, unknown>) => s.shared_with === user.username)
-
   let isMultiAssignee = false
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
     isMultiAssignee = task.multi_assignment.assignees.some(
@@ -1005,10 +1089,16 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   const canEdit =
     isAdmin || isCreator || isAssignee || isMultiAssignee || isAssigneeManager || isChainMember
 
+  const attachments: TodoAttachment[] = await Promise.all(
+    ((attachmentsRes.data || []) as TodoAttachment[]).map((row) =>
+      resolveAttachmentUrl(supabase, row)
+    )
+  )
+
   return {
     ...task,
     shares: (sharesRes.data || []) as import('@/types').TodoShare[],
-    attachments: (attachmentsRes.data || []) as import('@/types').TodoAttachment[],
+    attachments,
     current_user_can_edit: canEdit,
     current_user_share_can_edit: !!(
       (sharesRes.data || []).find((s: Record<string, unknown>) => s.shared_with === user.username) as Record<string, unknown> | undefined
