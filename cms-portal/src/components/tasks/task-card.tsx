@@ -51,6 +51,15 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
+function fmtMaDue(iso: string | null | undefined): string {
+  if (!iso) return 'No date'
+  const date = new Date(iso)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 function formatDuration(fromIso: string, toIso: string): string {
   const ms = new Date(toIso).getTime() - new Date(fromIso).getTime()
   const days = Math.floor(ms / 86_400_000)
@@ -312,12 +321,41 @@ export function TaskCard({
                 <div className="divide-y divide-slate-100 border-t border-slate-100">
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
                     const status = assignee.status || 'pending'
+                    const assigneeDueDate = assignee.actual_due_date || null
+                    const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
+                    const assigneeOverdue =
+                      !!assigneeDueDate &&
+                      ['accepted', 'completed'].includes(status) === false &&
+                      isOverdue(assigneeDueDate)
                     return (
                       <div key={i} className="flex items-center gap-3 px-3 py-2">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
                           {assignee.username.charAt(0).toUpperCase()}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{assignee.username}</span>
+                        <div className="min-w-[74px] text-right">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a2b1ca]">
+                            Due
+                          </div>
+                          <div
+                            className={cn(
+                              'text-xs font-semibold',
+                              assigneeOverdue ? 'text-red-500' : 'text-slate-700'
+                            )}
+                          >
+                            {fmtMaDue(assigneeDueDate)}
+                          </div>
+                          {assigneeDueTime && (
+                            <div
+                              className={cn(
+                                'text-[10px] font-medium',
+                                assigneeOverdue ? 'text-red-400' : 'text-slate-400'
+                              )}
+                            >
+                              {assigneeDueTime}
+                            </div>
+                          )}
+                        </div>
                         <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
                           {MA_LABEL[status] ?? status}
                         </span>
