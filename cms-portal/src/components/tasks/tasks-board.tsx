@@ -62,12 +62,13 @@ const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
 
 interface TasksBoardProps {
   currentUsername: string
+  currentUserRole?: string
   currentUserDept?: string | null
   initialTasks: Todo[]
   initialStats: TodoStats
 }
 
-export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialStats }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, initialTasks, initialStats }: TasksBoardProps) {
   const [tasks, setTasks] = useState<Todo[]>(initialTasks)
   const [stats, setStats] = useState<TodoStats>(initialStats)
   const [loading, setLoading] = useState(false)
@@ -101,6 +102,45 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     ).length,
     inProgress: tasks.filter((t: Todo) => t.task_status === 'in_progress').length,
   }), [tasks, currentUsername])
+
+  // ── Active KPI (computed from filter state — syncs all filters) ──────────────
+  const activeKpi = useMemo(() => {
+    if (quickFilter === 'all' && statusFilter === 'all' && smartList === 'all') return 'total'
+    if (quickFilter === 'my_all' && statusFilter === 'all' && smartList === 'all') return 'assigned'
+    if (statusFilter === 'completed') return 'completed'
+    if (statusFilter === 'pending') return 'pending'
+    if (statusFilter === 'inprogress') return 'inprogress'
+    if (statusFilter === 'overdue') return 'overdue'
+    return ''
+  }, [quickFilter, statusFilter, smartList])
+
+  const applyKpiFilter = useCallback((key: string) => {
+    // Reset subsidiary filters first
+    setSmartList('all')
+    setStatusFilter('all')
+    setPriorityFilter('all')
+    setDateFilter('all')
+    setMessageFilter('all')
+    setSearch('')
+    // Apply the KPI-specific scope
+    if (key === 'total') {
+      setQuickFilter('all')
+    } else if (key === 'assigned') {
+      setQuickFilter('my_all')
+    } else if (key === 'completed') {
+      setQuickFilter('my_all')
+      setStatusFilter('completed')
+    } else if (key === 'pending') {
+      setQuickFilter('my_all')
+      setStatusFilter('pending')
+    } else if (key === 'inprogress') {
+      setQuickFilter('my_all')
+      setStatusFilter('inprogress')
+    } else if (key === 'overdue') {
+      setQuickFilter('my_all')
+      setStatusFilter('overdue')
+    }
+  }, [])
 
   const departments = useMemo(() => {
     const depts = new Set<string>()
@@ -404,19 +444,24 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
         {[
-          { label: 'Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]' },
-          { label: 'Assigned To Me', value: extStats.assignedToMe, icon: Users, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]' },
-          { label: 'Completed', value: stats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
-          { label: 'Pending', value: stats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
-          { label: 'In Progress', value: extStats.inProgress, icon: RefreshCw, tone: 'text-[#0D9488]', bg: 'bg-[#F0FDFA]', border: 'border-[#99F6E4]' },
-          { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
+          { label: 'Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
+          { label: 'Assigned To Me', value: extStats.assignedToMe, icon: Users, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]', kpiKey: 'assigned' },
+          { label: 'Completed', value: stats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
+          { label: 'Pending', value: stats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
+          { label: 'In Progress', value: extStats.inProgress, icon: RefreshCw, tone: 'text-[#0D9488]', bg: 'bg-[#F0FDFA]', border: 'border-[#99F6E4]', kpiKey: 'inprogress' },
+          { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
         ].map((item) => {
           const Icon = item.icon
+          const isActive = activeKpi === item.kpiKey
           return (
             <div
               key={item.label}
-              className="rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]"
-              style={{ borderColor: 'var(--color-border)' }}
+              onClick={() => applyKpiFilter(item.kpiKey)}
+              className={cn(
+                'cursor-pointer rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
+                isActive && '-translate-y-1 shadow-[0_14px_30px_rgba(15,23,42,0.12)] ring-2 ring-[#3559d8] ring-offset-1'
+              )}
+              style={{ borderColor: isActive ? '#3559d8' : 'var(--color-border)' }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', item.bg, item.border)}>
@@ -439,7 +484,12 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               <div className="grid gap-2 lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]">
                 <select
                   value={quickFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setQuickFilter(e.target.value as QuickFilter)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    setQuickFilter(e.target.value as QuickFilter)
+                    // Reset status/smartList so quick filter takes full control (mirrors old portal)
+                    setStatusFilter('all')
+                    setSmartList('all')
+                  }}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Tasks {stats.total}</option>
@@ -452,7 +502,18 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
                 <select
                   value={deptFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setDeptFilter(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    const val = e.target.value
+                    setDeptFilter(val)
+                    if (val) {
+                      // Show ALL tasks for the selected department (all statuses, all members)
+                      setQuickFilter('all')
+                      setStatusFilter('all')
+                      setSmartList('all')
+                      setPriorityFilter('all')
+                      setDateFilter('all')
+                    }
+                  }}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="">All Departments</option>
@@ -606,8 +667,20 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   setQuickFilter('all')
                   setSmartList('all')
                   setStatusFilter('queue')
+                  setDeptFilter('')
+                  setMemberFilter('all')
+                  setPriorityFilter('all')
+                  setDateFilter('all')
+                  setMessageFilter('all')
+                  setSearch('')
                 }}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-xl border px-3 py-2 font-semibold shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]',
+                  statusFilter === 'queue' && quickFilter === 'all'
+                    ? 'border-[#3559d8] bg-[#edf3ff] text-[#3559d8]'
+                    : 'border-[#d9e2f0] bg-white text-slate-600 hover:border-[#c4d3ef]'
+                )}
+                title={`Show tasks queued for your department${currentUserDept ? ` (${currentUserDept})` : ''}`}
               >
                 <Users size={13} />
                 Dept Queue
@@ -668,23 +741,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: 'All Tasks', value: stats.total },
-                { label: 'Assigned', value: extStats.assignedToMe },
-                { label: 'Pending', value: stats.pending },
-                { label: 'Overdue', value: stats.overdue },
-              ].map((item) => (
-                <span
-                  key={item.label}
-                  className="rounded-full border border-[#d9e2f0] bg-white px-3 py-1 text-[11px] font-semibold text-slate-500 shadow-[0_2px_8px_rgba(15,23,42,0.03)]"
-                >
-                  {item.label} <span className="text-[#3559d8]">{item.value}</span>
-                </span>
-              ))}
-            </div>
-            <span className="ml-auto text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
+          <div className="mt-2 flex items-center justify-end">
+            <span className="text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
           </div>
         </div>
 

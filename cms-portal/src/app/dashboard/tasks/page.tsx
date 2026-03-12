@@ -39,6 +39,7 @@ export default async function TasksPage() {
         >
           <TasksBoard
             currentUsername={user.username}
+            currentUserRole={user.role}
             currentUserDept={user.department}
             initialTasks={tasks}
             initialStats={stats}
