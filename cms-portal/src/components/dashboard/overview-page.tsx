@@ -8,7 +8,7 @@ import {
   BarChart3, Star, Calendar
 } from 'lucide-react'
 import type { SessionUser } from '@/types'
-import type { OverviewStats, ManagerOverviewStats } from '@/app/dashboard/overview/actions'
+import type { OverviewStats, ManagerOverviewStats, PersonalStats } from '@/app/dashboard/overview/actions'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   PieChart, Pie, Cell, CartesianGrid,
@@ -724,7 +724,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
   )
 }
 
-// ── Manager Overview ──────────────────────────────────────────
+// ── Manager / Supervisor Overview ────────────────────────────
 
 interface ManagerOverviewProps {
   stats: ManagerOverviewStats
@@ -741,13 +741,22 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight animate-fade-in" style={{ color: 'var(--color-text)' }}>
-          {greeting}, {user.username} 👋
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-          Your team overview for today.
-        </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight animate-fade-in" style={{ color: 'var(--color-text)' }}>
+            {greeting}, {user.username} 👋
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            Your team overview for today.
+          </p>
+        </div>
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium"
+          style={{ background: 'var(--blue-50)', color: 'var(--blue-700)', border: '1px solid var(--blue-200)' }}
+        >
+          <Calendar size={14} />
+          {new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -757,14 +766,41 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
         <KpiCard label="Overdue" value={stats.teamTasks.overdue} icon={<AlertCircle size={18} />} color="#EF4444" iconBg="rgba(239,68,68,0.12)" delay={180} />
       </div>
 
-      {/* Team members */}
+      {/* Team stats summary bar */}
+      <div className="card p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 size={14} style={{ color: 'var(--blue-600)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Team Task Summary</span>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}>
+            {stats.teamTasks.total} total
+          </span>
+        </div>
+        <div className="flex gap-3 flex-wrap">
+          {[
+            { label: 'Completed', value: stats.teamTasks.completed, color: '#10B981' },
+            { label: 'In Progress', value: stats.teamTasks.inProgress, color: '#3B82F6' },
+            { label: 'Pending', value: stats.teamTasks.pending, color: '#F59E0B' },
+            { label: 'Overdue', value: stats.teamTasks.overdue, color: '#EF4444' },
+          ].map(s => (
+            <div key={s.label} className="flex items-center gap-2 px-3 py-2 rounded-xl flex-1 min-w-[100px]" style={{ background: `${s.color}10`, border: `1px solid ${s.color}30` }}>
+              <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+              <div>
+                <p className="text-base font-bold leading-none" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Team members performance */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
           <Users size={16} style={{ color: 'var(--violet-500)' }} />
           <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Team Performance</h3>
         </div>
         {stats.teamMembers.length === 0 ? (
-          <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No team members yet</p>
+          <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No team members assigned yet</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {stats.teamMembers.map(m => {
@@ -797,27 +833,200 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
   )
 }
 
+// ── User (personal) Overview ──────────────────────────────────
+
+interface UserOverviewProps {
+  stats: PersonalStats
+  user: SessionUser
+}
+
+function UserOverview({ stats, user }: UserOverviewProps) {
+  const today = new Date().toISOString().split('T')[0]
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+
+  const completionRate = stats.tasks.total > 0
+    ? Math.round((stats.tasks.completed / stats.tasks.total) * 100)
+    : 0
+
+  return (
+    <div>
+      {/* Welcome banner */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight animate-fade-in" style={{ color: 'var(--color-text)' }}>
+            {greeting}, {user.username} 👋
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            Here&apos;s your personal task overview for today.
+          </p>
+        </div>
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium"
+          style={{ background: 'var(--blue-50)', color: 'var(--blue-700)', border: '1px solid var(--blue-200)' }}
+        >
+          <Calendar size={14} />
+          {new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <KpiCard
+          label="My Total Tasks"
+          value={stats.tasks.total}
+          sub={`${completionRate}% done`}
+          icon={<CheckSquare size={18} />}
+          color="#2B7FFF"
+          iconBg="rgba(43,127,255,0.12)"
+        />
+        <KpiCard
+          label="Completed"
+          value={stats.tasks.completed}
+          icon={<CheckCircle2 size={18} />}
+          color="#10B981"
+          iconBg="rgba(16,185,129,0.12)"
+          delay={60}
+        />
+        <KpiCard
+          label="In Progress"
+          value={stats.tasks.inProgress}
+          icon={<Activity size={18} />}
+          color="#3B82F6"
+          iconBg="rgba(59,130,246,0.12)"
+          delay={120}
+        />
+        <KpiCard
+          label="Overdue"
+          value={stats.tasks.overdue}
+          sub="need attention"
+          icon={<AlertCircle size={18} />}
+          color="#EF4444"
+          iconBg="rgba(239,68,68,0.12)"
+          delay={180}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Task status donut */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={16} style={{ color: 'var(--blue-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>My Task Status</h3>
+          </div>
+          {stats.tasks.total > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={stats.tasksByStatus.filter(d => d.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={70}
+                    dataKey="value"
+                    labelLine={false}
+                    label={renderCustomLabel}
+                    animationBegin={0}
+                    animationDuration={800}
+                  >
+                    {stats.tasksByStatus.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-3 mt-2 justify-center">
+                {stats.tasksByStatus.map(s => (
+                  <div key={s.label} className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
+                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{s.label} ({s.value})</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="h-45 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-muted)' }}>No tasks yet</div>
+          )}
+        </div>
+
+        {/* Recent tasks */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock size={16} style={{ color: 'var(--blue-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>My Recent Tasks</h3>
+          </div>
+          {stats.recentTasks.length === 0 ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No tasks yet</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {stats.recentTasks.map(t => {
+                const isOverdue = !t.completed && Boolean(t.due_date && t.due_date < today)
+                const st = isOverdue
+                  ? { bg: 'rgba(239,68,68,0.12)', color: '#EF4444', label: 'Overdue' }
+                  : STATUS_STYLES[t.task_status] ?? STATUS_STYLES['todo']
+                const pr = PRIORITY_STYLES[t.priority] ?? { color: '#64748B' }
+                return (
+                  <div key={t.id} className="flex items-start gap-2.5">
+                    <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ background: pr.color }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate" style={{ color: 'var(--color-text)' }}>{t.title}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: st.bg, color: st.color }}>
+                          {st.label}
+                        </span>
+                        {t.category && (
+                          <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>• {t.category}</span>
+                        )}
+                      </div>
+                    </div>
+                    {t.due_date && (
+                      <div className="text-[10px] shrink-0 font-medium" style={{ color: isOverdue ? 'var(--rose-500)' : 'var(--slate-400)' }}>
+                        {t.due_date}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Root Component ────────────────────────────────────────────
 
 interface OverviewPageProps {
   user: SessionUser
-  adminStats: OverviewStats
-  managerStats: ManagerOverviewStats
+  adminStats: OverviewStats | null
+  managerStats: ManagerOverviewStats | null
+  personalStats: PersonalStats | null
 }
 
-export function OverviewPage({ user, adminStats, managerStats }: OverviewPageProps) {
+export function OverviewPage({ user, adminStats, managerStats, personalStats }: OverviewPageProps) {
   const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
-  const isManager = user.role === 'Manager'
+  const isManagerOrSupervisor = user.role === 'Manager' || user.role === 'Supervisor'
 
-  if (isAdminOrSM) {
+  if (isAdminOrSM && adminStats) {
     return <AdminOverview stats={adminStats} user={user} />
   }
 
-  if (isManager) {
-    return <ManagerOverview stats={managerStats} user={user} />
+  if (isManagerOrSupervisor) {
+    // Show team overview if team data is available and has members
+    if (managerStats && managerStats.teamCount > 0) {
+      return <ManagerOverview stats={managerStats} user={user} />
+    }
+    // Supervisor/Manager with no team → personal view
+    if (personalStats) return <UserOverview stats={personalStats} user={user} />
   }
 
-  // Other roles
+  // Regular User — personal tasks only
+  if (personalStats) return <UserOverview stats={personalStats} user={user} />
+
+  // Fallback (should not normally be reached)
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   return (
@@ -825,7 +1034,7 @@ export function OverviewPage({ user, adminStats, managerStats }: OverviewPagePro
       <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
         {greeting}, {user.username} 👋
       </h1>
-      <p style={{ color: 'var(--color-text-muted)' }}>Welcome to CMS Portal. Use the sidebar to navigate to your modules.</p>
+      <p style={{ color: 'var(--color-text-muted)' }}>Welcome to CMS Portal.</p>
     </div>
   )
 }

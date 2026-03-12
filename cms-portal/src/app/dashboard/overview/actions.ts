@@ -201,6 +201,60 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   }
 }
 
+export interface PersonalStats {
+  tasks: { total: number; completed: number; inProgress: number; pending: number; overdue: number }
+  recentTasks: Array<{
+    id: string; title: string; username: string; assigned_to: string | null
+    task_status: string; completed: boolean; priority: string; due_date: string | null; category: string | null; created_at: string
+  }>
+  tasksByStatus: Array<{ label: string; value: number; color: string }>
+}
+
+export async function getUserPersonalStats(): Promise<PersonalStats> {
+  const empty: PersonalStats = {
+    tasks: { total: 0, completed: 0, inProgress: 0, pending: 0, overdue: 0 },
+    recentTasks: [],
+    tasksByStatus: [],
+  }
+  const user = await getSession()
+  if (!user) return empty
+
+  const supabase = createServerClient()
+  const today = new Date().toISOString().split('T')[0]
+
+  // Fetch tasks where I am the creator OR assignee
+  const { data: todosRaw } = await supabase
+    .from('todos')
+    .select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at')
+    .eq('archived', false)
+    .or(`username.eq.${user.username},assigned_to.eq.${user.username}`)
+    .order('created_at', { ascending: false })
+
+  const todos = (todosRaw ?? []) as Array<{
+    id: string; title: string; username: string; assigned_to: string | null
+    completed: boolean; task_status: string; priority: string; due_date: string | null; category: string | null; created_at: string
+  }>
+
+  let completed = 0, inProgress = 0, pending = 0, overdue = 0
+  for (const t of todos) {
+    if (t.completed || t.task_status === 'done') { completed++; continue }
+    if (t.due_date && t.due_date < today) { overdue++; continue }
+    if (t.task_status === 'in_progress') { inProgress++; continue }
+    pending++
+  }
+
+  return {
+    tasks: { total: todos.length, completed, inProgress, pending, overdue },
+    recentTasks: todos.slice(0, 8),
+    tasksByStatus: [
+      { label: 'Completed', value: completed, color: '#10B981' },
+      { label: 'In Progress', value: inProgress, color: '#3B82F6' },
+      { label: 'Pending', value: pending, color: '#F59E0B' },
+      { label: 'Overdue', value: overdue, color: '#EF4444' },
+    ],
+  }
+}
+
 export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   const user = await getSession()
   const empty: ManagerOverviewStats = {
@@ -209,7 +263,8 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     teamMembers: [],
     weeklyProgress: [],
   }
-  if (!user || user.role !== 'Manager') return empty
+  // Both Manager AND Supervisor see their team overview
+  if (!user || (user.role !== 'Manager' && user.role !== 'Supervisor')) return empty
 
   const supabase = createServerClient()
   const today = new Date().toISOString().split('T')[0]
