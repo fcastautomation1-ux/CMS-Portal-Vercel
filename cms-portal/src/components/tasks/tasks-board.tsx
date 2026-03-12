@@ -237,14 +237,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-[#f5f7fc] shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
         <div className="border-b border-[#e3e9f5] bg-[#f7f8fc] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
               <div className="text-lg font-extrabold tracking-tight text-[#3559d8]">TaskFlow</div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid gap-2 lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]">
                 <select
                   value={quickFilter}
                   onChange={(e) => setQuickFilter(e.target.value as QuickFilter)}
-                  className="min-w-[132px] rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Tasks {stats.total}</option>
                   <option value="my_tasks">My Tasks</option>
@@ -260,7 +260,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <select
                   value={deptFilter}
                   onChange={(e) => setDeptFilter(e.target.value)}
-                  className="min-w-[154px] rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="">All Departments</option>
                   {departments.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -269,7 +269,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <select
                   value={search && visibleMembers.includes(search) ? search : ''}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="min-w-[146px] rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="">All Members</option>
                   {visibleMembers.map((member) => (
@@ -279,8 +279,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[220px] flex-1 xl:flex-none">
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
+              <div className="relative w-full sm:min-w-[240px] xl:w-[260px]">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -293,14 +293,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
               <button
                 onClick={() => setShowCreate(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] sm:min-w-[124px]"
               >
                 <Plus size={14} /> Add Task
               </button>
 
               <button
                 onClick={exportCSV}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700"
+                className="inline-flex h-10 w-10 items-center justify-center self-end rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700 sm:self-auto"
                 title="Export tasks"
               >
                 <Upload size={14} />
@@ -310,8 +310,9 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         </div>
 
         <div className="border-b border-[#e3e9f5] bg-[#f4f6fb] px-4 py-3 sm:px-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="inline-flex w-fit items-center rounded-xl border border-[#d9e2f0] bg-white p-1">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="inline-flex w-fit items-center rounded-xl border border-[#d9e2f0] bg-white p-1">
               {([['list', 'List'], ['kanban', 'Kanban'], ['calendar', 'Calendar']] as [ViewMode, string][]).map(([mode, label]) => (
                 <button
                   key={mode}
@@ -326,9 +327,36 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   {label}
                 </button>
               ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="backlog">Backlog</option>
+                  <option value="todo">To Do</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="done">Done</option>
+                </select>
+
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 xl:justify-end">
               <button
                 onClick={refresh}
                 disabled={loading}
@@ -401,31 +429,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-            >
-              <option value="all">All Status</option>
-              <option value="backlog">Backlog</option>
-              <option value="todo">To Do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="done">Done</option>
-            </select>
-
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
-              className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-            >
-              <option value="all">All Priority</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-
-            <div className="ml-auto flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               {[
                 { label: 'All Tasks', value: stats.total },
                 { label: 'Assigned', value: extStats.assignedToMe },
@@ -440,6 +444,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 </span>
               ))}
             </div>
+            <span className="ml-auto text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
           </div>
         </div>
 

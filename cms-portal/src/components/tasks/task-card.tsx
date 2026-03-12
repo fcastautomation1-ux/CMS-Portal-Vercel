@@ -226,6 +226,7 @@ export function TaskCard({
   return (
     <div className={cn(
       'group/row relative flex overflow-hidden rounded-[18px] border border-[#dfe5f1] bg-white shadow-[0_6px_18px_rgba(31,65,132,0.05)] transition-colors',
+      'flex-col md:flex-row',
       isPending && 'pointer-events-none opacity-60',
       isCompleted ? 'bg-slate-50/60' : 'hover:border-[#cfd9ec] hover:shadow-[0_8px_22px_rgba(31,65,132,0.08)]'
     )}>
@@ -233,10 +234,15 @@ export function TaskCard({
 
       <div className="flex min-w-0 flex-1 gap-4 px-4 py-4">
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            {task.category && (
-              <span className="rounded-md bg-[#eef3ff] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#5d6fe0]">
-                {task.category}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {task.app_name && (
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#5d6fe0]">
+                {task.app_name}
+              </span>
+            )}
+            {task.kpi_type && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-600">
+                {task.kpi_type}
               </span>
             )}
             <span className="text-[10px] font-semibold text-[#9aabca]">#{task.id.slice(0, 4)}</span>
@@ -253,7 +259,7 @@ export function TaskCard({
           </button>
 
           {(task.notes || task.description) && (
-            <p className="mt-1.5 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-400">
+            <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-400">
               {task.notes || task.description}
             </p>
           )}
@@ -265,6 +271,11 @@ export function TaskCard({
               <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-[#9aabca]">
                 <User size={10} className="shrink-0" />
                 {task.assigned_to}
+              </span>
+            )}
+            {task.category && (
+              <span className="rounded-full bg-[#eef3ff] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a7de8]">
+                {task.category}
               </span>
             )}
           </div>
@@ -352,8 +363,8 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="hidden min-w-[150px] shrink-0 border-l border-[#edf1f7] pl-4 md:flex md:flex-col md:items-end md:justify-between">
-          <div className="text-right">
+        <div className="flex min-w-[112px] shrink-0 flex-row items-stretch justify-between border-t border-[#edf1f7] pt-4 md:min-w-[170px] md:flex-col md:items-end md:justify-between md:border-l md:border-t-0 md:pl-5 md:pt-0">
+          <div className="text-left md:text-right">
             <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#a2b1ca]">Expected</div>
             <div className={cn('mt-1 text-sm font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-[#44526e]')}>
               {task.due_date ? fmtShort(task.due_date) : 'No date'}
@@ -365,7 +376,7 @@ export function TaskCard({
             )}
           </div>
 
-          <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-col items-end gap-1.5 md:mt-4">
             {task.queue_status === 'queued' && (
               <Badge label={`Queued${task.queue_department ? ` · ${task.queue_department}` : ''}`} cls="bg-sky-50 text-sky-700 border-sky-200" />
             )}
@@ -392,7 +403,7 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-center justify-center gap-1 border-l border-[#edf1f7] pl-3 opacity-70 transition-opacity group-hover/row:opacity-100">
+        <div className="flex shrink-0 flex-row items-center justify-end gap-1 border-t border-[#edf1f7] px-4 py-3 opacity-80 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-3 md:flex-col md:justify-center">
           {unread.length > 0 && (
             <span className="relative inline-flex h-6 w-6 items-center justify-center">
               <span className="absolute h-4 w-4 animate-ping rounded-full bg-green-400 opacity-40" />
