@@ -170,38 +170,37 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
 
       {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3 px-4 pt-4 pb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2.5 px-4 pt-4 pb-3">
         {[
-          { label: 'Total Tasks',     value: stats.total,             icon: '🗂',  colors: ['#312e81','#4f46e5'] },
-          { label: 'Assigned To Me',  value: extStats.assignedToMe,   icon: '👤',  colors: ['#0f172a','#1e40af'] },
-          { label: 'Completed',       value: stats.completed,         icon: '✅',  colors: ['#14532d','#16a34a'] },
-          { label: 'Pending',         value: stats.pending,           icon: '⏳',  colors: ['#78350f','#d97706'] },
-          { label: 'In Progress',     value: extStats.inProgress,     icon: '⚡',  colors: ['#365314','#65a30d'] },
-          { label: 'Overdue',         value: stats.overdue,           icon: '🔴',  colors: ['#7f1d1d','#dc2626'] },
-          { label: 'Due Today',       value: stats.dueToday,          icon: '📅',  colors: ['#4c1d95','#7c3aed'] },
-        ].map(({ label, value, icon, colors }) => (
+          { label: 'Total',       value: stats.total,           iconBg: 'var(--blue-50)',    iconColor: 'var(--blue-600)',    numColor: 'var(--blue-600)',    icon: '📋' },
+          { label: 'Assigned',    value: extStats.assignedToMe, iconBg: 'var(--violet-50)',  iconColor: 'var(--violet-600)',  numColor: 'var(--violet-600)',  icon: '👤' },
+          { label: 'Completed',   value: stats.completed,       iconBg: 'var(--emerald-50)', iconColor: 'var(--emerald-600)', numColor: 'var(--emerald-600)', icon: '✓' },
+          { label: 'Pending',     value: stats.pending,         iconBg: 'var(--amber-50)',   iconColor: 'var(--amber-600)',   numColor: 'var(--amber-600)',   icon: '⏳' },
+          { label: 'In Progress', value: extStats.inProgress,   iconBg: 'var(--blue-50)',    iconColor: 'var(--blue-500)',    numColor: 'var(--blue-500)',    icon: '▶' },
+          { label: 'Overdue',     value: stats.overdue,         iconBg: 'var(--rose-50)',    iconColor: 'var(--rose-600)',    numColor: 'var(--rose-600)',    icon: '!' },
+          { label: 'Due Today',   value: stats.dueToday,        iconBg: 'var(--orange-50)',  iconColor: 'var(--orange-600)',  numColor: 'var(--orange-600)',  icon: '📅' },
+        ].map(({ label, value, iconBg, numColor, icon }) => (
           <div
             key={label}
-            className="relative rounded-2xl p-4 overflow-hidden flex items-center gap-3 shadow-sm cursor-pointer hover:scale-[1.02] transition-transform"
-            style={{ background: `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)` }}
+            className="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center gap-3 hover:border-slate-300 hover:shadow-sm transition-all cursor-pointer"
           >
-            <span className="text-2xl leading-none shrink-0">{icon}</span>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-base shrink-0 font-bold" style={{ background: iconBg, color: numColor }}>
+              {icon}
+            </div>
             <div className="min-w-0">
-              <p className="text-2xl font-extrabold text-white leading-none">{value}</p>
-              <p className="text-[11px] text-white/75 font-medium mt-0.5 leading-snug">{label}</p>
+              <p className="text-xl font-bold leading-none" style={{ color: numColor }}>{value}</p>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5 truncate">{label}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* ── Filter selects row ── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
-        {/* Quick-filter as dropdown */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 pt-1">
         <select
           value={quickFilter}
           onChange={(e) => setQuickFilter(e.target.value as QuickFilter)}
-          className="border border-slate-200 rounded-lg pl-2.5 pr-6 py-1.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-400"
-          style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          className="border border-slate-200 rounded-lg pl-3 pr-7 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white text-slate-700"
         >
           <option value="all">All Tasks · {stats.total}</option>
           <option value="my_tasks">My Tasks</option>
@@ -217,8 +216,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         <select
           value={deptFilter}
           onChange={(e) => setDeptFilter(e.target.value)}
-          className="border border-slate-200 rounded-lg pl-2.5 pr-6 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-          style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          className="border border-slate-200 rounded-lg pl-3 pr-7 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white text-slate-700"
         >
           <option value="">All Departments</option>
           {departments.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -226,7 +224,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       </div>
 
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-y border-slate-100" style={{ background: 'var(--color-surface-secondary, #f8fafc)' }}>
+      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-y border-slate-200 bg-slate-50">
         {/* Add Task */}
         <button
           onClick={() => setShowCreate(true)}
@@ -270,7 +268,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         <div className="flex-1" />
 
         {/* View toggle */}
-        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden" style={{ background: 'var(--color-surface)' }}>
+        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden bg-white">
           {([['list','List'],['kanban','Kanban'],['calendar','Calendar']] as [ViewMode,string][]).map(([mode, label]) => (
             <button
               key={mode}
@@ -295,15 +293,13 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
-            className="pl-7 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 w-44"
-            style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}
+            className="pl-7 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 w-44 bg-white text-slate-700"
           />
         </div>
 
         {/* Status + Priority filter */}
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-          style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}>
+          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white text-slate-700">
           <option value="all">All Status</option>
           <option value="backlog">Backlog</option>
           <option value="todo">To Do</option>
@@ -312,8 +308,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         </select>
 
         <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
-          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-          style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}>
+          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white text-slate-700">
           <option value="all">All Priority</option>
           <option value="urgent">Urgent</option>
           <option value="high">High</option>
@@ -322,8 +317,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         </select>
 
         <select value={`${sortBy}_${sortDir}`} onChange={(e) => { const [s,d] = e.target.value.split('_'); setSortBy(s as typeof sortBy); setSortDir(d as typeof sortDir) }}
-          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-          style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}>
+          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white text-slate-700">
           <option value="created_at_desc">Newest</option>
           <option value="created_at_asc">Oldest</option>
           <option value="due_date_asc">Due Soonest</option>
@@ -390,11 +384,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                       <span className={cn('w-2.5 h-2.5 rounded-full', col.dot)} />
                       <span className="text-sm font-bold text-slate-700">{col.label}</span>
                     </div>
-                    <span className="text-xs text-slate-400 px-2 py-0.5 rounded-full border border-slate-200 font-medium" style={{ background: 'var(--color-surface)' }}>
+                    <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full border border-slate-200 bg-white font-medium">
                       {colTasks.length}
                     </span>
                   </div>
-                  <div className="space-y-2 rounded-2xl border border-slate-100 p-2 min-h-32" style={{ background: 'var(--color-surface)' }}>
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2 min-h-32">
                     {colTasks.map((task) => (
                       <TaskCard key={task.id} {...cardProps(task)} compact />
                     ))}

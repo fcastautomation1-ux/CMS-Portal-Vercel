@@ -250,7 +250,7 @@ export function TaskCard({
             <Pill label="Declined" className="bg-red-100 text-red-700 border border-red-200" />
           )}
           {task.kpi_type && (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold text-white whitespace-nowrap" style={{ background: 'linear-gradient(135deg,#4f46e5,#7c3aed)' }}>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200 whitespace-nowrap">
               {task.kpi_type}
             </span>
           )}
@@ -290,7 +290,7 @@ export function TaskCard({
 
         {/* Row 5 – Multi-Assignment Progress Panel */}
         {maEnabled && (
-          <div className="mt-2.5 rounded-xl overflow-hidden border border-cyan-200" style={{ background: 'linear-gradient(135deg,#ecfeff,#f0fdfa)' }}>
+          <div className="mt-2.5 rounded-xl overflow-hidden border border-teal-200 bg-teal-50">
             <button
               className="w-full flex items-center justify-between px-3 py-2 cursor-pointer"
               onClick={() => setShowMa((v) => !v)}
