@@ -1,6 +1,5 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type {
@@ -13,6 +12,21 @@ import type {
   AssignmentChainEntry,
   SessionUser,
 } from '@/types'
+
+type RevalidatePathFn = (path: string) => void
+
+const revalidatePath: RevalidatePathFn = (() => {
+  try {
+    const cacheModule = require('next/cache') as {
+      revalidatePath?: RevalidatePathFn
+    }
+    return typeof cacheModule.revalidatePath === 'function'
+      ? cacheModule.revalidatePath
+      : () => {}
+  } catch {
+    return () => {}
+  }
+})()
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -184,7 +198,9 @@ export async function getTodos(): Promise<Todo[]> {
   }
 
   // Shared tasks
-  const sharedIds = (sharedRes.data || []).map((s: Record<string, unknown>) => s.todo_id as string).filter((id) => !taskIds.has(id))
+  const sharedIds = (sharedRes.data || [])
+    .map((s: Record<string, unknown>) => s.todo_id as string)
+    .filter((id: string) => !taskIds.has(id))
   if (sharedIds.length > 0) {
     const { data: sharedTasks } = await supabase.from('todos').select('*').in('id', sharedIds)
     ;(sharedTasks || []).forEach((r: Record<string, unknown>) => addTask(r, { is_shared: true }))
