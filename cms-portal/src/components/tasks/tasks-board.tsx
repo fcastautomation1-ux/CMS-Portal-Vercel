@@ -64,11 +64,12 @@ interface TasksBoardProps {
   currentUsername: string
   currentUserRole?: string
   currentUserDept?: string | null
+  currentUserTeamMembers?: string[]
   initialTasks: Todo[]
   initialStats: TodoStats
 }
 
-export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, initialTasks, initialStats }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialStats }: TasksBoardProps) {
   const [tasks, setTasks] = useState<Todo[]>(initialTasks)
   const [stats, setStats] = useState<TodoStats>(initialStats)
   const [loading, setLoading] = useState(false)
@@ -142,27 +143,76 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     }
   }, [])
 
+  // Role flags — mirror old portal role checks
+  const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+  const isManagerRole = isAdminOrSM || currentUserRole === 'Manager' || currentUserRole === 'Supervisor'
+
   const departments = useMemo(() => {
     const depts = new Set<string>()
     tasks.forEach((t: Todo) => {
-      if (t.creator_department) depts.add(t.creator_department)
-      if (t.assignee_department) depts.add(t.assignee_department)
-      if (t.queue_department) depts.add(t.queue_department)
+      // Split comma-separated dept values (users can belong to multiple depts)
+      const addDept = (d: string | null | undefined) => {
+        if (!d) return
+        d.split(',').map(s => s.trim()).filter(Boolean).forEach(s => depts.add(s))
+      }
+      addDept(t.creator_department)
+      addDept(t.assignee_department)
+      addDept(t.queue_department)
     })
     return Array.from(depts).sort()
   }, [tasks])
 
+  // Map: username.lower → raw dept string (may be comma-separated) — used for dept→member cascade
+  const memberDeptMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    tasks.forEach((t: Todo) => {
+      if (t.username && t.creator_department && !map[t.username.toLowerCase()]) {
+        map[t.username.toLowerCase()] = t.creator_department
+      }
+      if (t.assigned_to && t.assignee_department && !map[t.assigned_to.toLowerCase()]) {
+        map[t.assigned_to.toLowerCase()] = t.assignee_department
+      }
+    })
+    return map
+  }, [tasks])
+
+  // Full member pool, role-filtered to match old portal
   const visibleMembers = useMemo(() => {
     const members = new Set<string>()
-    tasks.forEach((task: Todo) => {
-      if (task.username) members.add(task.username)
-      if (task.assigned_to) members.add(task.assigned_to)
-      task.multi_assignment?.assignees?.forEach((assignee: MultiAssignmentEntry) => {
-        if (assignee.username) members.add(assignee.username)
+    if (isAdminOrSM) {
+      // Admin / Super Manager: all unique usernames found in tasks
+      tasks.forEach((task: Todo) => {
+        if (task.username) members.add(task.username)
+        if (task.assigned_to) members.add(task.assigned_to)
+        task.multi_assignment?.assignees?.forEach((assignee: MultiAssignmentEntry) => {
+          if (assignee.username) members.add(assignee.username)
+        })
       })
-    })
+    } else if (isManagerRole) {
+      // Manager / Supervisor: explicit team members from session + anyone assigned by this manager
+      currentUserTeamMembers.forEach(m => { if (m) members.add(m) })
+      tasks.forEach((task: Todo) => {
+        if (task.username.toLowerCase() === currentUsername.toLowerCase() && task.assigned_to) {
+          members.add(task.assigned_to)
+        }
+      })
+    }
+    // Remove self
+    members.delete(currentUsername)
     return Array.from(members).sort((a: string, b: string) => a.localeCompare(b))
-  }, [tasks])
+  }, [tasks, currentUsername, isAdminOrSM, isManagerRole, currentUserTeamMembers])
+
+  // Members filtered by selected dept — used in the dropdown
+  const filteredMembers = useMemo(() => {
+    if (!deptFilter) return visibleMembers
+    return visibleMembers.filter(m => {
+      const deptStr = memberDeptMap[m.toLowerCase()] || ''
+      if (!deptStr) return false
+      return deptStr.split(',').map((d: string) => d.trim()).some(
+        (d: string) => d.toLowerCase() === deptFilter.toLowerCase()
+      )
+    })
+  }, [visibleMembers, deptFilter, memberDeptMap])
 
   const effectiveUser = memberFilter !== 'all' ? memberFilter : currentUsername
 
@@ -481,7 +531,14 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <div className="grid gap-2 lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]">
+              <div className={cn(
+                'grid gap-2',
+                isAdminOrSM
+                  ? 'lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]'
+                  : (isManagerRole && visibleMembers.length > 0)
+                    ? 'lg:grid-cols-[minmax(150px,190px)_minmax(150px,170px)]'
+                    : 'lg:grid-cols-[minmax(150px,190px)]'
+              )}>
                 <select
                   value={quickFilter}
                   onChange={(e: ChangeEvent<HTMLSelectElement>) => {
@@ -500,36 +557,41 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
                   <option value="other_approval_pending">Others&apos; Approval</option>
                 </select>
 
-                <select
-                  value={deptFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                    const val = e.target.value
-                    setDeptFilter(val)
-                    if (val) {
-                      // Show ALL tasks for the selected department (all statuses, all members)
-                      setQuickFilter('all')
-                      setStatusFilter('all')
-                      setSmartList('all')
-                      setPriorityFilter('all')
-                      setDateFilter('all')
-                    }
-                  }}
-                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
+                {isAdminOrSM && (
+                  <select
+                    value={deptFilter}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                      const val = e.target.value
+                      setDeptFilter(val)
+                      setMemberFilter('all') // cascade: reset member when dept changes
+                      if (val) {
+                        // Show ALL tasks for the selected department (all statuses, all members)
+                        setQuickFilter('all')
+                        setStatusFilter('all')
+                        setSmartList('all')
+                        setPriorityFilter('all')
+                        setDateFilter('all')
+                      }
+                    }}
+                    className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  >
+                    <option value="">All Departments</option>
+                    {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                )}
 
-                <select
-                  value={memberFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setMemberFilter(e.target.value)}
-                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Members</option>
-                  {visibleMembers.map((member) => (
-                    <option key={member} value={member}>{member}</option>
-                  ))}
-                </select>
+                {isManagerRole && visibleMembers.length > 0 && (
+                  <select
+                    value={memberFilter}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setMemberFilter(e.target.value)}
+                    className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  >
+                    <option value="all">All Members</option>
+                    {filteredMembers.map((member) => (
+                      <option key={member} value={member}>{member}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 

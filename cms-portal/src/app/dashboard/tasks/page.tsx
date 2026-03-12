@@ -41,6 +41,7 @@ export default async function TasksPage() {
             currentUsername={user.username}
             currentUserRole={user.role}
             currentUserDept={user.department}
+            currentUserTeamMembers={user.teamMembers}
             initialTasks={tasks}
             initialStats={stats}
           />
