@@ -193,7 +193,11 @@ export interface MultiAssignmentSubEntry {
 export interface MultiAssignmentEntry {
   username: string
   status?: string              // pending | in_progress | completed | accepted | rejected
+  assigned_at?: string
   completed_at?: string
+  accepted_at?: string
+  accepted_by?: string
+  rejection_reason?: string
   actual_due_date?: string
   notes?: string               // feedback note
   delegated_to?: MultiAssignmentSubEntry[]
@@ -204,6 +208,7 @@ export interface MultiAssignment {
   assignees: MultiAssignmentEntry[]
   created_by?: string
   completion_percentage?: number
+  all_completed?: boolean
 }
 
 export interface Todo {
