@@ -396,23 +396,25 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] px-4 py-6 backdrop-blur-[4px]">
       <div
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
         style={{
-          background: 'rgba(255,255,255,0.94)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          border: '1px solid rgba(255,255,255,0.65)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.12)',
+          background: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'blur(18px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(18px) saturate(180%)',
+          border: '1px solid var(--slate-200)',
+          boxShadow: '0 24px 70px rgba(15,23,42,0.14)',
         }}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
+        <div className="h-1.5 w-full bg-[linear-gradient(90deg,var(--blue-500),#7c93ff)]" />
+        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+          <div className="pr-4">
+            <h2 className="text-xl font-bold tracking-[-0.02em] text-slate-900">
               {isEdit ? 'Edit Task' : 'Create New Task'}
             </h2>
-            <p className="text-sm text-slate-500">
-              Legacy routing, templates, drafts, and multi-assignment controls are enabled here.
+            <p className="mt-1 text-sm text-slate-500">
+              Create work in the same routing flow used across the portal.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -421,7 +423,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                 <button
                   type="button"
                   onClick={() => setTemplatesOpen((open) => !open)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   <FileText size={14} />
                   Templates
@@ -446,7 +448,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-slate-50/60">
           <div className="space-y-5 px-6 py-5">
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -454,180 +456,189 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
               </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="App Name">
-                <select
-                  value={appName}
-                  onChange={(event) => {
-                    setAppName(event.target.value)
-                    setPackageName('')
-                  }}
-                  className={selectCls}
-                >
-                  <option value="">Select App</option>
-                  {availableApps.map((app) => (
-                    <option key={app} value={app}>
-                      {app}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Package Name" required>
-                <select
-                  value={packageName}
-                  onChange={(event) => {
-                    const nextPackage = event.target.value
-                    setPackageName(nextPackage)
-                    const pkg = packages.find((item) => item.name === nextPackage)
-                    if (pkg?.app_name) setAppName(pkg.app_name)
-                  }}
-                  className={selectCls}
-                >
-                  <option value="">Select Package</option>
-                  {filteredPackagesByApp.map((pkg) => (
-                    <option key={pkg.id} value={pkg.name}>
-                      {pkg.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            <Field label="KPI Type" required>
-              <select
-                value={kpiType}
-                onChange={(event) => setKpiType(event.target.value)}
-                className={selectCls}
-              >
-                <option value="">Select KPI Type</option>
-                {KPI_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label={`Title (${title.length}/30)`} required>
-              <input
-                type="text"
-                value={title}
-                onChange={(event) => setTitle(event.target.value.slice(0, 30))}
-                placeholder="What needs to be done?"
-                className={inputCls}
-              />
-            </Field>
-
-            <Field label="Description">
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                rows={3}
-                placeholder="Add more details..."
-                className={cn(inputCls, 'resize-none')}
-              />
-            </Field>
-
-            <Field label="Our Goal">
-              <div className="overflow-hidden rounded-xl border border-slate-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400">
-                <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                  {[
-                    { icon: <Bold size={14} />, cmd: 'bold', title: 'Bold' },
-                    { icon: <Italic size={14} />, cmd: 'italic', title: 'Italic' },
-                    { icon: <Underline size={14} />, cmd: 'underline', title: 'Underline' },
-                    { icon: <List size={14} />, cmd: 'insertUnorderedList', title: 'Bullet List' },
-                    { icon: <ListOrdered size={14} />, cmd: 'insertOrderedList', title: 'Numbered List' },
-                  ].map(({ icon, cmd, title }) => (
-                    <button
-                      key={cmd}
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        execCmd(cmd)
-                      }}
-                      className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-slate-800"
-                      title={title}
-                    >
-                      {icon}
-                    </button>
-                  ))}
-                </div>
-                <div
-                  ref={goalRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  className="min-h-28 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none"
-                />
-              </div>
-            </Field>
-
-            <div className={cn('grid gap-4', routing === 'multi' ? 'md:grid-cols-1' : 'md:grid-cols-2')}>
-              <Field label="Priority">
-                <select
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value as typeof priority)}
-                  className={selectCls}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </Field>
-
-              {routing !== 'multi' && (
-                <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
-                  <input
-                    type="datetime-local"
-                    value={dueDate}
-                    onChange={(event) => setDueDate(event.target.value)}
-                    className={inputCls}
-                  />
+            <SectionCard
+              title="Task Basics"
+              description="Core task details, package binding, and the shared goal text."
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="App Name">
+                  <select
+                    value={appName}
+                    onChange={(event) => {
+                      setAppName(event.target.value)
+                      setPackageName('')
+                    }}
+                    className={selectCls}
+                  >
+                    <option value="">Select App</option>
+                    {availableApps.map((app) => (
+                      <option key={app} value={app}>
+                        {app}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
-              )}
-            </div>
-
-            <div>
-              <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Task Routing
-              </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <RoutingCard
-                  selected={routing === 'self'}
-                  onClick={() => setRouting('self')}
-                  color="yellow"
-                  emoji="Self"
-                  title="Self Todo"
-                  desc="Create this task for yourself"
-                />
-                <RoutingCard
-                  selected={routing === 'department'}
-                  onClick={() => setRouting('department')}
-                  color="green"
-                  emoji="Dept"
-                  title="Department Queue"
-                  desc="Route to a department queue"
-                />
-                <RoutingCard
-                  selected={routing === 'manager'}
-                  onClick={() => setRouting('manager')}
-                  color="purple"
-                  emoji="Mgr"
-                  title="Send to Manager"
-                  desc="Assign directly to a manager"
-                />
-                <RoutingCard
-                  selected={routing === 'multi'}
-                  onClick={() => setRouting('multi')}
-                  color="cyan"
-                  emoji="Team"
-                  title="Multi-Assignment"
-                  desc="Assign to multiple users with individual deadlines"
-                />
+                <Field label="Package Name" required>
+                  <select
+                    value={packageName}
+                    onChange={(event) => {
+                      const nextPackage = event.target.value
+                      setPackageName(nextPackage)
+                      const pkg = packages.find((item) => item.name === nextPackage)
+                      if (pkg?.app_name) setAppName(pkg.app_name)
+                    }}
+                    className={selectCls}
+                  >
+                    <option value="">Select Package</option>
+                    {filteredPackagesByApp.map((pkg) => (
+                      <option key={pkg.id} value={pkg.name}>
+                        {pkg.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
               </div>
 
-              {routing === 'department' && (
-                <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4">
+              <Field label="KPI Type" required>
+                <select
+                  value={kpiType}
+                  onChange={(event) => setKpiType(event.target.value)}
+                  className={selectCls}
+                >
+                  <option value="">Select KPI Type</option>
+                  {KPI_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={`Title (${title.length}/30)`} required>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value.slice(0, 30))}
+                  placeholder="What needs to be done?"
+                  className={inputCls}
+                />
+              </Field>
+
+              <Field label="Description">
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={3}
+                  placeholder="Add more details..."
+                  className={cn(inputCls, 'resize-none')}
+                />
+              </Field>
+
+              <Field label="Our Goal">
+                <div className="overflow-hidden rounded-xl border border-slate-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400">
+                  <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                    {[
+                      { icon: <Bold size={14} />, cmd: 'bold', title: 'Bold' },
+                      { icon: <Italic size={14} />, cmd: 'italic', title: 'Italic' },
+                      { icon: <Underline size={14} />, cmd: 'underline', title: 'Underline' },
+                      { icon: <List size={14} />, cmd: 'insertUnorderedList', title: 'Bullet List' },
+                      { icon: <ListOrdered size={14} />, cmd: 'insertOrderedList', title: 'Numbered List' },
+                    ].map(({ icon, cmd, title }) => (
+                      <button
+                        key={cmd}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          execCmd(cmd)
+                        }}
+                        className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-slate-800"
+                        title={title}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    ref={goalRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="min-h-32 bg-white px-3 py-3 text-sm text-slate-700 outline-none"
+                  />
+                </div>
+              </Field>
+            </SectionCard>
+
+            <SectionCard
+              title="Timing & Routing"
+              description="Choose urgency and decide where the task should flow next."
+            >
+              <div className={cn('grid gap-4', routing === 'multi' ? 'md:grid-cols-1' : 'md:grid-cols-2')}>
+                <Field label="Priority">
+                  <select
+                    value={priority}
+                    onChange={(event) => setPriority(event.target.value as typeof priority)}
+                    className={selectCls}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </Field>
+
+                {routing !== 'multi' && (
+                  <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
+                    <input
+                      type="datetime-local"
+                      value={dueDate}
+                      onChange={(event) => setDueDate(event.target.value)}
+                      className={inputCls}
+                    />
+                  </Field>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Task Routing
+                </label>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <RoutingCard
+                    selected={routing === 'self'}
+                    onClick={() => setRouting('self')}
+                    color="yellow"
+                    emoji="Self"
+                    title="Self Todo"
+                    desc="Create this task for yourself"
+                  />
+                  <RoutingCard
+                    selected={routing === 'department'}
+                    onClick={() => setRouting('department')}
+                    color="green"
+                    emoji="Dept"
+                    title="Department Queue"
+                    desc="Route to a department queue"
+                  />
+                  <RoutingCard
+                    selected={routing === 'manager'}
+                    onClick={() => setRouting('manager')}
+                    color="purple"
+                    emoji="Mgr"
+                    title="Send to Manager"
+                    desc="Assign directly to a manager"
+                  />
+                  <RoutingCard
+                    selected={routing === 'multi'}
+                    onClick={() => setRouting('multi')}
+                    color="cyan"
+                    emoji="Team"
+                    title="Multi-Assignment"
+                    desc="Assign to multiple users with individual deadlines"
+                  />
+                </div>
+
+                {routing === 'department' && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <Field label="Department">
                     <select
                       value={deptRoutingDept}
@@ -642,11 +653,11 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                       ))}
                     </select>
                   </Field>
-                </div>
-              )}
+                  </div>
+                )}
 
-              {routing === 'manager' && (
-                <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                {routing === 'manager' && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <Field label="Assign To">
                     <select
                       value={assignedManager}
@@ -662,11 +673,11 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                       ))}
                     </select>
                   </Field>
-                </div>
-              )}
+                  </div>
+                )}
 
-              {routing === 'multi' && (
-                <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                {routing === 'multi' && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex flex-col gap-2 md:flex-row">
                     <input
                       value={multiSearch}
@@ -688,13 +699,13 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                     </select>
                   </div>
 
-                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-cyan-100 bg-white p-2">
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
                     {filteredUsersForMulti.map((user) => {
                       const checked = multiAssignees.some((entry) => entry.username === user.username)
                       return (
                         <label
                           key={user.username}
-                          className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-cyan-50"
+                          className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50"
                         >
                           <input
                             type="checkbox"
@@ -714,8 +725,8 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                   </div>
 
                   {multiAssignees.length > 0 && (
-                    <div className="mt-4 rounded-xl border border-cyan-100 bg-white p-3">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-700">
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                         Individual Deadlines
                       </p>
                       <div className="space-y-2">
@@ -738,19 +749,24 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
 
-            <Field label="Notes">
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                rows={2}
-                placeholder="Additional notes..."
-                className={cn(inputCls, 'resize-none')}
-              />
-            </Field>
+            <SectionCard
+              title="Notes & Files"
+              description="Context, references, and upload items that should travel with the task."
+            >
+              <Field label="Notes">
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={2}
+                  placeholder="Additional notes..."
+                  className={cn(inputCls, 'resize-none')}
+                />
+              </Field>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
@@ -806,6 +822,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                 ))}
               </div>
             </div>
+            </SectionCard>
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
@@ -851,6 +868,26 @@ function Field({
   )
 }
 
+function SectionCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
 function RoutingCard({
   selected,
   onClick,
@@ -867,10 +904,22 @@ function RoutingCard({
   desc: string
 }) {
   const palette = {
-    yellow: 'border-yellow-300 bg-yellow-50',
-    green: 'border-green-300 bg-green-50',
-    purple: 'border-purple-300 bg-purple-50',
-    cyan: 'border-cyan-300 bg-cyan-50',
+    yellow: {
+      badge: 'bg-amber-50 text-amber-700',
+      selected: 'border-amber-300 bg-amber-50/60 ring-2 ring-amber-200',
+    },
+    green: {
+      badge: 'bg-emerald-50 text-emerald-700',
+      selected: 'border-emerald-300 bg-emerald-50/60 ring-2 ring-emerald-200',
+    },
+    purple: {
+      badge: 'bg-violet-50 text-violet-700',
+      selected: 'border-violet-300 bg-violet-50/60 ring-2 ring-violet-200',
+    },
+    cyan: {
+      badge: 'bg-cyan-50 text-cyan-700',
+      selected: 'border-cyan-300 bg-cyan-50/60 ring-2 ring-cyan-200',
+    },
   }
 
   return (
@@ -878,14 +927,22 @@ function RoutingCard({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-xl border-2 p-4 text-left transition-all',
-        palette[color],
-        selected ? 'ring-2 ring-offset-1' : 'border-transparent opacity-70 hover:opacity-100'
+        'rounded-xl border p-4 text-left transition-all',
+        selected
+          ? palette[color].selected
+          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
       )}
     >
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">{emoji}</div>
-      <div className="mt-1 text-sm font-bold text-slate-800">{title}</div>
-      <div className="mt-1 text-xs text-slate-500">{desc}</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className={cn('inline-flex rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]', palette[color].badge)}>
+            {emoji}
+          </div>
+          <div className="mt-3 text-sm font-bold text-slate-800">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{desc}</div>
+        </div>
+        {selected && <div className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />}
+      </div>
     </button>
   )
 }
