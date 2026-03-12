@@ -37,8 +37,21 @@ import {
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
 type QuickFilter =
-  | 'all' | 'my_tasks' | 'assigned_to_me' | 'in_progress' | 'completed'
-  | 'queued' | 'overdue' | 'my_approval_pending' | 'others_approvals'
+  | 'all' | 'my_pending' | 'my_all' | 'team_pending'
+  | 'my_approval_pending' | 'other_approval_pending'
+
+type SmartList =
+  | 'all' | 'today' | 'upcoming' | 'overdue' | 'thisweek' | 'thismonth'
+  | 'my_approval_pending' | 'other_approval_pending'
+
+type StatusFilter =
+  | 'all' | 'pending' | 'queue' | 'inprogress' | 'completed' | 'overdue' | 'archived'
+
+type DateFilter =
+  | 'all' | 'today' | 'yesterday' | 'last7days' | 'last30days'
+  | 'thisweek' | 'lastweek' | 'thismonth' | 'lastmonth' | 'thisyear'
+
+type MessageFilter = 'all' | 'unread' | 'read'
 
 const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'backlog', label: 'Backlog', dot: 'bg-slate-400' },
@@ -63,11 +76,15 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<'due_date' | 'priority' | 'created_at' | 'title'>('created_at')
+  const [memberFilter, setMemberFilter] = useState('all')
+  const [smartList, setSmartList] = useState<SmartList>('all')
+  const [sortBy, setSortBy] = useState<'position' | 'due_date' | 'priority' | 'created_at' | 'title'>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all')
   const [deptFilter, setDeptFilter] = useState('')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all')
 
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -107,6 +124,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     return Array.from(members).sort((a, b) => a.localeCompare(b))
   }, [tasks])
 
+  const effectiveUser = memberFilter !== 'all' ? memberFilter : currentUsername
+
   const refresh = useCallback(async () => {
     setLoading(true)
     const [ft, fs] = await Promise.all([
@@ -121,24 +140,83 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   const filteredTasks = useMemo(() => {
     const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const weekStart = new Date(today)
+    weekStart.setDate(today.getDate() - today.getDay())
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    const lastWeekStart = new Date(weekStart)
+    lastWeekStart.setDate(weekStart.getDate() - 7)
+    const lastWeekEnd = new Date(weekStart)
+    lastWeekEnd.setDate(weekStart.getDate() - 1)
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
+    const yearStart = new Date(now.getFullYear(), 0, 1)
     let list = [...tasks]
+    const userLower = effectiveUser.toLowerCase()
 
-    if (quickFilter === 'my_tasks') {
-      list = list.filter((t) => t.username === currentUsername)
-    } else if (quickFilter === 'assigned_to_me') {
-      list = list.filter((t) => t.assigned_to === currentUsername || t.multi_assignment?.assignees?.some((a) => a.username === currentUsername))
-    } else if (quickFilter === 'in_progress') {
-      list = list.filter((t) => t.task_status === 'in_progress')
-    } else if (quickFilter === 'completed') {
-      list = list.filter((t) => t.task_status === 'done' || t.completed)
-    } else if (quickFilter === 'queued') {
-      list = list.filter((t) => t.queue_status === 'queued')
-    } else if (quickFilter === 'overdue') {
-      list = list.filter((t) => !t.completed && t.due_date && new Date(t.due_date) < now)
+    if (quickFilter === 'my_pending') {
+      list = list.filter((t) => {
+        if (t.completed || t.archived) return false
+        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          const top = ma.assignees.find((a) => (a.username || '').toLowerCase() === userLower)
+          if (top && top.status !== 'accepted' && top.status !== 'completed') return true
+          for (const assignee of ma.assignees) {
+            if (Array.isArray(assignee.delegated_to)) {
+              const sub = assignee.delegated_to.find((s) => (s.username || '').toLowerCase() === userLower)
+              if (sub && sub.status !== 'accepted' && sub.status !== 'completed') return true
+            }
+          }
+        }
+        return isQueuedTaskForDepartmentUser(t, effectiveUser)
+      })
+    } else if (quickFilter === 'my_all') {
+      list = list.filter((t) => {
+        if (t.archived) return false
+        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        if ((t.completed_by || '').toLowerCase() === userLower) return true
+        if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)) return true
+          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))) return true
+        }
+        return isQueuedTaskForDepartmentUser(t, effectiveUser)
+      })
+    } else if (quickFilter === 'team_pending') {
+      list = list.filter((t) => {
+        if (t.completed || t.archived) return false
+        if (t.username.toLowerCase() !== userLower) return false
+        if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          return ma.assignees.some((a) =>
+            (a.username || '').toLowerCase() !== userLower ||
+            (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() !== userLower))
+          )
+        }
+        return false
+      })
     } else if (quickFilter === 'my_approval_pending') {
-      list = list.filter((t) => t.username === currentUsername && t.approval_status === 'pending_approval')
-    } else if (quickFilter === 'others_approvals') {
-      list = list.filter((t) => t.assigned_to === currentUsername && t.approval_status === 'pending_approval')
+      list = list.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower)
+    } else if (quickFilter === 'other_approval_pending') {
+      list = list.filter((t) => {
+        if (t.archived || t.approval_status !== 'pending_approval') return false
+        if (t.username.toLowerCase() === userLower) return false
+        if ((t.completed_by || '').toLowerCase() === userLower) return true
+        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)) return true
+          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))) return true
+        }
+        return false
+      })
     }
 
     if (search.trim()) {
@@ -152,14 +230,83 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       )
     }
 
-    if (statusFilter !== 'all') list = list.filter((t) => t.task_status === statusFilter)
+    if (smartList !== 'all') {
+      list = list.filter((t) => {
+        const due = t.due_date ? new Date(t.due_date) : null
+        if (smartList === 'my_approval_pending') return !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower
+        if (smartList === 'other_approval_pending') return !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() !== userLower
+        if (!due) return false
+        if (smartList === 'today') return due.toDateString() === today.toDateString()
+        if (smartList === 'upcoming') return due >= today && !t.completed
+        if (smartList === 'overdue') return !t.completed && due < today
+        if (smartList === 'thisweek') return due >= weekStart && due <= weekEnd
+        if (smartList === 'thismonth') return due >= monthStart && due <= monthEnd
+        return true
+      })
+    }
+
+    if (statusFilter !== 'all') {
+      list = list.filter((t) => {
+        const queuedForUser = isQueuedTaskForDepartmentUser(t, effectiveUser)
+        if (statusFilter === 'queue') return queuedForUser
+        if (statusFilter === 'pending') return ((!t.completed && t.task_status !== 'in_progress') || queuedForUser) && !t.archived
+        if (statusFilter === 'inprogress') return !t.completed && t.task_status === 'in_progress'
+        if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
+        if (statusFilter === 'overdue') return !t.completed && !!t.due_date && new Date(t.due_date) < now
+        if (statusFilter === 'archived') return !!t.archived
+        return true
+      })
+    }
     if (priorityFilter !== 'all') list = list.filter((t) => t.priority === priorityFilter)
     if (deptFilter) list = list.filter((t) => t.creator_department === deptFilter || t.assignee_department === deptFilter || t.queue_department === deptFilter)
+    if (memberFilter !== 'all') {
+      list = list.filter((t) => {
+        const target = memberFilter.toLowerCase()
+        if (t.username.toLowerCase() === target) return true
+        if ((t.assigned_to || '').toLowerCase() === target) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          if (ma.assignees.some((a) => (a.username || '').toLowerCase() === target)) return true
+          if (ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === target))) return true
+        }
+        return false
+      })
+    }
+    if (dateFilter !== 'all') {
+      list = list.filter((t) => {
+        const created = new Date(t.created_at)
+        const yesterday = new Date(today)
+        yesterday.setDate(today.getDate() - 1)
+        const last7 = new Date(today)
+        last7.setDate(today.getDate() - 7)
+        const last30 = new Date(today)
+        last30.setDate(today.getDate() - 30)
+        if (dateFilter === 'today') return created.toDateString() === today.toDateString()
+        if (dateFilter === 'yesterday') return created.toDateString() === yesterday.toDateString()
+        if (dateFilter === 'last7days') return created >= last7
+        if (dateFilter === 'last30days') return created >= last30
+        if (dateFilter === 'thisweek') return created >= weekStart && created <= weekEnd
+        if (dateFilter === 'lastweek') return created >= lastWeekStart && created <= lastWeekEnd
+        if (dateFilter === 'thismonth') return created >= monthStart && created <= monthEnd
+        if (dateFilter === 'lastmonth') return created >= lastMonthStart && created <= lastMonthEnd
+        if (dateFilter === 'thisyear') return created >= yearStart
+        return true
+      })
+    }
+    if (messageFilter !== 'all') {
+      list = list.filter((t) => getMessageState(t, effectiveUser) === messageFilter)
+    }
 
     list.sort((a, b) => {
+      const aCompleted = a.completed ? 1 : 0
+      const bCompleted = b.completed ? 1 : 0
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted
       let va: string | number = 0
       let vb: string | number = 0
-      if (sortBy === 'due_date') {
+      if (sortBy === 'position') {
+        va = a.position || 0
+        vb = b.position || 0
+      } else if (sortBy === 'due_date') {
         va = a.due_date ? new Date(a.due_date).getTime() : 0
         vb = b.due_date ? new Date(b.due_date).getTime() : 0
       } else if (sortBy === 'priority') {
@@ -178,7 +325,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       return 0
     })
     return list
-  }, [tasks, quickFilter, search, statusFilter, priorityFilter, deptFilter, sortBy, sortDir, currentUsername])
+  }, [tasks, effectiveUser, quickFilter, search, smartList, statusFilter, priorityFilter, deptFilter, memberFilter, dateFilter, messageFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, getMessageState])
 
   const bulkDelete = () => {
     startTransition(async () => {
@@ -236,6 +383,25 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     onRefresh: refresh,
   })
 
+  const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
+    if (task.queue_status !== 'queued' || task.assigned_to) return false
+    const normalizedUser = username.toLowerCase()
+    const userTask = tasks.find((t) =>
+      t.username.toLowerCase() === normalizedUser ||
+      (t.assigned_to || '').toLowerCase() === normalizedUser
+    )
+    const dept = userTask?.assignee_department || userTask?.creator_department || currentUserDept
+    if (!dept) return false
+    return (task.queue_department || '').toLowerCase() === dept.toLowerCase()
+  }, [currentUserDept, tasks])
+
+  const getMessageState = useCallback((task: Todo, username: string) => {
+    const comments = task.history.filter((h) => h.type === 'comment')
+    if (!comments.length) return 'none'
+    const hasUnread = comments.some((h) => Array.isArray(h.unread_by) && h.unread_by.includes(username))
+    return hasUnread ? 'unread' : 'read'
+  }, [])
+
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
@@ -281,14 +447,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Tasks {stats.total}</option>
-                  <option value="my_tasks">My Tasks</option>
-                  <option value="assigned_to_me">Assigned To Me</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="queued">Dept Queue</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="my_approval_pending">My Approvals</option>
-                  <option value="others_approvals">Others&apos; Approvals</option>
+                  <option value="my_pending">My Pending</option>
+                  <option value="my_all">My Tasks</option>
+                  <option value="team_pending">Assigned By Me</option>
+                  <option value="my_approval_pending">Need My Approval</option>
+                  <option value="other_approval_pending">Others&apos; Approval</option>
                 </select>
 
                 <select
@@ -301,11 +464,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 </select>
 
                 <select
-                  value={search && visibleMembers.includes(search) ? search : ''}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={memberFilter}
+                  onChange={(e) => setMemberFilter(e.target.value)}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
-                  <option value="">All Members</option>
+                  <option value="all">All Members</option>
                   {visibleMembers.map((member) => (
                     <option key={member} value={member}>{member}</option>
                   ))}
@@ -365,15 +528,32 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
               <div className="flex flex-wrap items-center gap-2">
                 <select
+                  value={smartList}
+                  onChange={(e) => setSmartList(e.target.value as SmartList)}
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                >
+                  <option value="all">All Tasks</option>
+                  <option value="today">Today</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="thisweek">This Week</option>
+                  <option value="thismonth">This Month</option>
+                  <option value="my_approval_pending">My Approval Pending</option>
+                  <option value="other_approval_pending">Other Approval Pending</option>
+                </select>
+
+                <select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                   className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Status</option>
-                  <option value="backlog">Backlog</option>
-                  <option value="todo">To Do</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="done">Done</option>
+                  <option value="pending">Pending</option>
+                  <option value="queue">Queue</option>
+                  <option value="inprogress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="archived">Archived</option>
                 </select>
 
                 <select
@@ -386,6 +566,33 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   <option value="high">High</option>
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
+                </select>
+
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                >
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="last7days">Last 7 Days</option>
+                  <option value="last30days">Last 30 Days</option>
+                  <option value="thisweek">This Week</option>
+                  <option value="lastweek">Last Week</option>
+                  <option value="thismonth">This Month</option>
+                  <option value="lastmonth">Last Month</option>
+                  <option value="thisyear">This Year</option>
+                </select>
+
+                <select
+                  value={messageFilter}
+                  onChange={(e) => setMessageFilter(e.target.value as MessageFilter)}
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                >
+                  <option value="all">All Messages</option>
+                  <option value="unread">Unread</option>
+                  <option value="read">Read</option>
                 </select>
               </div>
             </div>
@@ -450,6 +657,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                     }}
                     className="appearance-none rounded-xl border border-transparent bg-transparent py-1.5 pl-2 pr-6 text-xs font-semibold text-slate-600 outline-none"
                   >
+                    <option value="position_asc">Custom Order</option>
                     <option value="created_at_desc">Recently Created</option>
                     <option value="created_at_asc">Oldest</option>
                     <option value="due_date_asc">Due Soonest</option>
