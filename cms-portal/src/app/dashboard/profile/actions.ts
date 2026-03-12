@@ -98,7 +98,7 @@ export async function updateProfile(data: {
     ...user,
     email: data.email ?? user.email,
     department: data.department !== undefined ? data.department : user.department,
-    avatarData: data.avatar_data !== undefined ? data.avatar_data : user.avatarData,
+    avatarData: null, // never store base64 images in cookie — fetched fresh from DB in dashboard layout
   }
   const token = await createSession(updatedUser)
   const cookieStore = await cookies()

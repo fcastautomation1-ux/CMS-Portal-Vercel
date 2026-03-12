@@ -83,7 +83,7 @@ export async function loginAction(
     role: user.role as UserRole,
     department: user.department ?? null,
     email: user.email,
-    avatarData: user.avatar_data ?? null,
+    avatarData: null, // never store base64 images in cookie — fetched fresh from DB in dashboard layout
     allowedAccounts: parseCSV(user.allowed_accounts),
     allowedCampaigns: parseCSV(user.allowed_campaigns),
     allowedDriveFolders: parseCSV(user.allowed_drive_folders),
