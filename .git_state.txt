@@ -1,0 +1,9 @@
+main
+---
+## main...origin/main
+---
+  clean-erp-ui
+* main
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/clean-erp-ui
+  remotes/origin/main

@@ -29230,6 +29230,7 @@
             function closeTodoModal() {
                 saveTodoDraftSnapshot();
                 stopTodoDraftAutosave();
+                currentRoutingSelection = null;
                 const modal = document.getElementById('todoModal');
                 if (modal) {
                     modal.style.display = 'none';
