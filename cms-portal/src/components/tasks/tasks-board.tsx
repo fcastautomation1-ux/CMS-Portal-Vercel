@@ -18,6 +18,10 @@ import {
   ArrowDownUp,
   SlidersHorizontal,
   Upload,
+  ListTodo,
+  CircleCheckBig,
+  Hourglass,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Todo, TodoStats, TaskStatus } from '@/types'
@@ -234,8 +238,38 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
-      <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-[#f5f7fc] shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
-        <div className="border-b border-[#e3e9f5] bg-[#f7f8fc] px-4 py-4 sm:px-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
+        {[
+          { label: 'Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]' },
+          { label: 'Assigned To Me', value: extStats.assignedToMe, icon: Users, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]' },
+          { label: 'Completed', value: stats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
+          { label: 'Pending', value: stats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
+          { label: 'In Progress', value: extStats.inProgress, icon: RefreshCw, tone: 'text-[#0D9488]', bg: 'bg-[#F0FDFA]', border: 'border-[#99F6E4]' },
+          { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
+        ].map((item) => {
+          const Icon = item.icon
+          return (
+            <div
+              key={item.label}
+              className="rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', item.bg, item.border)}>
+                  <Icon size={18} className={item.tone} />
+                </div>
+                <div className="text-right">
+                  <div className={cn('text-[28px] font-extrabold leading-none', item.tone)}>{item.value}</div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.label}</div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
+        <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
               <div className="text-lg font-extrabold tracking-tight text-[#3559d8]">TaskFlow</div>
@@ -309,10 +343,10 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
           </div>
         </div>
 
-        <div className="border-b border-[#e3e9f5] bg-[#f4f6fb] px-4 py-3 sm:px-5">
+        <div className="border-b border-[#e3e9f5] bg-[#fbfcff] px-4 py-3 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="inline-flex w-fit items-center rounded-xl border border-[#d9e2f0] bg-white p-1">
+              <div className="inline-flex w-fit items-center rounded-xl border border-[#d9e2f0] bg-white p-1 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
               {([['list', 'List'], ['kanban', 'Kanban'], ['calendar', 'Calendar']] as [ViewMode, string][]).map(([mode, label]) => (
                 <button
                   key={mode}
@@ -333,7 +367,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Status</option>
                   <option value="backlog">Backlog</option>
@@ -345,7 +379,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <select
                   value={priorityFilter}
                   onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="all">All Priority</option>
                   <option value="urgent">Urgent</option>
@@ -360,7 +394,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               <button
                 onClick={refresh}
                 disabled={loading}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 transition hover:border-[#c4d3ef]"
+                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
                 <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
                 Refresh
@@ -368,7 +402,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
               <button
                 onClick={() => setQuickFilter('queued')}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 transition hover:border-[#c4d3ef]"
+                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
                 <Users size={13} />
                 Dept Queue
@@ -376,7 +410,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
               <button
                 onClick={toggleSelectAll}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 transition hover:border-[#c4d3ef]"
+                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
                 {selected.size > 0 && selected.size === filteredTasks.length ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
                 {selected.size > 0 ? `${selected.size} selected` : 'Select All'}
@@ -386,7 +420,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 <div className="relative">
                   <button
                     onClick={() => setShowBulkMenu((v) => !v)}
-                    className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 transition hover:border-[#c4d3ef]"
+                    className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
                   >
                     <SlidersHorizontal size={13} />
                     Bulk Actions
@@ -438,7 +472,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               ].map((item) => (
                 <span
                   key={item.label}
-                  className="rounded-full border border-[#d9e2f0] bg-white px-3 py-1 text-[11px] font-semibold text-slate-500"
+                  className="rounded-full border border-[#d9e2f0] bg-white px-3 py-1 text-[11px] font-semibold text-slate-500 shadow-[0_2px_8px_rgba(15,23,42,0.03)]"
                 >
                   {item.label} <span className="text-[#3559d8]">{item.value}</span>
                 </span>
