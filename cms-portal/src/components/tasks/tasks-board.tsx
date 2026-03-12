@@ -96,13 +96,27 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
 
+  // Role flags — mirror old portal role checks (must be before any useMemo that depends on them)
+  const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+  const isManagerRole = isAdminOrSM || currentUserRole === 'Manager' || currentUserRole === 'Supervisor'
+
   const extStats = useMemo(() => ({
+    // "Assigned To Me" always scopes to current user
     assignedToMe: tasks.filter((t: Todo) =>
       t.assigned_to === currentUsername ||
       t.multi_assignment?.assignees?.some((a: MultiAssignmentEntry) => a.username === currentUsername)
     ).length,
-    inProgress: tasks.filter((t: Todo) => t.task_status === 'in_progress').length,
-  }), [tasks, currentUsername])
+    // "In Progress": Admin/SM see portal-wide count; others see their own scope
+    inProgress: isAdminOrSM
+      ? tasks.filter((t: Todo) => t.task_status === 'in_progress').length
+      : tasks.filter((t: Todo) =>
+          t.task_status === 'in_progress' && (
+            t.username === currentUsername ||
+            t.assigned_to === currentUsername ||
+            t.multi_assignment?.assignees?.some((a: MultiAssignmentEntry) => a.username === currentUsername)
+          )
+        ).length,
+  }), [tasks, currentUsername, isAdminOrSM])
 
   // ── Active KPI (computed from filter state — syncs all filters) ──────────────
   const activeKpi = useMemo(() => {
@@ -116,36 +130,37 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   }, [quickFilter, statusFilter, smartList])
 
   const applyKpiFilter = useCallback((key: string) => {
-    // Reset subsidiary filters first
+    // Reset all subsidiary filters
     setSmartList('all')
     setStatusFilter('all')
     setPriorityFilter('all')
     setDateFilter('all')
     setMessageFilter('all')
     setSearch('')
-    // Apply the KPI-specific scope
+    setDeptFilter('')
+    setMemberFilter('all')
+    // Admin/SM: KPI status cards show ALL tasks (quickFilter='all')
+    // Other roles: scope to their own tasks (quickFilter='my_all')
+    const scopeAll = isAdminOrSM
     if (key === 'total') {
       setQuickFilter('all')
     } else if (key === 'assigned') {
+      // "Assigned To Me" always scopes to current user regardless of role
       setQuickFilter('my_all')
     } else if (key === 'completed') {
-      setQuickFilter('my_all')
+      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('completed')
     } else if (key === 'pending') {
-      setQuickFilter('my_all')
+      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('pending')
     } else if (key === 'inprogress') {
-      setQuickFilter('my_all')
+      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('inprogress')
     } else if (key === 'overdue') {
-      setQuickFilter('my_all')
+      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('overdue')
     }
-  }, [])
-
-  // Role flags — mirror old portal role checks
-  const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
-  const isManagerRole = isAdminOrSM || currentUserRole === 'Manager' || currentUserRole === 'Supervisor'
+  }, [isAdminOrSM])
 
   const departments = useMemo(() => {
     const depts = new Set<string>()
@@ -229,16 +244,20 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   }, [initialStats])
 
   const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
-    if (task.queue_status !== 'queued' || task.assigned_to) return false
-    const normalizedUser = username.toLowerCase()
-    const userTask = tasks.find((t: Todo) =>
-      t.username.toLowerCase() === normalizedUser ||
-      (t.assigned_to || '').toLowerCase() === normalizedUser
-    )
-    const dept = userTask?.assignee_department || userTask?.creator_department || currentUserDept
-    if (!dept) return false
-    return (task.queue_department || '').toLowerCase() === dept.toLowerCase()
-  }, [currentUserDept, tasks])
+    if (task.queue_status !== 'queued') return false
+    // Only truly unassigned/queued tasks (empty or null assigned_to)
+    if (task.assigned_to && task.assigned_to.trim() !== '') return false
+    const uLower = username.toLowerCase()
+    // Use currentUserDept directly for self, memberDeptMap for any other user
+    const rawDept: string | null = uLower === currentUsername.toLowerCase()
+      ? (currentUserDept ?? null)
+      : (memberDeptMap[uLower] ?? null)
+    if (!rawDept) return false
+    const queueDeptLower = (task.queue_department || '').toLowerCase().trim()
+    if (!queueDeptLower) return false
+    // Support comma-separated departments (user may belong to multiple)
+    return rawDept.split(',').map((d: string) => d.trim().toLowerCase()).some((d: string) => d && d === queueDeptLower)
+  }, [currentUserDept, currentUsername, memberDeptMap])
 
   const getMessageState = useCallback((task: Todo, username: string) => {
     const comments = task.history.filter((h) => h.type === 'comment')
@@ -354,8 +373,13 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
+        if (statusFilter === 'queue') {
+          // Admin/SM: see ALL queued tasks (unassigned, any dept) — deptFilter narrows further if set
+          if (isAdminOrSM) return t.queue_status === 'queued' && (!t.assigned_to || t.assigned_to.trim() === '')
+          // Others: only queued tasks for their own department
+          return isQueuedTaskForDepartmentUser(t, effectiveUser)
+        }
         const queuedForUser = isQueuedTaskForDepartmentUser(t, effectiveUser)
-        if (statusFilter === 'queue') return queuedForUser
         if (statusFilter === 'pending') return ((!t.completed && t.task_status !== 'in_progress') || queuedForUser) && !t.archived
         if (statusFilter === 'inprogress') return !t.completed && t.task_status === 'in_progress'
         if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
@@ -365,7 +389,15 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       })
     }
     if (priorityFilter !== 'all') list = list.filter((t) => t.priority === priorityFilter)
-    if (deptFilter) list = list.filter((t) => t.creator_department === deptFilter || t.assignee_department === deptFilter || t.queue_department === deptFilter)
+    if (deptFilter) {
+      // Comma-split matching: a user may belong to multiple depts stored as "Dept A,Dept B"
+      const deptLow = deptFilter.toLowerCase()
+      const inDept = (d: string | null | undefined) =>
+        d ? d.split(',').map((s: string) => s.trim().toLowerCase()).includes(deptLow) : false
+      list = list.filter((t) =>
+        inDept(t.creator_department) || inDept(t.assignee_department) || inDept(t.queue_department)
+      )
+    }
     if (memberFilter !== 'all') {
       list = list.filter((t) => {
         const target = memberFilter.toLowerCase()
@@ -432,7 +464,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, smartList, statusFilter, priorityFilter, deptFilter, memberFilter, dateFilter, messageFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, getMessageState])
+  }, [tasks, effectiveUser, quickFilter, search, smartList, statusFilter, priorityFilter, deptFilter, memberFilter, dateFilter, messageFilter, sortBy, sortDir, isAdminOrSM, isQueuedTaskForDepartmentUser, getMessageState])
 
   const bulkDelete = () => {
     startTransition(async () => {
