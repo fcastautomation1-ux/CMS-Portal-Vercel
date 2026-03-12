@@ -147,8 +147,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   const bulkDelete  = () => { startTransition(async () => { await Promise.all([...selected].map((id) => deleteTodoAction(id))); setShowBulkMenu(false); refresh() }) }
   const bulkArchive = () => { startTransition(async () => { await Promise.all([...selected].map((id) => archiveTodoAction(id))); setShowBulkMenu(false); refresh() }) }
-  const toggleSelect = (id: string) => { setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
-  const toggleSelectAll = () => { selected.size === filteredTasks.length ? setSelected(new Set()) : setSelected(new Set(filteredTasks.map((t) => t.id))) }
+  const toggleSelect = (id: string) => { setSelected((prev) => { const n = new Set(prev); if (n.has(id)) { n.delete(id) } else { n.add(id) }; return n }) }
+  const toggleSelectAll = () => { if (selected.size === filteredTasks.length) { setSelected(new Set()) } else { setSelected(new Set(filteredTasks.map((t) => t.id))) } }
 
   const exportCSV = () => {
     const rows = filteredTasks.map((t) => [t.title, t.task_status, t.priority, t.assigned_to ?? '', t.due_date ?? '', t.package_name ?? '', t.kpi_type ?? ''])
@@ -211,7 +211,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
           <option value="queued">Queued</option>
           <option value="overdue">Overdue · {stats.overdue}</option>
           <option value="my_approval_pending">My Approval Pending</option>
-          <option value="others_approvals">Others' Approvals</option>
+          <option value="others_approvals">Others&apos; Approvals</option>
         </select>
 
         <select
@@ -271,13 +271,16 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
         {/* View toggle */}
         <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden" style={{ background: 'var(--color-surface)' }}>
-          {([['list','List',<LayoutList size={13}/>],['kanban','Kanban',<LayoutGrid size={13}/>],['calendar','Calendar',<Calendar size={13}/>]] as [ViewMode,string,React.ReactNode][]).map(([mode, label, icon]) => (
+          {([['list','List'],['kanban','Kanban'],['calendar','Calendar']] as [ViewMode,string][]).map(([mode, label]) => (
             <button
               key={mode}
               onClick={() => setViewMode(mode)}
               className={cn('flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-colors border-r last:border-r-0 border-slate-200', viewMode === mode ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}
             >
-              {icon} {label}
+              {mode === 'list' && <LayoutList size={13} />}
+              {mode === 'kanban' && <LayoutGrid size={13} />}
+              {mode === 'calendar' && <Calendar size={13} />}
+              {label}
             </button>
           ))}
         </div>
