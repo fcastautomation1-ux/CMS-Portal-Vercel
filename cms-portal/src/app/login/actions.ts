@@ -1,10 +1,21 @@
 'use server'
 
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
+import { createHash } from 'crypto'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSession, getCookieName } from '@/lib/auth'
 import type { SessionUser, UserRole, ModuleAccess, DriveAccessLevel } from '@/types'
+
+// Mirrors old portal: SHA-256(GASv1_ + salt + password) → hex
+function verifyHashedPassword(password: string, storedHash: string, storedSalt: string): boolean {
+  try {
+    const combined = 'GASv1_' + storedSalt + password
+    const hash = createHash('sha256').update(combined, 'utf8').digest('hex')
+    return hash === storedHash
+  } catch {
+    return false
+  }
+}
 
 type LoginResult =
   | { success: true }
@@ -23,11 +34,11 @@ export async function loginAction(
 
   const supabase = createServerClient()
 
-  // Fetch user — use * to avoid errors when optional columns don't exist
+  // Case-insensitive username lookup (ilike) — handles Admin vs admin etc.
   const { data: users, error } = await supabase
     .from('users')
     .select('*')
-    .eq('username', username)
+    .ilike('username', username)
     .limit(1)
 
   if (error) {
@@ -42,8 +53,16 @@ export async function loginAction(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const user = users[0] as any
 
-  // Password verification — support both plain text (legacy) and hashed
-  const passwordValid = user.password === password
+  // Password verification — support SHA-256 hashed (new) and plain text (legacy)
+  let passwordValid = false
+  if (user.password_salt && user.password_hash) {
+    // New format: SHA-256(GASv1_ + salt + password)
+    passwordValid = verifyHashedPassword(password, user.password_hash, user.password_salt)
+  } else {
+    // Legacy plain-text (old portal fallback)
+    passwordValid = user.password === password
+  }
+
   if (!passwordValid) {
     return { success: false, error: 'Invalid username or password.' }
   }
@@ -87,7 +106,9 @@ export async function loginAction(
     path: '/',
   })
 
-  redirect('/dashboard')
+  // Return success — client-side useEffect will navigate to /dashboard
+  // (more reliable than redirect() inside useFormState across all browsers)
+  return { success: true }
 }
 
 export async function logoutAction() {
