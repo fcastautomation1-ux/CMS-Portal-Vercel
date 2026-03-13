@@ -139,7 +139,7 @@ const BTN_CLS: Record<BtnColor, string> = {
 
 function ActBtn({ onClick, color, children }: { onClick: () => void; color: BtnColor; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} className={cn('inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors', BTN_CLS[color])}>
+    <button onClick={onClick} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors', BTN_CLS[color])}>
       {children}
     </button>
   )
@@ -230,33 +230,35 @@ export function TaskCard({
 
   return (
     <div className={cn(
-      'group/row relative flex overflow-hidden rounded-[18px] border border-[#dfe5f1] bg-white shadow-[0_6px_18px_rgba(31,65,132,0.05)] transition-colors',
+      'group/row relative flex overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.06)] transition-all',
       'flex-col md:flex-row',
       isPending && 'pointer-events-none opacity-60',
-      isCompleted ? 'bg-slate-50/60' : 'hover:border-[#cfd9ec] hover:shadow-[0_8px_22px_rgba(31,65,132,0.08)]'
+      isCompleted ? 'bg-slate-50/70' : 'hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
     )}>
-      <div className={cn('w-1 shrink-0 self-stretch', pCfg.stripe)} />
+      <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
-      <div className="flex min-w-0 flex-1 gap-4 px-4 py-4">
+      <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            {task.app_name && (
-              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#5d6fe0]">
-                {task.app_name}
-              </span>
-            )}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
             {task.kpi_type && (
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-600">
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-600">
                 {task.kpi_type}
               </span>
             )}
-            <span className="text-[10px] font-semibold text-[#9aabca]">#{task.id.slice(0, 4)}</span>
+            {task.app_name && (
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                {task.app_name}
+              </span>
+            )}
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">#{task.id.slice(0, 4)}</span>
           </div>
 
           <button
             onClick={() => onViewDetail(task)}
             className={cn(
-              'block w-full text-left text-[18px] font-bold leading-snug',
+              'block w-full text-left text-[20px] font-bold leading-tight tracking-[-0.02em]',
               isCompleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-blue-600'
             )}
           >
@@ -264,29 +266,40 @@ export function TaskCard({
           </button>
 
           {summaryText && (
-            <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-400">
+            <p className="mt-2.5 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-500">
               {summaryText}
             </p>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
-            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
+          <div className="mt-4 flex flex-wrap items-center gap-2.5">
             {task.assigned_to && (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-[#9aabca]">
-                <User size={10} className="shrink-0" />
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
+                  {task.assigned_to.charAt(0).toUpperCase()}
+                </span>
                 {task.assigned_to}
               </span>
             )}
+            {task.username && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                <User size={11} className="shrink-0" />
+                by <span className="font-semibold text-slate-600">{task.username}</span>
+              </span>
+            )}
             {task.category && (
-              <span className="rounded-full bg-[#eef3ff] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a7de8]">
+              <span className="rounded-full bg-[#eef3ff] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a7de8]">
                 {task.category}
+              </span>
+            )}
+            {task.approval_status === 'pending_approval' && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-600">
+                Waiting for Approval
               </span>
             )}
           </div>
 
           {hasActions && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="mt-4 flex flex-wrap gap-2">
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber">Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue">Start Work</ActBtn>}
               {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet">Pick Task</ActBtn>}
@@ -303,65 +316,73 @@ export function TaskCard({
           )}
 
           {maEnabled && (
-            <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-[#fafcff]">
+            <div className="mt-5 overflow-hidden rounded-[20px] border border-slate-200 bg-[linear-gradient(180deg,#f8fbff_0%,#fdfefe_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
               <button
-                className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/70"
                 onClick={() => setShowMa((v) => !v)}
               >
-                <span className="text-xs font-semibold text-slate-600">
-                  Multi-Assignment Progress · {ma.completion_percentage ?? 0}% Complete · {ma.assignees.length} Assignee{ma.assignees.length !== 1 ? 's' : ''}
-                </span>
-                {showMa ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}
+                <div className="min-w-0 flex-1 pr-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Multi Assignment</span>
+                    <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">
+                      {ma.assignees.length} Assignee{ma.assignees.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8,#2563eb)] transition-all"
+                      style={{ width: `${ma.completion_percentage ?? 0}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs font-medium text-slate-600">
+                    {ma.completion_percentage ?? 0}% complete across assigned users
+                  </p>
+                </div>
+                {showMa ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
               </button>
               {showMa && (
-                <div className="divide-y divide-slate-100 border-t border-slate-100">
+                <div className="space-y-2 border-t border-slate-200/80 px-3 pb-3 pt-2">
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
                     const status = assignee.status || 'pending'
                     const assigneeDueDate = assignee.actual_due_date || null
                     const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
                     const assigneeOverdue =
                       !!assigneeDueDate &&
-                      ['accepted', 'completed'].includes(status) === false &&
+                      !['accepted', 'completed'].includes(status) &&
                       isOverdue(assigneeDueDate)
+
                     return (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                      <div key={i} className="flex flex-col gap-3 rounded-2xl border border-white bg-white/90 px-4 py-3 shadow-sm md:flex-row md:items-center">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
                           {assignee.username.charAt(0).toUpperCase()}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{assignee.username}</span>
-                        <div className="min-w-[74px] text-right">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a2b1ca]">
-                            Due
-                          </div>
-                          <div
-                            className={cn(
-                              'text-xs font-semibold',
-                              assigneeOverdue ? 'text-red-500' : 'text-slate-700'
-                            )}
-                          >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
+                          <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
+                        </div>
+                        <div className="min-w-[94px] md:text-right">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Due</div>
+                          <div className={cn('text-xs font-semibold', assigneeOverdue ? 'text-red-500' : 'text-slate-700')}>
                             {fmtMaDue(assigneeDueDate)}
                           </div>
                           {assigneeDueTime && (
-                            <div
-                              className={cn(
-                                'text-[10px] font-medium',
-                                assigneeOverdue ? 'text-red-400' : 'text-slate-400'
-                              )}
-                            >
+                            <div className={cn('text-[11px] font-medium', assigneeOverdue ? 'text-red-400' : 'text-slate-400')}>
                               {assigneeDueTime}
                             </div>
                           )}
                         </div>
-                        <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
+                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
                           {MA_LABEL[status] ?? status}
                         </span>
-                        {isCreator && assignee.status === 'completed' && (
-                          <>
-                            <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded bg-green-600 px-2 py-0.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
-                            <button onClick={() => onDecline(task)} className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100">Reject</button>
-                          </>
-                        )}
-                        <button onClick={() => onViewDetail(task)} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
+                        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                          {isCreator && assignee.status === 'completed' && (
+                            <>
+                              <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
+                              <button onClick={() => onDecline(task)} className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100">Reject</button>
+                            </>
+                          )}
+                          <button onClick={() => onViewDetail(task)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
+                        </div>
                       </div>
                     )
                   })}
@@ -370,7 +391,7 @@ export function TaskCard({
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-400">
             <span className="flex items-center gap-1">
               <Clock size={10} className="shrink-0" />
               {fmtDate(task.created_at)}
@@ -391,26 +412,23 @@ export function TaskCard({
                 Expected: {fmtShort(task.expected_due_date || task.due_date)}
               </span>
             )}
-            {task.approval_status === 'pending_approval' && (
-              <span className="flex items-center gap-1 font-semibold text-amber-500">Waiting for Approval</span>
-            )}
           </div>
         </div>
 
-        <div className="flex min-w-[112px] shrink-0 flex-row items-stretch justify-between border-t border-[#edf1f7] pt-4 md:min-w-[170px] md:flex-col md:items-end md:justify-between md:border-l md:border-t-0 md:pl-5 md:pt-0">
+        <div className="flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between">
           <div className="text-left md:text-right">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#a2b1ca]">Expected</div>
-            <div className={cn('mt-1 text-sm font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-[#44526e]')}>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Expected</div>
+            <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-700')}>
               {task.due_date ? fmtShort(task.due_date) : 'No date'}
             </div>
             {task.due_date && (
-              <div className={cn('mt-0.5 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-[#8fa0bf]')}>
+              <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-400')}>
                 {fmtTime(task.due_date)}
               </div>
             )}
           </div>
 
-          <div className="flex flex-col items-end gap-1.5 md:mt-4">
+          <div className="flex flex-col items-end gap-2 md:mt-5">
             {task.queue_status === 'queued' && (
               <Badge label={`Queued${task.queue_department ? ` · ${task.queue_department}` : ''}`} cls="bg-sky-50 text-sky-700 border-sky-200" />
             )}
@@ -421,7 +439,7 @@ export function TaskCard({
               <Badge label="Declined" cls="bg-red-50 text-red-600 border-red-200" />
             )}
             {completionTime && (
-              <Badge label={`⏱ ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
+              <Badge label={`Time ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
             )}
             {playPkg && (
               <a
@@ -429,7 +447,7 @@ export function TaskCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-teal-700"
+                className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-teal-700"
               >
                 <ExternalLink size={10} /> Play Store
               </a>
@@ -437,7 +455,7 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-row items-center justify-end gap-1 border-t border-[#edf1f7] px-4 py-3 opacity-80 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-3 md:flex-col md:justify-center">
+        <div className="flex shrink-0 flex-row items-center justify-end gap-1.5 border-t border-slate-200/80 px-4 py-3 opacity-90 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-4 md:flex-col md:justify-center">
           {unread.length > 0 && (
             <span className="relative inline-flex h-6 w-6 items-center justify-center">
               <span className="absolute h-4 w-4 animate-ping rounded-full bg-green-400 opacity-40" />
@@ -449,24 +467,24 @@ export function TaskCard({
               <MessageCircle size={10} />{comments.length}
             </span>
           )}
-          <button onClick={() => onViewDetail(task)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-500" title="View">
+          <button onClick={() => onViewDetail(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-500" title="View">
             <Eye size={14} />
           </button>
           {isCreator && (
-            <button onClick={() => onEdit(task)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Edit">
+            <button onClick={() => onEdit(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Edit">
               <Edit3 size={13} />
             </button>
           )}
-          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Duplicate">
+          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Duplicate">
             <Copy size={13} />
           </button>
           {isCreator && !isCompleted && (
-            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Delete">
+            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Delete">
               <Trash2 size={13} />
             </button>
           )}
           {isCreator && !isCompleted && task.task_status === 'done' && (
-            <button onClick={() => doAction(() => archiveTodoAction(task.id))} className="rounded-lg p-1.5 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
+            <button onClick={() => doAction(() => archiveTodoAction(task.id))} className="rounded-xl p-2 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
               ↓
             </button>
           )}
