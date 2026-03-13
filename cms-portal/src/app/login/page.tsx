@@ -8,27 +8,28 @@ import { Eye, EyeOff } from 'lucide-react'
 
 const initialState = null
 
-function SubmitButton() {
+function SubmitButton({ keepLoading = false }: { keepLoading?: boolean }) {
   const { pending } = useFormStatus()
+  const isLoading = pending || keepLoading
   return (
     <div className="space-y-2">
       <button
         type="submit"
-        disabled={pending}
-        aria-busy={pending}
+        disabled={isLoading}
+        aria-busy={isLoading}
         className="w-full h-12 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed"
         style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
       >
-        {pending ? (
+        {isLoading ? (
           <>
             <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 12a9 9 0 11-6.219-8.56"/>
             </svg>
-            Checking account...
+            Opening portal...
           </>
         ) : 'Sign In'}
       </button>
-      {pending ? (
+      {isLoading ? (
         <p className="text-center text-sm" style={{ color: '#7C3AED' }}>
           Validating your username and password, then opening the dashboard...
         </p>
@@ -128,13 +129,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     usernameRef.current?.focus()
-  }, [])
+    router.prefetch('/dashboard')
+  }, [router])
 
   // Client-side fallback: if server action set success but redirect didn't navigate
   useEffect(() => {
     if (state && state.success) {
-      router.push('/dashboard')
-      router.refresh()
+      router.replace('/dashboard')
     }
   }, [state, router])
 
@@ -240,7 +241,7 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <SubmitButton />
+            <SubmitButton keepLoading={Boolean(state?.success)} />
           </form>
         </div>
 

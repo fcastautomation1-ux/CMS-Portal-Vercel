@@ -38,9 +38,7 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
-type QuickFilter =
-  | 'all' | 'my_pending' | 'my_all' | 'team_pending'
-  | 'my_approval_pending' | 'other_approval_pending'
+type QuickFilter = 'all' | 'my_all'
 
 type SmartList =
   | 'all' | 'today' | 'upcoming' | 'overdue' | 'thisweek' | 'thismonth'
@@ -77,7 +75,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   const refreshTimerRef = useRef<number | null>(null)
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('my_all')
   const [search, setSearch] = useState('')
   const [memberFilter, setMemberFilter] = useState('all')
   const [smartList, setSmartList] = useState<SmartList>('all')
@@ -156,9 +154,8 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     // Other roles: scope to their own tasks (quickFilter='my_all')
     const scopeAll = isAdminOrSM
     if (key === 'total') {
-      setQuickFilter('all')
+      setQuickFilter(isAdminOrSM ? 'all' : 'my_all')
     } else if (key === 'assigned') {
-      // "Assigned To Me" always scopes to current user regardless of role
       setQuickFilter('my_all')
     } else if (key === 'completed') {
       setQuickFilter(scopeAll ? 'all' : 'my_all')
@@ -318,65 +315,18 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     let list = [...tasks]
     const userLower = effectiveUser.toLowerCase()
 
-    if (quickFilter === 'my_pending') {
-      list = list.filter((t) => {
-        if (t.completed || t.archived) return false
-        if ((t.assigned_to || '').toLowerCase() === userLower) return true
-        if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          const top = ma.assignees.find((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)
-          if (top && top.status !== 'accepted' && top.status !== 'completed') return true
-          for (const assignee of ma.assignees) {
-            if (Array.isArray(assignee.delegated_to)) {
-              const sub = assignee.delegated_to.find((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower)
-              if (sub && sub.status !== 'accepted' && sub.status !== 'completed') return true
-            }
-          }
-        }
-        return isQueuedTaskForDepartmentUser(t, effectiveUser)
-      })
-    } else if (quickFilter === 'my_all') {
+    if (quickFilter === 'my_all') {
       list = list.filter((t) => {
         if (t.archived) return false
         if ((t.assigned_to || '').toLowerCase() === userLower) return true
         if ((t.completed_by || '').toLowerCase() === userLower) return true
-        if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
+        if (t.username.toLowerCase() === userLower) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
           if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
           if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
         }
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
-      })
-    } else if (quickFilter === 'team_pending') {
-      list = list.filter((t) => {
-        if (t.completed || t.archived) return false
-        if (t.username.toLowerCase() !== userLower) return false
-        if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          return ma.assignees.some((a: MultiAssignmentEntry) =>
-            (a.username || '').toLowerCase() !== userLower ||
-            (Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() !== userLower))
-          )
-        }
-        return false
-      })
-    } else if (quickFilter === 'my_approval_pending') {
-      list = list.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower)
-    } else if (quickFilter === 'other_approval_pending') {
-      list = list.filter((t) => {
-        if (t.archived || t.approval_status !== 'pending_approval') return false
-        if (t.username.toLowerCase() === userLower) return false
-        if ((t.completed_by || '').toLowerCase() === userLower) return true
-        if ((t.assigned_to || '').toLowerCase() === userLower) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
-          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
-        }
-        return false
       })
     }
 
@@ -614,12 +564,8 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
                   }}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
-                  <option value="all">All Tasks {stats.total}</option>
-                  <option value="my_pending">My Pending</option>
                   <option value="my_all">My Tasks</option>
-                  <option value="team_pending">Assigned By Me</option>
-                  <option value="my_approval_pending">Need My Approval</option>
-                  <option value="other_approval_pending">Others&apos; Approval</option>
+                  <option value="all">All Tasks {stats.total}</option>
                 </select>
 
                 {isAdminOrSM && (

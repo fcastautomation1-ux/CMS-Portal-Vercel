@@ -37,7 +37,7 @@ export async function loginAction(
   // Case-insensitive username lookup (ilike) — handles Admin vs admin etc.
   const { data: users, error } = await supabase
     .from('users')
-    .select('*')
+    .select('username, role, department, email, avatar_data, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, module_access, team_members, manager_id, drive_access_level, theme_preference, password, password_hash, password_salt')
     .ilike('username', username)
     .limit(1)
 
@@ -83,7 +83,7 @@ export async function loginAction(
     role: user.role as UserRole,
     department: user.department ?? null,
     email: user.email,
-    avatarData: null, // never store base64 images in cookie — fetched fresh from DB in dashboard layout
+    avatarData: user.avatar_data ?? null,
     allowedAccounts: parseCSV(user.allowed_accounts),
     allowedCampaigns: parseCSV(user.allowed_campaigns),
     allowedDriveFolders: parseCSV(user.allowed_drive_folders),
