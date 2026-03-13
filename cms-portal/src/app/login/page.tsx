@@ -15,6 +15,7 @@ function SubmitButton() {
       <button
         type="submit"
         disabled={pending}
+        aria-busy={pending}
         className="w-full h-12 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed"
         style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
       >
@@ -23,13 +24,13 @@ function SubmitButton() {
             <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 12a9 9 0 11-6.219-8.56"/>
             </svg>
-            Signing in...
+            Checking account...
           </>
         ) : 'Sign In'}
       </button>
       {pending ? (
         <p className="text-center text-sm" style={{ color: '#7C3AED' }}>
-          Please wait, logging you in...
+          Validating your username and password, then opening the dashboard...
         </p>
       ) : null}
     </div>

@@ -281,6 +281,7 @@ export interface TodoShare {
   shared_with: string
   can_edit: boolean
   created_at: string
+  avatar_data?: string | null
 }
 
 export interface TodoAttachment {
@@ -300,6 +301,7 @@ export interface TodoDetails extends Todo {
   attachments: TodoAttachment[]
   current_user_can_edit: boolean
   current_user_share_can_edit: boolean
+  participant_avatars?: Record<string, string | null>
 }
 
 export interface TodoStats {

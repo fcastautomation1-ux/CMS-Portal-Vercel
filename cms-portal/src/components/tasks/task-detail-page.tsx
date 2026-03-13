@@ -37,6 +37,7 @@ import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
+import { UserAvatar } from '@/components/ui/user-avatar'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import { CreateTaskModal } from './create-task-modal'
 import {
@@ -105,12 +106,12 @@ function nextStepLabel(task: TodoDetails): string | null {
 }
 
 function getTaskParticipants(task: TodoDetails) {
-  const seen = new Map<string, { username: string; role: string }>()
+  const seen = new Map<string, { username: string; role: string; avatarUrl: string | null }>()
 
   const addParticipant = (username: string | null | undefined, role: string) => {
     const value = (username ?? '').trim()
     if (!value || seen.has(value)) return
-    seen.set(value, { username: value, role })
+    seen.set(value, { username: value, role, avatarUrl: task.participant_avatars?.[value] ?? null })
   }
 
   addParticipant(task.username, 'Creator')
@@ -192,18 +193,6 @@ function renderCommentWithMentions(details: string) {
     return <span key={`${part}-${index}`}>{part}</span>
   })
 }
-
-function getUserInitials(username: string) {
-  const parts = username
-    .split(/[._\s-]+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  if (parts.length === 0) return username.charAt(0).toUpperCase()
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
-}
-
 function getActiveMentionQuery(value: string, caretIndex: number) {
   const uptoCaret = value.slice(0, caretIndex)
   const match = uptoCaret.match(/(^|\s)@([a-zA-Z0-9._-]*)$/)
@@ -227,7 +216,7 @@ export function TaskDetailPage({
   const [activeTab, setActiveTab] = useState<TabId>('info')
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
-  const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
+  const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -829,9 +818,9 @@ export function TaskDetailPage({
                       title={`${participant.username} (${participant.role})`}
                       aria-label={`${participant.username} (${participant.role})`}
                       onClick={() => insertMention(participant.username)}
-                      className="group flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-sm font-bold text-slate-700 transition-colors hover:border-orange-200 hover:bg-orange-50"
+                      className="group flex rounded-full border border-slate-200 bg-slate-50 p-0.5 transition-colors hover:border-orange-200 hover:bg-orange-50"
                     >
-                      <span>{getUserInitials(participant.username)}</span>
+                      <UserAvatar username={participant.username} avatarUrl={participant.avatarUrl} size="lg" />
                     </button>
                   ))}
                 </div>
@@ -851,9 +840,7 @@ export function TaskDetailPage({
                     return (
                       <div key={`${entry.timestamp}-${index}`} className={cn('flex gap-3', isMe && 'justify-end')}>
                         {!isMe && (
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-300 text-sm font-bold text-white">
-                            {entry.user.charAt(0).toUpperCase()}
-                          </div>
+                          <UserAvatar username={entry.user} avatarUrl={t.participant_avatars?.[entry.user] ?? null} />
                         )}
                         <div className={cn('max-w-[85%]', isMe && 'items-end')}>
                           {entry.mention_users && entry.mention_users.length > 0 && (
@@ -869,9 +856,7 @@ export function TaskDetailPage({
                           </div>
                         </div>
                         {isMe && (
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-                            {entry.user.charAt(0).toUpperCase()}
-                          </div>
+                          <UserAvatar username={entry.user} avatarUrl={t.participant_avatars?.[entry.user] ?? null} className="bg-blue-100 text-blue-700" />
                         )}
                       </div>
                     )
@@ -908,9 +893,7 @@ export function TaskDetailPage({
                             index === mentionIndex ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:bg-white'
                           )}
                         >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-700">
-                            {getUserInitials(participant.username)}
-                          </span>
+                          <UserAvatar username={participant.username} avatarUrl={participant.avatarUrl} className="bg-white" />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold">@{participant.username}</span>
                             <span className="block text-[11px] uppercase tracking-[0.14em] text-slate-400">{participant.role}</span>

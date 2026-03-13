@@ -1,5 +1,69 @@
 const TAG_RE = /<\/?[a-z][\s\S]*>/i
 
+function splitTableRow(line: string) {
+  const trimmed = line.trim()
+  const normalized = trimmed.startsWith('|') && trimmed.endsWith('|')
+    ? trimmed.slice(1, -1)
+    : trimmed
+  return normalized.split('|').map((cell) => cell.trim())
+}
+
+function isMarkdownSeparatorRow(line: string) {
+  const cells = splitTableRow(line)
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
+function looksLikeDelimitedTable(lines: string[]) {
+  if (lines.length < 2) return false
+  const candidateLines = lines.filter((line) => line.trim())
+  if (candidateLines.length < 2) return false
+
+  const pipeRows = candidateLines.filter((line) => line.includes('|'))
+  if (pipeRows.length >= 2) return true
+
+  const tabRows = candidateLines.filter((line) => line.includes('\t'))
+  if (tabRows.length >= 2) return true
+
+  const commaRows = candidateLines.filter((line) => line.split(',').length > 1)
+  return commaRows.length >= 2
+}
+
+function parseDelimitedRows(lines: string[]) {
+  const nonEmpty = lines.filter((line) => line.trim())
+  if (!nonEmpty.length) return []
+
+  if (nonEmpty.some((line) => line.includes('|'))) {
+    const rows = nonEmpty.map(splitTableRow)
+    if (rows.length >= 2 && isMarkdownSeparatorRow(nonEmpty[1])) {
+      return [rows[0], ...rows.slice(2)]
+    }
+    return rows
+  }
+
+  if (nonEmpty.some((line) => line.includes('\t'))) {
+    return nonEmpty.map((line) => line.split('\t').map((cell) => cell.trim()))
+  }
+
+  return nonEmpty.map((line) => line.split(',').map((cell) => cell.trim()))
+}
+
+function buildTableHtml(rows: string[][]) {
+  if (!rows.length) return ''
+  const columnCount = Math.max(...rows.map((row) => row.length))
+  const renderRow = (cells: string[], tag: 'th' | 'td') =>
+    Array.from({ length: columnCount }, (_, index) => `<${tag}>${escapeHtml(cells[index] ?? '')}</${tag}>`).join('')
+
+  const header = rows[0]
+  const body = rows.length > 1 ? rows.slice(1) : [Array.from({ length: columnCount }, () => '')]
+
+  return [
+    '<table><tbody>',
+    `<tr>${renderRow(header, 'th')}</tr>`,
+    ...body.map((row) => `<tr>${renderRow(row, 'td')}</tr>`),
+    '</tbody></table>',
+  ].join('')
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -24,10 +88,13 @@ export function normalizeTaskDescription(value: string | null | undefined): stri
   if (!value?.trim()) return ''
 
   if (!TAG_RE.test(value)) {
-    return value
-      .split(/\r?\n/)
-      .map((line) => `<p>${escapeHtml(line) || '<br />'}</p>`)
-      .join('')
+    const lines = value.split(/\r?\n/)
+    if (looksLikeDelimitedTable(lines)) {
+      const tableHtml = buildTableHtml(parseDelimitedRows(lines))
+      if (tableHtml) return tableHtml
+    }
+
+    return lines.map((line) => `<p>${escapeHtml(line) || '<br />'}</p>`).join('')
   }
 
   return sanitizeTaskDescriptionHtml(value)

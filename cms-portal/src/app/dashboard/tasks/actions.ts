@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { isPastPakistanDate } from '@/lib/pakistan-time'
-import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 import type {
   Todo,
   TodoAttachment,
@@ -316,19 +316,26 @@ export async function getPackagesForTaskForm(): Promise<Array<{ id: string; name
 
 // ── Get users for assignment dropdown ────────────────────────────────────────
 
-export async function getUsersForAssignment(): Promise<Array<{ username: string; role: string; department: string | null }>> {
+export async function getUsersForAssignment(): Promise<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>> {
   const user = await getSession()
   if (!user) return []
   const supabase = createServerClient()
   const { data } = await supabase
     .from('users')
-    .select('username,role,department')
+    .select('username,role,department,avatar_data')
     .order('username')
-  return (data || []).filter((u: Record<string, unknown>) => u.username !== user.username) as Array<{
+  const rows = (data || []).filter((u: Record<string, unknown>) => u.username !== user.username) as Array<{
     username: string
     role: string
     department: string | null
+    avatar_data: string | null
   }>
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+    }))
+  )
 }
 
 // ── Get departments ───────────────────────────────────────────────────────────
@@ -1247,16 +1254,26 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
     supabase.from('todos').select('*').eq('id', todoId).single(),
     supabase.from('todo_shares').select('*').eq('todo_id', todoId),
     supabase.from('todo_attachments').select('*').eq('todo_id', todoId).order('created_at', { ascending: false }),
-    supabase.from('users').select('username,department'),
+    supabase.from('users').select('username,department,avatar_data'),
   ])
 
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
   const userDeptMap: Record<string, string> = {}
-  ;(usersRes.data || []).forEach((row: Record<string, unknown>) => {
-    if (!row.username || !row.department) return
-    userDeptMap[String(row.username).toLowerCase()] = String(row.department)
+  const participantAvatars: Record<string, string | null> = {}
+  const resolvedUsers = await Promise.all(
+    ((usersRes.data || []) as Array<{ username: string; department: string | null; avatar_data: string | null }>).map(async (row) => ({
+      ...row,
+      avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+    }))
+  )
+  resolvedUsers.forEach((row) => {
+    if (!row.username) return
+    if (row.department) {
+      userDeptMap[String(row.username).toLowerCase()] = String(row.department)
+    }
+    participantAvatars[String(row.username)] = row.avatar_data ?? null
   })
   task.creator_department = userDeptMap[(task.username || '').toLowerCase()] || null
   task.assignee_department = userDeptMap[(task.assigned_to || '').toLowerCase()] || null
@@ -1290,12 +1307,16 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
 
   return {
     ...task,
-    shares: (sharesRes.data || []) as import('@/types').TodoShare[],
+    shares: ((sharesRes.data || []) as import('@/types').TodoShare[]).map((share) => ({
+      ...share,
+      avatar_data: participantAvatars[share.shared_with] ?? null,
+    })),
     attachments,
     current_user_can_edit: canEdit,
     current_user_share_can_edit: !!(
       (sharesRes.data || []).find((s: Record<string, unknown>) => s.shared_with === user.username) as Record<string, unknown> | undefined
     )?.can_edit,
+    participant_avatars: participantAvatars,
   }
 }
 

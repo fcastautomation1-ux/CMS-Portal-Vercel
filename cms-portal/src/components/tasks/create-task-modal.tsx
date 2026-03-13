@@ -46,6 +46,7 @@ interface User {
   username: string
   role: string
   department: string | null
+  avatar_data: string | null
 }
 
 type TaskRouting = 'self' | 'department' | 'manager' | 'multi'
@@ -141,6 +142,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     label: '',
     progress: 0,
   })
+  const [sheetImportPending, setSheetImportPending] = useState(false)
   const [error, setError] = useState('')
   const minDueDate = pakistanNowInputValue()
 
@@ -480,6 +482,14 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     updateImportProgress(`Uploading ${file.name}`, 5)
 
     try {
+      const lowerName = file.name.toLowerCase()
+      if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.json')) {
+        const text = await file.text()
+        insertDescriptionHtml(normalizeTaskDescription(text))
+        finishImportProgress(`${file.name} imported`)
+        return
+      }
+
       const buffer = await readFileAsArrayBuffer(file, (progress) =>
         updateImportProgress(`Uploading ${file.name}`, progress)
       )
@@ -517,6 +527,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     }
 
     setError('')
+    setSheetImportPending(true)
     let progress = 12
     updateImportProgress('Fetching Google Sheet', progress)
     const timer = window.setInterval(() => {
@@ -551,6 +562,8 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       window.clearInterval(timer)
       setDescriptionImport({ active: false, label: '', progress: 0 })
       setError(importError instanceof Error ? importError.message : 'Unable to import the Google Sheet.')
+    } finally {
+      setSheetImportPending(false)
     }
   }
 
@@ -817,14 +830,15 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                       <button
                         type="button"
                         onClick={handleGoogleSheetImport}
+                        disabled={sheetImportPending}
                         className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
                       >
-                        <FileSpreadsheet size={14} />
-                        Import Sheet
+                        {sheetImportPending ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+                        {sheetImportPending ? 'Importing...' : 'Import Sheet'}
                       </button>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      Supports bullet lists, manual tables, Excel, CSV, and public Google Sheets.
+                      Supports bullet lists, manual tables, Excel, CSV, pasted table text, and public Google Sheets.
                     </p>
 
                     {descriptionImport.active && (
@@ -862,7 +876,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                   <input
                     ref={importFileInputRef}
                     type="file"
-                    accept=".csv,.xlsx,.xls"
+                    accept=".csv,.xlsx,.xls,.txt,.md,.json"
                     onChange={handleImportFileChange}
                     className="hidden"
                   />
@@ -1125,6 +1139,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                     ref={fileInputRef}
                     type="file"
                     multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp"
                     onChange={onAttachmentChange}
                     className="hidden"
                   />
