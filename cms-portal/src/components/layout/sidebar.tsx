@@ -172,22 +172,30 @@ export function Sidebar({
 
   const taskScopeCounts = useMemo(() => {
     const userLower = user.username.toLowerCase()
+    const isAssignedToUser = (task: typeof sidebarTasks[number]) => {
+      if ((task.assigned_to || '').toLowerCase() === userLower) return true
+      const assignees = task.multi_assignment?.assignees ?? []
+      return assignees.some((a) =>
+        (a.username || '').toLowerCase() === userLower ||
+        (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
+      )
+    }
+
     const myTasks = sidebarTasks.filter((t) => {
       if (t.archived) return false
-      if ((t.assigned_to || '').toLowerCase() === userLower) return true
+      if (isAssignedToUser(t)) return true
       if ((t.completed_by || '').toLowerCase() === userLower) return true
       if (t.username.toLowerCase() === userLower) return true
-      const ma = t.multi_assignment
-      if (ma?.enabled && Array.isArray(ma.assignees)) {
-        return ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)
-          || ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
-      }
       return Boolean(t.is_department_queue)
     }).length
 
+    const createdByMe = sidebarTasks.filter((t) => !t.archived && t.username.toLowerCase() === userLower).length
+
+    const assignedToMe = sidebarTasks.filter((t) => !t.archived && isAssignedToUser(t)).length
+
     const myPending = sidebarTasks.filter((t) => {
       if (t.completed || t.archived) return false
-      if ((t.assigned_to || '').toLowerCase() === userLower) return true
+      if (isAssignedToUser(t)) return true
       if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
       const ma = t.multi_assignment
       if (ma?.enabled && Array.isArray(ma.assignees)) {
@@ -219,8 +227,9 @@ export function Sidebar({
     }).length
 
     return {
-      all: sidebarTasks.length,
       my_all: myTasks,
+      created_by_me: createdByMe,
+      assigned_to_me: assignedToMe,
       my_pending: myPending,
       assigned_by_me: assignedByMe,
       my_approval: myApproval,
@@ -261,9 +270,10 @@ export function Sidebar({
   const activeTaskScope = searchParams.get('scope') ?? 'my_all'
   const taskLinks = [
     { label: 'My Tasks', scope: 'my_all', count: taskScopeCounts.my_all },
-    { label: 'All Tasks', scope: 'all', count: taskScopeCounts.all },
+    { label: 'Created By Me', scope: 'created_by_me', count: taskScopeCounts.created_by_me },
+    { label: 'Assigned To Me', scope: 'assigned_to_me', count: taskScopeCounts.assigned_to_me },
     { label: 'My Pending', scope: 'my_pending', count: taskScopeCounts.my_pending },
-    { label: 'Assign By Me', scope: 'assigned_by_me', count: taskScopeCounts.assigned_by_me },
+    { label: 'Assigned By Me', scope: 'assigned_by_me', count: taskScopeCounts.assigned_by_me },
     { label: 'My Approval', scope: 'my_approval', count: taskScopeCounts.my_approval },
     { label: 'Other Approval', scope: 'other_approval', count: taskScopeCounts.other_approval },
   ] as const

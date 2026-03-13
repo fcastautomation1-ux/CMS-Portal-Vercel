@@ -39,19 +39,10 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
-type QuickFilter = 'all' | 'my_all' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
-
-type SmartList =
-  | 'all' | 'today' | 'upcoming' | 'overdue' | 'thisweek' | 'thismonth'
+type QuickFilter = 'my_all' | 'created_by_me' | 'assigned_to_me' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
 
 type StatusFilter =
-  | 'all' | 'pending' | 'queue' | 'inprogress' | 'completed' | 'overdue' | 'archived'
-
-type DateFilter =
-  | 'all' | 'today' | 'yesterday' | 'last7days' | 'last30days'
-  | 'thisweek' | 'lastweek' | 'thismonth' | 'lastmonth' | 'thisyear'
-
-type MessageFilter = 'all' | 'unread' | 'read'
+  | 'all' | 'pending' | 'completed' | 'overdue'
 
 const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'backlog', label: 'Backlog', dot: 'bg-slate-400' },
@@ -69,7 +60,7 @@ interface TasksBoardProps {
   initialScope?: QuickFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialScope = 'my_all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialScope = 'my_all' }: TasksBoardProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
@@ -79,15 +70,9 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>(initialScope)
   const [search, setSearch] = useState('')
-  const [memberFilter, setMemberFilter] = useState('all')
-  const [smartList, setSmartList] = useState<SmartList>('all')
   const [sortBy, setSortBy] = useState<'position' | 'due_date' | 'priority' | 'created_at' | 'title'>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all')
-  const [deptFilter, setDeptFilter] = useState('')
-  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
-  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all')
 
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -107,141 +92,53 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   })
 
   const tasks = tasksQuery.data ?? initialTasks
-  const stats = useMemo(() => computeTodoStatsFromTodos(tasks), [tasks])
+  const effectiveUser = currentUsername
 
-  // Role flags — mirror old portal role checks (must be before any useMemo that depends on them)
-  const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
-  const isManagerRole = isAdminOrSM || currentUserRole === 'Manager' || currentUserRole === 'Supervisor'
+  const isTaskAssignedToUser = useCallback((task: Todo, username: string) => {
+    const userLower = username.toLowerCase()
+    if ((task.assigned_to || '').toLowerCase() === userLower) return true
+    const assignees = task.multi_assignment?.assignees ?? []
+    return assignees.some((a: MultiAssignmentEntry) =>
+      (a.username || '').toLowerCase() === userLower ||
+      (Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))
+    )
+  }, [])
 
   const extStats = useMemo(() => ({
-    // "Assigned To Me" always scopes to current user
+    createdByMe: tasks.filter((t: Todo) => !t.archived && t.username.toLowerCase() === currentUsername.toLowerCase()).length,
     assignedToMe: tasks.filter((t: Todo) =>
-      t.assigned_to === currentUsername ||
-      t.multi_assignment?.assignees?.some((a: MultiAssignmentEntry) => a.username === currentUsername)
+      !t.archived && isTaskAssignedToUser(t, currentUsername)
     ).length,
-    // "In Progress": Admin/SM see portal-wide count; others see their own scope
-    inProgress: isAdminOrSM
-      ? tasks.filter((t: Todo) => t.task_status === 'in_progress').length
-      : tasks.filter((t: Todo) =>
-          t.task_status === 'in_progress' && (
-            t.username === currentUsername ||
-            t.assigned_to === currentUsername ||
-            t.multi_assignment?.assignees?.some((a: MultiAssignmentEntry) => a.username === currentUsername)
-          )
-        ).length,
-  }), [tasks, currentUsername, isAdminOrSM])
+  }), [tasks, currentUsername, isTaskAssignedToUser])
 
   // ── Active KPI (computed from filter state — syncs all filters) ──────────────
   const activeKpi = useMemo(() => {
-    if (quickFilter === 'all' && statusFilter === 'all' && smartList === 'all') return 'total'
-    if (quickFilter === 'my_all' && statusFilter === 'all' && smartList === 'all') return 'assigned'
+    if (quickFilter === 'my_all' && statusFilter === 'all') return 'total'
+    if (quickFilter === 'created_by_me' && statusFilter === 'all') return 'created'
+    if (quickFilter === 'assigned_to_me' && statusFilter === 'all') return 'assigned'
     if (statusFilter === 'completed') return 'completed'
     if (statusFilter === 'pending') return 'pending'
-    if (statusFilter === 'inprogress') return 'inprogress'
     if (statusFilter === 'overdue') return 'overdue'
     return ''
-  }, [quickFilter, statusFilter, smartList])
+  }, [quickFilter, statusFilter])
 
   const applyKpiFilter = useCallback((key: string) => {
-    // Reset all subsidiary filters
-    setSmartList('all')
     setStatusFilter('all')
-    setPriorityFilter('all')
-    setDateFilter('all')
-    setMessageFilter('all')
     setSearch('')
-    setDeptFilter('')
-    setMemberFilter('all')
-    // Admin/SM: KPI status cards show ALL tasks (quickFilter='all')
-    // Other roles: scope to their own tasks (quickFilter='my_all')
-    const scopeAll = isAdminOrSM
     if (key === 'total') {
-      setQuickFilter(isAdminOrSM ? 'all' : 'my_all')
-    } else if (key === 'assigned') {
       setQuickFilter('my_all')
+    } else if (key === 'created') {
+      setQuickFilter('created_by_me')
+    } else if (key === 'assigned') {
+      setQuickFilter('assigned_to_me')
     } else if (key === 'completed') {
-      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('completed')
     } else if (key === 'pending') {
-      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('pending')
-    } else if (key === 'inprogress') {
-      setQuickFilter(scopeAll ? 'all' : 'my_all')
-      setStatusFilter('inprogress')
     } else if (key === 'overdue') {
-      setQuickFilter(scopeAll ? 'all' : 'my_all')
       setStatusFilter('overdue')
     }
-  }, [isAdminOrSM])
-
-  const departments = useMemo(() => {
-    const depts = new Set<string>()
-    tasks.forEach((t: Todo) => {
-      // Split comma-separated dept values (users can belong to multiple depts)
-      const addDept = (d: string | null | undefined) => {
-        if (!d) return
-        d.split(',').map(s => s.trim()).filter(Boolean).forEach(s => depts.add(s))
-      }
-      addDept(t.creator_department)
-      addDept(t.assignee_department)
-      addDept(t.queue_department)
-    })
-    return Array.from(depts).sort()
-  }, [tasks])
-
-  // Map: username.lower → raw dept string (may be comma-separated) — used for dept→member cascade
-  const memberDeptMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    tasks.forEach((t: Todo) => {
-      if (t.username && t.creator_department && !map[t.username.toLowerCase()]) {
-        map[t.username.toLowerCase()] = t.creator_department
-      }
-      if (t.assigned_to && t.assignee_department && !map[t.assigned_to.toLowerCase()]) {
-        map[t.assigned_to.toLowerCase()] = t.assignee_department
-      }
-    })
-    return map
-  }, [tasks])
-
-  // Full member pool, role-filtered to match old portal
-  const visibleMembers = useMemo(() => {
-    const members = new Set<string>()
-    if (isAdminOrSM) {
-      // Admin / Super Manager: all unique usernames found in tasks
-      tasks.forEach((task: Todo) => {
-        if (task.username) members.add(task.username)
-        if (task.assigned_to) members.add(task.assigned_to)
-        task.multi_assignment?.assignees?.forEach((assignee: MultiAssignmentEntry) => {
-          if (assignee.username) members.add(assignee.username)
-        })
-      })
-    } else if (isManagerRole) {
-      // Manager / Supervisor: explicit team members from session + anyone assigned by this manager
-      currentUserTeamMembers.forEach(m => { if (m) members.add(m) })
-      tasks.forEach((task: Todo) => {
-        if (task.username.toLowerCase() === currentUsername.toLowerCase() && task.assigned_to) {
-          members.add(task.assigned_to)
-        }
-      })
-    }
-    // Remove self
-    members.delete(currentUsername)
-    return Array.from(members).sort((a: string, b: string) => a.localeCompare(b))
-  }, [tasks, currentUsername, isAdminOrSM, isManagerRole, currentUserTeamMembers])
-
-  // Members filtered by selected dept — used in the dropdown
-  const filteredMembers = useMemo(() => {
-    if (!deptFilter) return visibleMembers
-    return visibleMembers.filter(m => {
-      const deptStr = memberDeptMap[m.toLowerCase()] || ''
-      if (!deptStr) return false
-      return deptStr.split(',').map((d: string) => d.trim()).some(
-        (d: string) => d.toLowerCase() === deptFilter.toLowerCase()
-      )
-    })
-  }, [visibleMembers, deptFilter, memberDeptMap])
-
-  const effectiveUser = memberFilter !== 'all' ? memberFilter : currentUsername
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -276,51 +173,65 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   }, [currentUsername, refresh])
 
   const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
+    if (username.toLowerCase() != currentUsername.toLowerCase()) return false
     if (task.queue_status !== 'queued') return false
-    // Only truly unassigned/queued tasks (empty or null assigned_to)
     if (task.assigned_to && task.assigned_to.trim() !== '') return false
-    const uLower = username.toLowerCase()
-    // Use currentUserDept directly for self, memberDeptMap for any other user
-    const rawDept: string | null = uLower === currentUsername.toLowerCase()
-      ? (currentUserDept ?? null)
-      : (memberDeptMap[uLower] ?? null)
+    const rawDept = currentUserDept ?? null
     if (!rawDept) return false
     const queueDeptLower = (task.queue_department || '').toLowerCase().trim()
     if (!queueDeptLower) return false
-    // Support comma-separated departments (user may belong to multiple)
     return rawDept.split(',').map((d: string) => d.trim().toLowerCase()).some((d: string) => d && d === queueDeptLower)
-  }, [currentUserDept, currentUsername, memberDeptMap])
+  }, [currentUserDept, currentUsername])
 
-  const getMessageState = useCallback((task: Todo, username: string) => {
-    const comments = task.history.filter((h) => h.type === 'comment')
-    if (!comments.length) return 'none'
-    const hasUnread = comments.some((h) => Array.isArray(h.unread_by) && h.unread_by.includes(username))
-    return hasUnread ? 'unread' : 'read'
-  }, [])
+  const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
+    const userLower = username.toLowerCase()
+    if (task.archived) return false
+    if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
+    if (scope === 'assigned_to_me') return isTaskAssignedToUser(task, username)
+    return (
+      task.username.toLowerCase() === userLower ||
+      (task.completed_by || '').toLowerCase() === userLower ||
+      isTaskAssignedToUser(task, username) ||
+      isQueuedTaskForDepartmentUser(task, username)
+    )
+  }, [isQueuedTaskForDepartmentUser, isTaskAssignedToUser])
+
+  const scopedTasksForKpis = useMemo(
+    () => tasks.filter((task) => matchesPersonalScope(task, quickFilter, effectiveUser)),
+    [tasks, matchesPersonalScope, quickFilter, effectiveUser]
+  )
+
+  const stats = useMemo(() => computeTodoStatsFromTodos(scopedTasksForKpis), [scopedTasksForKpis])
+
+  const scopeLabel = useMemo(() => {
+    if (quickFilter === 'created_by_me') return 'Task Created By Me'
+    if (quickFilter === 'assigned_to_me') return 'Assigned To Me'
+    return 'My Tasks'
+  }, [quickFilter])
+
+  const scopeStatusCounts = useMemo(() => {
+    const now = new Date()
+    return {
+      all: scopedTasksForKpis.length,
+      completed: scopedTasksForKpis.filter((task) => task.completed || task.task_status === 'done').length,
+      pending: scopedTasksForKpis.filter((task) => !task.completed && task.task_status !== 'done' && !(task.due_date && new Date(task.due_date) < now)).length,
+      overdue: scopedTasksForKpis.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length,
+    }
+  }, [scopedTasksForKpis])
 
   const filteredTasks = useMemo(() => {
     const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const weekStart = new Date(today)
-    weekStart.setDate(today.getDate() - today.getDay())
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekStart.getDate() + 6)
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    const lastWeekStart = new Date(weekStart)
-    lastWeekStart.setDate(weekStart.getDate() - 7)
-    const lastWeekEnd = new Date(weekStart)
-    lastWeekEnd.setDate(weekStart.getDate() - 1)
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
-    const yearStart = new Date(now.getFullYear(), 0, 1)
     let list = [...tasks]
     const userLower = effectiveUser.toLowerCase()
 
-    if (quickFilter === 'my_pending') {
+    if (quickFilter === 'created_by_me') {
+      list = list.filter((t) => !t.archived && t.username.toLowerCase() === userLower)
+    } else if (quickFilter === 'assigned_to_me') {
+      list = list.filter((t) => !t.archived && isTaskAssignedToUser(t, effectiveUser))
+    } else if (quickFilter === 'my_pending') {
       list = list.filter((t) => {
         if (t.completed || t.archived) return false
-        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        if (isTaskAssignedToUser(t, effectiveUser)) return true
         if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
         const ma = t.multi_assignment
         if (ma?.enabled && Array.isArray(ma.assignees)) {
@@ -338,14 +249,9 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     } else if (quickFilter === 'my_all') {
       list = list.filter((t) => {
         if (t.archived) return false
-        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        if (isTaskAssignedToUser(t, effectiveUser)) return true
         if ((t.completed_by || '').toLowerCase() === userLower) return true
         if (t.username.toLowerCase() === userLower) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
-          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
-        }
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
     } else if (quickFilter === 'assigned_by_me') {
@@ -390,82 +296,13 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       )
     }
 
-    if (smartList !== 'all') {
-      list = list.filter((t) => {
-        const due = t.due_date ? new Date(t.due_date) : null
-        if (!due) return false
-        if (smartList === 'today') return due.toDateString() === today.toDateString()
-        if (smartList === 'upcoming') return due >= today && !t.completed
-        if (smartList === 'overdue') return !t.completed && due < today
-        if (smartList === 'thisweek') return due >= weekStart && due <= weekEnd
-        if (smartList === 'thismonth') return due >= monthStart && due <= monthEnd
-        return true
-      })
-    }
-
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'queue') {
-          // Admin/SM: see ALL queued tasks (unassigned, any dept) — deptFilter narrows further if set
-          if (isAdminOrSM) return t.queue_status === 'queued' && (!t.assigned_to || t.assigned_to.trim() === '')
-          // Others: only queued tasks for their own department
-          return isQueuedTaskForDepartmentUser(t, effectiveUser)
-        }
-        const queuedForUser = isQueuedTaskForDepartmentUser(t, effectiveUser)
-        if (statusFilter === 'pending') return ((!t.completed && t.task_status !== 'in_progress') || queuedForUser) && !t.archived
-        if (statusFilter === 'inprogress') return !t.completed && t.task_status === 'in_progress'
+        if (statusFilter === 'pending') return !t.completed && t.task_status !== 'done' && !(t.due_date && new Date(t.due_date) < now) && !t.archived
         if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
         if (statusFilter === 'overdue') return !t.completed && !!t.due_date && new Date(t.due_date) < now
-        if (statusFilter === 'archived') return !!t.archived
         return true
       })
-    }
-    if (priorityFilter !== 'all') list = list.filter((t) => t.priority === priorityFilter)
-    if (deptFilter) {
-      // Comma-split matching: a user may belong to multiple depts stored as "Dept A,Dept B"
-      const deptLow = deptFilter.toLowerCase()
-      const inDept = (d: string | null | undefined) =>
-        d ? d.split(',').map((s: string) => s.trim().toLowerCase()).includes(deptLow) : false
-      list = list.filter((t) =>
-        inDept(t.creator_department) || inDept(t.assignee_department) || inDept(t.queue_department)
-      )
-    }
-    if (memberFilter !== 'all') {
-      list = list.filter((t) => {
-        const target = memberFilter.toLowerCase()
-        if (t.username.toLowerCase() === target) return true
-        if ((t.assigned_to || '').toLowerCase() === target) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === target)) return true
-          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === target))) return true
-        }
-        return false
-      })
-    }
-    if (dateFilter !== 'all') {
-      list = list.filter((t) => {
-        const created = new Date(t.created_at)
-        const yesterday = new Date(today)
-        yesterday.setDate(today.getDate() - 1)
-        const last7 = new Date(today)
-        last7.setDate(today.getDate() - 7)
-        const last30 = new Date(today)
-        last30.setDate(today.getDate() - 30)
-        if (dateFilter === 'today') return created.toDateString() === today.toDateString()
-        if (dateFilter === 'yesterday') return created.toDateString() === yesterday.toDateString()
-        if (dateFilter === 'last7days') return created >= last7
-        if (dateFilter === 'last30days') return created >= last30
-        if (dateFilter === 'thisweek') return created >= weekStart && created <= weekEnd
-        if (dateFilter === 'lastweek') return created >= lastWeekStart && created <= lastWeekEnd
-        if (dateFilter === 'thismonth') return created >= monthStart && created <= monthEnd
-        if (dateFilter === 'lastmonth') return created >= lastMonthStart && created <= lastMonthEnd
-        if (dateFilter === 'thisyear') return created >= yearStart
-        return true
-      })
-    }
-    if (messageFilter !== 'all') {
-      list = list.filter((t) => getMessageState(t, effectiveUser) === messageFilter)
     }
 
     list.sort((a, b) => {
@@ -496,7 +333,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, smartList, statusFilter, priorityFilter, deptFilter, memberFilter, dateFilter, messageFilter, sortBy, sortDir, isAdminOrSM, isQueuedTaskForDepartmentUser, getMessageState])
+  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedToUser])
 
   const bulkDelete = () => {
     startTransition(async () => {
@@ -558,11 +395,11 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
         {[
-          { label: 'Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
+          { label: 'My Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
+          { label: 'Created By Me', value: extStats.createdByMe, icon: Plus, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]', kpiKey: 'created' },
           { label: 'Assigned To Me', value: extStats.assignedToMe, icon: Users, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]', kpiKey: 'assigned' },
           { label: 'Completed', value: stats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
           { label: 'Pending', value: stats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
-          { label: 'In Progress', value: extStats.inProgress, icon: RefreshCw, tone: 'text-[#0D9488]', bg: 'bg-[#F0FDFA]', border: 'border-[#99F6E4]', kpiKey: 'inprogress' },
           { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
         ].map((item) => {
           const Icon = item.icon
@@ -595,63 +432,19 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <div className={cn(
-                'grid gap-2',
-                isAdminOrSM
-                  ? 'lg:grid-cols-[minmax(150px,190px)_minmax(220px,1fr)_minmax(150px,170px)]'
-                  : (isManagerRole && visibleMembers.length > 0)
-                    ? 'lg:grid-cols-[minmax(150px,190px)_minmax(150px,170px)]'
-                    : 'lg:grid-cols-[minmax(150px,190px)]'
-              )}>
+              <div className="grid gap-2 lg:grid-cols-[minmax(220px,260px)]">
                 <select
                   value={quickFilter}
                   onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                     setQuickFilter(e.target.value as QuickFilter)
-                    // Reset status/smartList so quick filter takes full control (mirrors old portal)
                     setStatusFilter('all')
-                    setSmartList('all')
                   }}
                   className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
                 >
                   <option value="my_all">My Tasks</option>
-                  <option value="all">All Tasks {stats.total}</option>
+                  <option value="created_by_me">Task Created By Me</option>
+                  <option value="assigned_to_me">Assigned To Me</option>
                 </select>
-
-                {isAdminOrSM && (
-                  <select
-                    value={deptFilter}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                      const val = e.target.value
-                      setDeptFilter(val)
-                      setMemberFilter('all') // cascade: reset member when dept changes
-                      if (val) {
-                        // Show ALL tasks for the selected department (all statuses, all members)
-                        setQuickFilter('all')
-                        setStatusFilter('all')
-                        setSmartList('all')
-                        setPriorityFilter('all')
-                        setDateFilter('all')
-                      }
-                    }}
-                    className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                  >
-                    <option value="">All Departments</option>
-                    {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                )}
-
-                {isManagerRole && visibleMembers.length > 0 && (
-                  <select
-                    value={memberFilter}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setMemberFilter(e.target.value)}
-                    className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm text-slate-600 outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                  >
-                    <option value="all">All Members</option>
-                    {filteredMembers.map((member) => (
-                      <option key={member} value={member}>{member}</option>
-                    ))}
-                  </select>
-                )}
               </div>
             </div>
 
@@ -706,71 +499,27 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={smartList}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setSmartList(e.target.value as SmartList)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Tasks</option>
-                  <option value="today">Today</option>
-                  <option value="upcoming">Upcoming</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="thisweek">This Week</option>
-                  <option value="thismonth">This Month</option>
-                </select>
-
-                <select
-                  value={statusFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value as StatusFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="queue">Queue</option>
-                  <option value="inprogress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="archived">Archived</option>
-                </select>
-
-                <select
-                  value={priorityFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setPriorityFilter(e.target.value as typeof priorityFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Priority</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-
-                <select
-                  value={dateFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setDateFilter(e.target.value as DateFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Dates</option>
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="last7days">Last 7 Days</option>
-                  <option value="last30days">Last 30 Days</option>
-                  <option value="thisweek">This Week</option>
-                  <option value="lastweek">Last Week</option>
-                  <option value="thismonth">This Month</option>
-                  <option value="lastmonth">Last Month</option>
-                  <option value="thisyear">This Year</option>
-                </select>
-
-                <select
-                  value={messageFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setMessageFilter(e.target.value as MessageFilter)}
-                  className="rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] outline-none transition hover:border-[#c4d3ef] focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="all">All Messages</option>
-                  <option value="unread">Unread</option>
-                  <option value="read">Read</option>
-                </select>
+                {([
+                  { key: 'all', label: 'All Task', count: scopeStatusCounts.all },
+                  { key: 'completed', label: 'Complete', count: scopeStatusCounts.completed },
+                  { key: 'pending', label: 'Pending', count: scopeStatusCounts.pending },
+                  { key: 'overdue', label: 'Overdue', count: scopeStatusCounts.overdue },
+                ] as const).map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setStatusFilter(item.key)}
+                    className={cn(
+                      'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition',
+                      statusFilter === item.key
+                        ? 'border-[#3559d8] bg-[#edf3ff] text-[#3559d8]'
+                        : 'border-[#d9e2f0] bg-white text-slate-600 hover:border-[#c4d3ef]'
+                    )}
+                  >
+                    <span>{item.label}</span>
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{item.count}</span>
+                  </button>
+                ))}
+                <span className="ml-2 text-xs font-semibold text-slate-400">{scopeLabel}</span>
               </div>
             </div>
 
@@ -782,30 +531,6 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
               >
                 <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
                 Refresh
-              </button>
-
-              <button
-                onClick={() => {
-                  setQuickFilter('all')
-                  setSmartList('all')
-                  setStatusFilter('queue')
-                  setDeptFilter('')
-                  setMemberFilter('all')
-                  setPriorityFilter('all')
-                  setDateFilter('all')
-                  setMessageFilter('all')
-                  setSearch('')
-                }}
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-xl border px-3 py-2 font-semibold shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]',
-                  statusFilter === 'queue' && quickFilter === 'all'
-                    ? 'border-[#3559d8] bg-[#edf3ff] text-[#3559d8]'
-                    : 'border-[#d9e2f0] bg-white text-slate-600 hover:border-[#c4d3ef]'
-                )}
-                title={`Show tasks queued for your department${currentUserDept ? ` (${currentUserDept})` : ''}`}
-              >
-                <Users size={13} />
-                Dept Queue
               </button>
 
               <button
@@ -880,7 +605,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
               <Inbox size={40} className="mb-3 text-slate-200" />
               <p className="font-semibold text-slate-500">No tasks found</p>
               <p className="mt-1 text-sm text-slate-400">
-                {search || quickFilter !== 'all' ? 'Try clearing filters.' : 'Create your first task to get started.'}
+                {search || quickFilter !== 'my_all' ? 'Try clearing filters.' : 'Create your first task to get started.'}
               </p>
             </div>
           )}

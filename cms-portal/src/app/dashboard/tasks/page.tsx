@@ -24,8 +24,9 @@ export default async function TasksPage({
 
   const scope = searchParams?.scope
   const initialScope =
-    scope === 'all' ||
     scope === 'my_all' ||
+    scope === 'created_by_me' ||
+    scope === 'assigned_to_me' ||
     scope === 'my_pending' ||
     scope === 'assigned_by_me' ||
     scope === 'my_approval' ||
