@@ -1118,15 +1118,24 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   if (!user) return null
 
   const supabase = createServerClient()
-  const [taskRes, sharesRes, attachmentsRes] = await Promise.all([
+  const [taskRes, sharesRes, attachmentsRes, usersRes] = await Promise.all([
     supabase.from('todos').select('*').eq('id', todoId).single(),
     supabase.from('todo_shares').select('*').eq('todo_id', todoId),
     supabase.from('todo_attachments').select('*').eq('todo_id', todoId).order('created_at', { ascending: false }),
+    supabase.from('users').select('username,department'),
   ])
 
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
+  const userDeptMap: Record<string, string> = {}
+  ;(usersRes.data || []).forEach((row: Record<string, unknown>) => {
+    if (!row.username || !row.department) return
+    userDeptMap[String(row.username).toLowerCase()] = String(row.department)
+  })
+  task.creator_department = userDeptMap[(task.username || '').toLowerCase()] || null
+  task.assignee_department = userDeptMap[(task.assigned_to || '').toLowerCase()] || null
+
   const isCreator = task.username === user.username
   const isAssignee = task.assigned_to === user.username
   const isAssigneeManager = isUserInManagerList(task.manager_id, user.username)
