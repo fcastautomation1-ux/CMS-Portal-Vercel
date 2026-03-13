@@ -232,13 +232,17 @@ export function TaskDetailModal({
     queryKey: queryKeys.taskDetail(taskId),
     queryFn: () => getTodoDetails(taskId),
     enabled: Boolean(taskId),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
   const details = detailsQuery.data ?? null
 
   useEffect(() => {
-    setLoading(detailsQuery.isLoading)
-  }, [detailsQuery.isLoading])
+    setLoading(detailsQuery.isLoading && !detailsQuery.data)
+  }, [detailsQuery.data, detailsQuery.isLoading])
 
   useEffect(() => {
     const scheduleRefresh = () => {
@@ -569,8 +573,7 @@ export function TaskDetailModal({
       <div className="flex-1 overflow-y-auto px-6 py-5">
 
         {/* ────── INFO TAB ────── */}
-        {activeTab === 'info' && (
-          <div className="space-y-5">
+        <div className={cn('space-y-5', activeTab === 'info' ? 'block' : 'hidden')}>
             {/* Two-column meta grid */}
             <div className="grid grid-cols-2 gap-3">
               <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
@@ -746,11 +749,9 @@ export function TaskDetailModal({
               </div>
             </Section>
           </div>
-        )}
 
         {/* ────── HISTORY / ACTIVITY TAB ────── */}
-        {activeTab === 'history' && (
-          <div>
+        <div className={activeTab === 'history' ? 'block' : 'hidden'}>
             {historyEvts.length === 0 && !nextStep && (
               <div className="text-center py-12">
                 <Clock size={28} className="mx-auto text-slate-200 mb-2" />
@@ -821,11 +822,9 @@ export function TaskDetailModal({
               )}
             </div>
           </div>
-        )}
 
         {/* ────── FILES TAB ────── */}
-        {activeTab === 'files' && (
-          <div className="space-y-4">
+        <div className={cn('space-y-4', activeTab === 'files' ? 'block' : 'hidden')}>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">Attach files</p>
@@ -877,8 +876,7 @@ export function TaskDetailModal({
         )}
 
         {/* ────── SHARE TAB ────── */}
-        {activeTab === 'share' && (
-          <div className="space-y-5">
+        <div className={cn('space-y-5', activeTab === 'share' ? 'block' : 'hidden')}>
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Share with User</label>
               <div className="flex gap-2">

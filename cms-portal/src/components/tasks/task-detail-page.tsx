@@ -235,6 +235,10 @@ export function TaskDetailPage({
       return updated ?? initialDetails
     },
     initialData: initialDetails,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
   const details = detailsQuery.data ?? initialDetails
@@ -549,8 +553,7 @@ export function TaskDetailPage({
               </div>
 
               <div className="px-5 py-5 sm:px-6">
-                {activeTab === 'info' && (
-                  <div className="space-y-6">
+                <div className={cn('space-y-6', activeTab === 'info' ? 'block' : 'hidden')}>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
                       <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
@@ -620,10 +623,8 @@ export function TaskDetailPage({
                       </Section>
                     )}
                   </div>
-                )}
 
-                {activeTab === 'history' && (
-                  <div>
+                <div className={activeTab === 'history' ? 'block' : 'hidden'}>
                     {historyEvents.length === 0 && !nextStep ? (
                       <div className="py-16 text-center">
                         <Clock size={28} className="mx-auto mb-3 text-slate-200" />
@@ -679,10 +680,8 @@ export function TaskDetailPage({
                       </div>
                     )}
                   </div>
-                )}
 
-                {activeTab === 'files' && (
-                  <div className="space-y-4">
+                <div className={cn('space-y-4', activeTab === 'files' ? 'block' : 'hidden')}>
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                       <div>
                         <p className="text-sm font-semibold text-slate-800">Attach files</p>
@@ -728,10 +727,8 @@ export function TaskDetailPage({
                       </div>
                     )}
                   </div>
-                )}
 
-                {activeTab === 'share' && (
-                  <div className="space-y-5">
+                <div className={cn('space-y-5', activeTab === 'share' ? 'block' : 'hidden')}>
                     <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                       <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Share with user</label>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -788,7 +785,6 @@ export function TaskDetailPage({
                       </div>
                     )}
                   </div>
-                )}
               </div>
             </section>
 

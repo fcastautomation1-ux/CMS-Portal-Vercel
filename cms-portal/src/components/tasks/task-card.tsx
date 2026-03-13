@@ -239,31 +239,33 @@ export function TaskCard({
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         <div className="min-w-0 flex-1">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
-            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
-            {task.kpi_type && (
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-600">
-                {task.kpi_type}
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+            {task.app_name && (
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
+                {task.app_name}
               </span>
             )}
-            {task.app_name && (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                {task.app_name}
+            {task.kpi_type && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-600">
+                {task.kpi_type}
               </span>
             )}
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">#{task.id.slice(0, 4)}</span>
           </div>
 
-          <button
-            onClick={() => onViewDetail(task)}
-            className={cn(
-              'block w-full text-left text-[20px] font-bold leading-tight tracking-[-0.02em]',
-              isCompleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-blue-600'
-            )}
-          >
-            {task.title}
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
+            <button
+              onClick={() => onViewDetail(task)}
+              className={cn(
+                'text-left text-[20px] font-bold leading-tight tracking-[-0.02em]',
+                isCompleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-blue-600'
+              )}
+            >
+              {task.title}
+            </button>
+          </div>
 
           {summaryText && (
             <p className="mt-2.5 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-500">

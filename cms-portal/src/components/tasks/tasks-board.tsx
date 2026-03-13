@@ -101,12 +101,20 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     queryKey: queryKeys.tasks(currentUsername),
     queryFn: () => getTodos().catch(() => [] as Todo[]),
     initialData: initialTasks,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
   const statsQuery = useQuery({
     queryKey: queryKeys.taskStats(currentUsername),
     queryFn: () => getTodoStats().catch(() => initialStats),
     initialData: initialStats,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
   const tasks = tasksQuery.data ?? initialTasks

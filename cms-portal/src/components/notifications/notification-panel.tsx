@@ -170,6 +170,10 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
     initialData: notifications,
     enabled: Boolean(currentUsername),
     refetchInterval: 30000,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 
   useEffect(() => {
