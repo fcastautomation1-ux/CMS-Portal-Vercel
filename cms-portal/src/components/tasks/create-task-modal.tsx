@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   Bold,
-  ChevronDown,
-  FileText,
   Italic,
   List,
   ListOrdered,
@@ -44,8 +42,6 @@ type PendingAttachment = {
   id: string
 }
 
-type TemplateKey = 'meeting' | 'project' | 'followup'
-
 type DraftPayload = {
   appName: string
   packageName: string
@@ -64,24 +60,6 @@ type DraftPayload = {
 
 const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
 const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
-
-const TEMPLATES: Record<TemplateKey, Partial<DraftPayload>> = {
-  meeting: {
-    title: 'Team Meeting',
-    description: 'Discuss project progress and next steps',
-    priority: 'high',
-  },
-  project: {
-    title: 'New Project',
-    description: 'Project description and requirements',
-    priority: 'medium',
-  },
-  followup: {
-    title: 'Follow-up Task',
-    description: 'Follow up on previous conversation',
-    priority: 'medium',
-  },
-}
 
 interface CreateTaskModalProps {
   editTask?: Todo | null
@@ -130,7 +108,6 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   const [multiSearch, setMultiSearch] = useState('')
   const [multiDeptFilter, setMultiDeptFilter] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
-  const [templatesOpen, setTemplatesOpen] = useState(false)
   const [error, setError] = useState('')
 
   const [packages, setPackages] = useState<Package[]>([])
@@ -251,18 +228,6 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
           : entry
       )
     )
-  }
-
-  const applyTemplate = (templateKey: TemplateKey) => {
-    const template = TEMPLATES[templateKey]
-    if (!template) return
-    setTitle(template.title ?? '')
-    setDescription(template.description ?? '')
-    setPriority(template.priority ?? 'medium')
-    if (goalRef.current) {
-      goalRef.current.innerHTML = template.ourGoal ?? ''
-    }
-    setTemplatesOpen(false)
   }
 
   const onAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -418,26 +383,6 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {!isEdit && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setTemplatesOpen((open) => !open)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  <FileText size={14} />
-                  Templates
-                  <ChevronDown size={14} />
-                </button>
-                {templatesOpen && (
-                  <div className="absolute right-0 top-12 z-10 w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                    <TemplateOption title="Team Meeting" onClick={() => applyTemplate('meeting')} />
-                    <TemplateOption title="New Project" onClick={() => applyTemplate('project')} />
-                    <TemplateOption title="Follow-up Task" onClick={() => applyTemplate('followup')} />
-                  </div>
-                )}
-              </div>
-            )}
             <button
               type="button"
               onClick={onClose}
@@ -943,24 +888,6 @@ function RoutingCard({
         </div>
         {selected && <div className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />}
       </div>
-    </button>
-  )
-}
-
-function TemplateOption({
-  title,
-  onClick,
-}: {
-  title: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-    >
-      {title}
     </button>
   )
 }

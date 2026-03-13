@@ -84,36 +84,6 @@ function isUserInManagerList(managerIdField: string | null, username: string): b
     .includes(username.toLowerCase())
 }
 
-async function getUserTaskPackageIds(
-  supabase: ReturnType<typeof createServerClient>,
-  username: string
-): Promise<string[]> {
-  const byUserId = await supabase
-    .from('user_packages')
-    .select('package_id')
-    .eq('user_id', username)
-
-  if (!byUserId.error) {
-    return ((byUserId.data || []) as Array<{ package_id: string | null }>)
-      .map((row) => row.package_id)
-      .filter((packageId): packageId is string => Boolean(packageId))
-  }
-
-  const byUsername = await supabase
-    .from('user_packages')
-    .select('package_id')
-    .eq('username', username)
-
-  if (!byUsername.error) {
-    return ((byUsername.data || []) as Array<{ package_id: string | null }>)
-      .map((row) => row.package_id)
-      .filter((packageId): packageId is string => Boolean(packageId))
-  }
-
-  console.error('getUserTaskPackageIds failed:', byUserId.error || byUsername.error)
-  return []
-}
-
 // ── Get all todos (role-filtered) ─────────────────────────────────────────────
 
 export async function getTodos(): Promise<Todo[]> {
@@ -295,26 +265,30 @@ export async function getPackagesForTaskForm(): Promise<Array<{ id: string; name
   const user = await getSession()
   if (!user) return []
   const supabase = createServerClient()
-  const isManager = ['Admin', 'Super Manager', 'Manager', 'Supervisor'].includes(user.role)
 
-  if (isManager) {
-    const { data } = await supabase
-      .from('packages')
-      .select('id,name,app_name')
-      .eq('is_active', true)
-      .order('name')
-    return (data || []) as Array<{ id: string; name: string; app_name: string | null }>
-  }
-  // Non-manager: only their assigned packages
-  const pkgIds = await getUserTaskPackageIds(supabase, user.username)
-  if (pkgIds.length === 0) return []
-  const { data } = await supabase
+  const activeResult = await supabase
     .from('packages')
     .select('id,name,app_name')
-    .in('id', pkgIds)
     .eq('is_active', true)
     .order('name')
-  return (data || []) as Array<{ id: string; name: string; app_name: string | null }>
+
+  if (!activeResult.error) {
+    return (activeResult.data || []) as Array<{ id: string; name: string; app_name: string | null }>
+  }
+
+  console.error('getPackagesForTaskForm active query failed:', activeResult.error)
+
+  const fallbackResult = await supabase
+    .from('packages')
+    .select('id,name,app_name')
+    .order('name')
+
+  if (fallbackResult.error) {
+    console.error('getPackagesForTaskForm fallback query failed:', fallbackResult.error)
+    return []
+  }
+
+  return (fallbackResult.data || []) as Array<{ id: string; name: string; app_name: string | null }>
 }
 
 // ── Get users for assignment dropdown ────────────────────────────────────────
