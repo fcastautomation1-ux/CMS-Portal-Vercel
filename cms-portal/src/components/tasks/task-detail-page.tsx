@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   Archive,
@@ -33,6 +34,8 @@ import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription } from '@/lib/task-description'
+import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { queryKeys } from '@/lib/query-keys'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import { CreateTaskModal } from './create-task-modal'
 import {
@@ -197,7 +200,7 @@ export function TaskDetailPage({
   currentUsername: string
 }) {
   const router = useRouter()
-  const [details, setDetails] = useState(initialDetails)
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabId>('info')
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
@@ -209,6 +212,29 @@ export function TaskDetailPage({
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const [isPending, startTransition] = useTransition()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const refreshTimerRef = useRef<number | null>(null)
+
+  const detailsQuery = useQuery({
+    queryKey: queryKeys.taskDetail(initialDetails.id),
+    queryFn: async () => {
+      const updated = await getTodoDetails(initialDetails.id)
+      return updated ?? initialDetails
+    },
+    initialData: initialDetails,
+  })
+
+  const details = detailsQuery.data ?? initialDetails
+
+  const refreshDetails = useCallback(async () => {
+    const updated = await getTodoDetails(details.id)
+    if (!updated) {
+      router.push('/dashboard/tasks')
+      router.refresh()
+      return
+    }
+    queryClient.setQueryData(queryKeys.taskDetail(details.id), updated)
+    router.refresh()
+  }, [details.id, queryClient, router])
 
   useEffect(() => {
     let cancelled = false
@@ -218,16 +244,29 @@ export function TaskDetailPage({
     return () => { cancelled = true }
   }, [])
 
-  const refreshDetails = async () => {
-    const updated = await getTodoDetails(details.id)
-    if (!updated) {
-      router.push('/dashboard/tasks')
-      router.refresh()
-      return
+  useEffect(() => {
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        void refreshDetails()
+      }, 200)
     }
-    setDetails(updated)
-    router.refresh()
-  }
+
+    const unsubscribe = subscribeToPostgresChanges(
+      `task-detail-page:${details.id}`,
+      [
+        { table: 'todos', filter: `id=eq.${details.id}` },
+        { table: 'todo_attachments', filter: `todo_id=eq.${details.id}` },
+        { table: 'todo_shares', filter: `todo_id=eq.${details.id}` },
+      ],
+      scheduleRefresh
+    )
+
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      unsubscribe()
+    }
+  }, [details.id, refreshDetails])
 
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>, options?: { redirectToTasks?: boolean }) => {
     setActionError('')

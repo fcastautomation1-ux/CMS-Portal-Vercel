@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
+import Image from 'next/image'
 import { Search, Plus, Trash2, Pencil, X, UserPlus } from 'lucide-react'
 import { createUser, updateUser, deleteUser, type UserFormOptions } from '@/app/dashboard/users/actions'
 import type { User, SessionUser, UserRole, ModuleAccess } from '@/types'
@@ -125,7 +126,7 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2.5">
                     {u.avatar_data ? (
-                      <img src={u.avatar_data} alt={u.username} className="w-9 h-9 rounded-lg object-cover" />
+                      <Image src={u.avatar_data} alt={u.username} width={36} height={36} className="w-9 h-9 rounded-lg object-cover" unoptimized />
                     ) : (
                       <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--blue-600)' }}>
                         {initials(u.username)}

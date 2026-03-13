@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef, type ChangeEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   X,
   MessageCircle,
@@ -30,6 +31,8 @@ import { cn } from '@/lib/cn'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { normalizeTaskDescription } from '@/lib/task-description'
+import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { queryKeys } from '@/lib/query-keys'
 import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import {
@@ -196,7 +199,7 @@ export function TaskDetailModal({
   onEdit,
   onRefresh,
 }: TaskDetailModalProps) {
-  const [details, setDetails] = useState<TodoDetails | null>(null)
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'info' | 'history' | 'files' | 'share'>('info')
   const [comment, setComment] = useState('')
@@ -208,14 +211,45 @@ export function TaskDetailModal({
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const refreshTimerRef = useRef<number | null>(null)
+
+  const detailsQuery = useQuery({
+    queryKey: queryKeys.taskDetail(taskId),
+    queryFn: () => getTodoDetails(taskId),
+    enabled: Boolean(taskId),
+  })
+
+  const details = detailsQuery.data ?? null
 
   useEffect(() => {
-    let cancelled = false
-    getTodoDetails(taskId).then((res) => {
-      if (!cancelled) { setDetails(res); setLoading(false) }
-    })
-    return () => { cancelled = true }
-  }, [taskId])
+    setLoading(detailsQuery.isLoading)
+  }, [detailsQuery.isLoading])
+
+  useEffect(() => {
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(async () => {
+        const updated = await getTodoDetails(taskId)
+        queryClient.setQueryData(queryKeys.taskDetail(taskId), updated)
+        onRefresh()
+      }, 200)
+    }
+
+    const unsubscribe = subscribeToPostgresChanges(
+      `task-detail-modal:${taskId}`,
+      [
+        { table: 'todos', filter: `id=eq.${taskId}` },
+        { table: 'todo_attachments', filter: `todo_id=eq.${taskId}` },
+        { table: 'todo_shares', filter: `todo_id=eq.${taskId}` },
+      ],
+      scheduleRefresh
+    )
+
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      unsubscribe()
+    }
+  }, [onRefresh, queryClient, taskId])
 
   useEffect(() => {
     let cancelled = false
@@ -231,7 +265,7 @@ export function TaskDetailModal({
       const res = await fn()
       if (res.success) {
         const updated = await getTodoDetails(taskId)
-        setDetails(updated)
+        queryClient.setQueryData(queryKeys.taskDetail(taskId), updated)
         onRefresh()
       } else {
         setActionError(res.error ?? 'Action failed')
@@ -276,7 +310,7 @@ export function TaskDetailModal({
       }
 
       const updated = await getTodoDetails(taskId)
-      setDetails(updated)
+      queryClient.setQueryData(queryKeys.taskDetail(taskId), updated)
       onRefresh()
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Attachment upload failed.')

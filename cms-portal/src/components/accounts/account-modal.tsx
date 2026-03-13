@@ -78,7 +78,6 @@ export function AccountModal({ account, onClose }: AccountModalProps) {
     handleSubmit,
     formState: { errors },
     setError,
-    reset,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {

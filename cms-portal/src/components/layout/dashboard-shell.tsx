@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { SessionUser } from '@/types'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
+import { DeploymentWatcher } from '@/components/layout/deployment-watcher'
 import { saveThemePreference } from '@/app/dashboard/profile/actions'
 
 interface DashboardShellProps {
@@ -13,7 +14,10 @@ interface DashboardShellProps {
 
 export function DashboardShell({ user, children }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('cms_sidebar_collapsed') === 'true'
+  })
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     // Server-supplied preference from JWT takes priority; fall back to
     // localStorage so navigations within a session don't flicker.
@@ -34,12 +38,6 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
       html.classList.remove('dark')
     }
   }, [theme])
-
-  // Restore sidebar collapse from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('cms_sidebar_collapsed')
-    if (stored === 'true') setSidebarCollapsed(true)
-  }, [])
 
   // Prevent background scroll when mobile nav is open
   useEffect(() => {
@@ -65,6 +63,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
+      <DeploymentWatcher />
       <Sidebar
         user={user}
         mobileOpen={mobileNavOpen}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle,
   X, BellOff, ArrowRight, Check, Search, Reply,
@@ -14,6 +15,8 @@ import {
   deleteNotification,
   sendNotificationReply,
 } from '@/app/dashboard/notifications/actions'
+import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { queryKeys } from '@/lib/query-keys'
 import type { Notification } from '@/types'
 
 function norm(n: Notification) {
@@ -123,6 +126,7 @@ interface NotificationPanelProps {
 
 export function NotificationPanel({ initialCount = 0, currentUsername = '' }: NotificationPanelProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'all' | 'unread' | 'read'>('all')
   const [search, setSearch] = useState('')
@@ -155,6 +159,26 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
     }
   }, [syncUnreadFromList])
 
+  const notificationsQuery = useQuery({
+    queryKey: queryKeys.notifications(currentUsername || 'guest'),
+    queryFn: async () => {
+      const data = await getNotifications()
+      data.forEach(n => seenIdsRef.current.add(n.id))
+      syncUnreadFromList(data)
+      return data
+    },
+    initialData: notifications,
+    enabled: Boolean(currentUsername),
+    refetchInterval: 30000,
+  })
+
+  useEffect(() => {
+    if (notificationsQuery.data) {
+      setNotifications(notificationsQuery.data)
+      syncUnreadFromList(notificationsQuery.data)
+    }
+  }, [notificationsQuery.data, syncUnreadFromList])
+
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
@@ -176,9 +200,11 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
       setUnreadCount(resolved)
       prevUnreadRef.current = resolved
       setNotifications(data)
+      queryClient.setQueryData(queryKeys.notifications(currentUsername || 'guest'), data)
+      queryClient.setQueryData(queryKeys.notificationCount(currentUsername || 'guest'), resolved)
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [currentUsername, queryClient])
 
   useEffect(() => {
     if (!open) return
@@ -206,6 +232,22 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
     const id = setInterval(pollNotifications, 30000)
     return () => clearInterval(id)
   }, [pollNotifications])
+
+  useEffect(() => {
+    if (!currentUsername) return
+
+    return subscribeToPostgresChanges(
+      `notifications:${currentUsername}`,
+      [
+        { table: 'notifications', filter: `user_id=eq.${currentUsername}` },
+      ],
+      () => {
+        void pollNotifications()
+        void queryClient.invalidateQueries({ queryKey: queryKeys.notifications(currentUsername) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.notificationCount(currentUsername) })
+      }
+    )
+  }, [currentUsername, pollNotifications, queryClient])
 
   async function handleNotifClick(notif: Notification) {
     const n = norm(notif)

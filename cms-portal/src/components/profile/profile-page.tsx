@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
+import Image from 'next/image'
 import {
-  User, Mail, Building2, Lock, Bell, Shield, Camera, Trash2,
+  User, Building2, Lock, Bell, Shield, Camera, Trash2,
   Eye, EyeOff, CheckCircle, ArrowLeft, Save,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -254,7 +255,7 @@ export function ProfilePage({ user, profile, departments }: Props) {
                   style={{ background: avatarData ? undefined : gradient }}
                 >
                   {avatarData ? (
-                    <img src={avatarData} alt="Avatar" className="w-full h-full object-cover" />
+                    <Image src={avatarData} alt="Avatar" width={64} height={64} className="w-full h-full object-cover" unoptimized />
                   ) : (
                     user.username.charAt(0).toUpperCase()
                   )}

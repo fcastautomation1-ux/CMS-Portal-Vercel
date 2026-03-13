@@ -9,7 +9,6 @@ import { AccountModal } from './account-modal'
 import { DeleteConfirm } from './delete-confirm'
 import { batchToggleAccounts } from '@/app/dashboard/accounts/actions'
 import type { Account, SessionUser } from '@/types'
-import { cn } from '@/lib/cn'
 
 const WORKFLOW_OPTIONS = [
   { value: '', label: 'All Workflows' },
@@ -97,7 +96,8 @@ export function AccountsTable({ accounts, user, userAccess = {} }: AccountsTable
   function toggleSelect(customerId: string) {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(customerId) ? next.delete(customerId) : next.add(customerId)
+      if (next.has(customerId)) next.delete(customerId)
+      else next.add(customerId)
       return next
     })
   }

@@ -1,8 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useTransition, useCallback, useMemo } from 'react'
+import { useState, useTransition, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { ChangeEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
   RefreshCw,
@@ -24,6 +25,8 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { queryKeys } from '@/lib/query-keys'
+import { subscribeToPostgresChanges } from '@/lib/realtime'
 import type { Todo, TodoStats, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
@@ -69,10 +72,10 @@ interface TasksBoardProps {
 
 export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialStats }: TasksBoardProps) {
   const router = useRouter()
-  const [tasks, setTasks] = useState<Todo[]>(initialTasks)
-  const [stats, setStats] = useState<TodoStats>(initialStats)
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [, startTransition] = useTransition()
+  const refreshTimerRef = useRef<number | null>(null)
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
@@ -93,6 +96,21 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   const [, setDeclineTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
+
+  const tasksQuery = useQuery({
+    queryKey: queryKeys.tasks(currentUsername),
+    queryFn: () => getTodos().catch(() => [] as Todo[]),
+    initialData: initialTasks,
+  })
+
+  const statsQuery = useQuery({
+    queryKey: queryKeys.taskStats(currentUsername),
+    queryFn: () => getTodoStats().catch(() => initialStats),
+    initialData: initialStats,
+  })
+
+  const tasks = tasksQuery.data ?? initialTasks
+  const stats = statsQuery.data ?? initialStats
 
   // Role flags — mirror old portal role checks (must be before any useMemo that depends on them)
   const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
@@ -235,11 +253,35 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       getTodos().catch(() => [] as Todo[]),
       getTodoStats().catch(() => initialStats),
     ])
-    setTasks(ft)
-    setStats(fs)
+    queryClient.setQueryData(queryKeys.tasks(currentUsername), ft)
+    queryClient.setQueryData(queryKeys.taskStats(currentUsername), fs)
     setLoading(false)
     setSelected(new Set())
-  }, [initialStats])
+  }, [currentUsername, initialStats, queryClient])
+
+  useEffect(() => {
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        void refresh()
+      }, 250)
+    }
+
+    const unsubscribe = subscribeToPostgresChanges(
+      `tasks-board:${currentUsername}`,
+      [
+        { table: 'todos' },
+        { table: 'todo_shares', filter: `shared_with=eq.${currentUsername}` },
+        { table: 'todo_attachments' },
+      ],
+      scheduleRefresh
+    )
+
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      unsubscribe()
+    }
+  }, [currentUsername, refresh])
 
   const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
     if (task.queue_status !== 'queued') return false

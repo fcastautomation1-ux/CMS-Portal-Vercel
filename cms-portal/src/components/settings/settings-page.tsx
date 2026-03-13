@@ -116,8 +116,6 @@ export function SettingsPage({ initialSmtp }: Props) {
 
   const inputClass = 'h-10 w-full px-3 rounded-lg text-sm outline-none'
   const inputStyle = { border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }
-  const focusStyle = '1.5px solid #3B82F6'
-
   return (
     <div className="animate-fade-in max-w-3xl">
       {toast && <Toast message={toast.message} type={toast.type} />}
