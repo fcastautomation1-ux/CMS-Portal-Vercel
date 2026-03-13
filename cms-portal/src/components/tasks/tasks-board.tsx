@@ -39,7 +39,7 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
-type QuickFilter = 'all' | 'my_all'
+type QuickFilter = 'all' | 'my_all' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
 
 type SmartList =
   | 'all' | 'today' | 'upcoming' | 'overdue' | 'thisweek' | 'thismonth'
@@ -66,9 +66,10 @@ interface TasksBoardProps {
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
   initialTasks: Todo[]
+  initialScope?: QuickFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialScope = 'my_all' }: TasksBoardProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
@@ -76,7 +77,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   const refreshTimerRef = useRef<number | null>(null)
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('my_all')
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(initialScope)
   const [search, setSearch] = useState('')
   const [memberFilter, setMemberFilter] = useState('all')
   const [smartList, setSmartList] = useState<SmartList>('all')
@@ -316,7 +317,25 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     let list = [...tasks]
     const userLower = effectiveUser.toLowerCase()
 
-    if (quickFilter === 'my_all') {
+    if (quickFilter === 'my_pending') {
+      list = list.filter((t) => {
+        if (t.completed || t.archived) return false
+        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          const top = ma.assignees.find((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)
+          if (top && top.status !== 'accepted' && top.status !== 'completed') return true
+          for (const assignee of ma.assignees) {
+            if (Array.isArray(assignee.delegated_to)) {
+              const sub = assignee.delegated_to.find((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower)
+              if (sub && sub.status !== 'accepted' && sub.status !== 'completed') return true
+            }
+          }
+        }
+        return isQueuedTaskForDepartmentUser(t, effectiveUser)
+      })
+    } else if (quickFilter === 'my_all') {
       list = list.filter((t) => {
         if (t.archived) return false
         if ((t.assigned_to || '').toLowerCase() === userLower) return true
@@ -328,6 +347,35 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
           if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
         }
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
+      })
+    } else if (quickFilter === 'assigned_by_me') {
+      list = list.filter((t) => {
+        if (t.completed || t.archived) return false
+        if (t.username.toLowerCase() !== userLower) return false
+        if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          return ma.assignees.some((a: MultiAssignmentEntry) =>
+            (a.username || '').toLowerCase() !== userLower ||
+            (Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() !== userLower))
+          )
+        }
+        return false
+      })
+    } else if (quickFilter === 'my_approval') {
+      list = list.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower)
+    } else if (quickFilter === 'other_approval') {
+      list = list.filter((t) => {
+        if (t.archived || t.approval_status !== 'pending_approval') return false
+        if (t.username.toLowerCase() === userLower) return false
+        if ((t.completed_by || '').toLowerCase() === userLower) return true
+        if ((t.assigned_to || '').toLowerCase() === userLower) return true
+        const ma = t.multi_assignment
+        if (ma?.enabled && Array.isArray(ma.assignees)) {
+          if (ma.assignees.some((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)) return true
+          if (ma.assignees.some((a: MultiAssignmentEntry) => Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))) return true
+        }
+        return false
       })
     }
 

@@ -1,11 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { logoutAction } from '@/app/login/actions'
 import type { SessionUser } from '@/types'
 import { cn } from '@/lib/cn'
+import { queryKeys } from '@/lib/query-keys'
+import { getTodos } from '@/app/dashboard/tasks/actions'
 import {
   LayoutGrid,
   TrendingUp,
@@ -51,13 +54,13 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    id: 'operations',
-    label: 'Operations',
+    id: 'data',
+    label: 'Data',
     items: [
-      { label: 'Accounts', href: '/dashboard/accounts', icon: <LayoutGrid size={17} />, color: '#14B8A6' },
-      { label: 'Campaigns', href: '/dashboard/campaigns', icon: <TrendingUp size={17} />, color: '#F97316' },
       { label: 'Users', href: '/dashboard/users', icon: <Users size={17} />, color: '#8B5CF6' },
       { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={17} />, color: '#0D9488' },
+      { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
+      { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
       { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
     ],
   },
@@ -65,10 +68,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'automation',
     label: 'Automation',
     items: [
+      { label: 'Accounts', href: '/dashboard/accounts', icon: <LayoutGrid size={17} />, color: '#14B8A6' },
+      { label: 'Campaigns', href: '/dashboard/campaigns', icon: <TrendingUp size={17} />, color: '#F97316' },
       { label: 'Workflows', href: '/dashboard/workflows', icon: <GitBranch size={17} />, color: '#10B981' },
       { label: 'Rules', href: '/dashboard/rules', icon: <Settings size={17} />, color: '#F59E0B' },
-      { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
-      { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
       { label: 'Integrations', href: '/dashboard/settings', icon: <Mail size={17} />, color: '#0EA5E9' },
     ],
   },
@@ -147,13 +150,83 @@ export function Sidebar({
   onCollapsedChange,
 }: SidebarProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     workspace: true,
-    operations: true,
+    data: true,
     automation: true,
   })
+  const [tasksOpen, setTasksOpen] = useState(true)
+
+  const tasksQuery = useQuery({
+    queryKey: queryKeys.tasks(user.username),
+    queryFn: () => getTodos().catch(() => []),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+  const sidebarTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
+
+  const taskScopeCounts = useMemo(() => {
+    const userLower = user.username.toLowerCase()
+    const myTasks = sidebarTasks.filter((t) => {
+      if (t.archived) return false
+      if ((t.assigned_to || '').toLowerCase() === userLower) return true
+      if ((t.completed_by || '').toLowerCase() === userLower) return true
+      if (t.username.toLowerCase() === userLower) return true
+      const ma = t.multi_assignment
+      if (ma?.enabled && Array.isArray(ma.assignees)) {
+        return ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower)
+          || ma.assignees.some((a) => Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
+      }
+      return Boolean(t.is_department_queue)
+    }).length
+
+    const myPending = sidebarTasks.filter((t) => {
+      if (t.completed || t.archived) return false
+      if ((t.assigned_to || '').toLowerCase() === userLower) return true
+      if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
+      const ma = t.multi_assignment
+      if (ma?.enabled && Array.isArray(ma.assignees)) {
+        const mine = ma.assignees.find((a) => (a.username || '').toLowerCase() === userLower)
+        if (mine && mine.status !== 'accepted' && mine.status !== 'completed') return true
+      }
+      return Boolean(t.is_department_queue)
+    }).length
+
+    const assignedByMe = sidebarTasks.filter((t) => {
+      if (t.completed || t.archived) return false
+      if (t.username.toLowerCase() !== userLower) return false
+      if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
+      const ma = t.multi_assignment
+      if (ma?.enabled && Array.isArray(ma.assignees)) {
+        return ma.assignees.some((a) => (a.username || '').toLowerCase() !== userLower)
+      }
+      return false
+    }).length
+
+    const myApproval = sidebarTasks.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower).length
+    const otherApproval = sidebarTasks.filter((t) => {
+      if (t.archived || t.approval_status !== 'pending_approval') return false
+      if (t.username.toLowerCase() === userLower) return false
+      if ((t.completed_by || '').toLowerCase() === userLower) return true
+      if ((t.assigned_to || '').toLowerCase() === userLower) return true
+      const ma = t.multi_assignment
+      return Boolean(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower))
+    }).length
+
+    return {
+      all: sidebarTasks.length,
+      my_all: myTasks,
+      my_pending: myPending,
+      assigned_by_me: assignedByMe,
+      my_approval: myApproval,
+      other_approval: otherApproval,
+    }
+  }, [sidebarTasks, user.username])
 
   const visibleSections = useMemo(
     () =>
@@ -183,6 +256,17 @@ export function Sidebar({
       router.refresh()
     })
   }
+
+  const isTaskScopeActive = pathname === '/dashboard/tasks'
+  const activeTaskScope = searchParams.get('scope') ?? 'my_all'
+  const taskLinks = [
+    { label: 'My Tasks', scope: 'my_all', count: taskScopeCounts.my_all },
+    { label: 'All Tasks', scope: 'all', count: taskScopeCounts.all },
+    { label: 'My Pending', scope: 'my_pending', count: taskScopeCounts.my_pending },
+    { label: 'Assign By Me', scope: 'assigned_by_me', count: taskScopeCounts.assigned_by_me },
+    { label: 'My Approval', scope: 'my_approval', count: taskScopeCounts.my_approval },
+    { label: 'Other Approval', scope: 'other_approval', count: taskScopeCounts.other_approval },
+  ] as const
 
   return (
     <aside
@@ -276,6 +360,67 @@ export function Sidebar({
                         const isActive = item.href === '/dashboard'
                           ? (pathname === '/dashboard' || pathname === '/dashboard/')
                           : (pathname === item.href || pathname.startsWith(item.href + '/'))
+
+                        if (item.href === '/dashboard/tasks') {
+                          return (
+                            <li key={item.href} className="overflow-hidden rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => setTasksOpen((current) => !current)}
+                                className={cn(
+                                  'group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
+                                  isTaskScopeActive && 'text-white'
+                                )}
+                                style={isTaskScopeActive ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
+                              >
+                                {!isTaskScopeActive && (
+                                  <span
+                                    className="absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
+                                    style={{ background: `${item.color}12` }}
+                                  />
+                                )}
+                                <span className="relative z-10 shrink-0" style={{ color: isTaskScopeActive ? 'white' : item.color }}>
+                                  {item.icon}
+                                </span>
+                                <span className="relative z-10 flex-1 truncate" style={{ color: isTaskScopeActive ? 'white' : 'var(--color-text)' }}>
+                                  {item.label}
+                                </span>
+                                <ChevronDown size={12} className={cn('relative z-10 shrink-0 transition-transform', tasksOpen && 'rotate-180', isTaskScopeActive ? 'text-white/80' : 'text-slate-400')} />
+                              </button>
+
+                              {tasksOpen && (
+                                <ul className="mt-1 space-y-1 pl-6">
+                                  {taskLinks.map((taskLink) => {
+                                    const isSubActive = pathname === '/dashboard/tasks' && activeTaskScope === taskLink.scope
+
+                                    return (
+                                      <li key={taskLink.scope}>
+                                        <Link
+                                          href={`/dashboard/tasks?scope=${taskLink.scope}`}
+                                          onClick={onClose}
+                                          className={cn(
+                                            'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
+                                            isSubActive
+                                              ? 'bg-emerald-50 text-emerald-700'
+                                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                          )}
+                                        >
+                                          <span>{taskLink.label}</span>
+                                          <span className={cn(
+                                            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                                            isSubActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                          )}>
+                                            {taskLink.count}
+                                          </span>
+                                        </Link>
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                              )}
+                            </li>
+                          )
+                        }
 
                         return (
                           <li key={item.href}>

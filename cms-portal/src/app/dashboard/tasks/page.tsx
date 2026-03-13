@@ -11,12 +11,27 @@ export const metadata = {
   title: 'Tasks | CMS Portal',
 }
 
-export default async function TasksPage() {
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams?: { scope?: string }
+}) {
   const [user, tasks] = await Promise.all([
     getSession(),
     getTodos().catch(() => []),
   ])
   if (!user) redirect('/login')
+
+  const scope = searchParams?.scope
+  const initialScope =
+    scope === 'all' ||
+    scope === 'my_all' ||
+    scope === 'my_pending' ||
+    scope === 'assigned_by_me' ||
+    scope === 'my_approval' ||
+    scope === 'other_approval'
+      ? scope
+      : 'my_all'
 
   return (
     <div className="flex flex-col h-full">
@@ -29,11 +44,13 @@ export default async function TasksPage() {
           }
         >
           <TasksBoard
+            key={initialScope}
             currentUsername={user.username}
             currentUserRole={user.role}
             currentUserDept={user.department}
             currentUserTeamMembers={user.teamMembers}
             initialTasks={tasks}
+            initialScope={initialScope}
           />
         </Suspense>
       </div>
