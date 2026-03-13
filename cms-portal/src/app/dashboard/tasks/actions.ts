@@ -5,6 +5,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { isPastPakistanDate } from '@/lib/pakistan-time'
 import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
+import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import type {
   Todo,
   TodoAttachment,
@@ -272,18 +273,6 @@ export async function getTodoStats(): Promise<TodoStats> {
   if (!user) return { total: 0, completed: 0, pending: 0, overdue: 0, highPriority: 0, dueToday: 0, shared: 0 }
   const todos = await getTodos()
   return computeTodoStatsFromTodos(todos)
-}
-
-export function computeTodoStatsFromTodos(todos: Todo[]): TodoStats {
-  return {
-    total: todos.length,
-    completed: todos.filter((t) => t.completed).length,
-    pending: todos.filter((t) => !t.completed).length,
-    overdue: todos.filter((t) => !t.completed && isOverdue(t.due_date)).length,
-    highPriority: todos.filter((t) => !t.completed && (t.priority === 'high' || t.priority === 'urgent')).length,
-    dueToday: todos.filter((t) => !t.completed && isToday(t.due_date)).length,
-    shared: todos.filter((t) => t.is_shared).length,
-  }
 }
 
 // ── Get packages for task form ────────────────────────────────────────────────

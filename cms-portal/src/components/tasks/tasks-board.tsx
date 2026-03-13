@@ -27,12 +27,12 @@ import {
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
 import {
   getTodos,
-  computeTodoStatsFromTodos,
   deleteTodoAction,
   archiveTodoAction,
 } from '@/app/dashboard/tasks/actions'
