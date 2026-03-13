@@ -49,7 +49,7 @@ async function resolveAttachmentUrl(
   if (!storagePath) return row
 
   const { data } = await supabase.storage
-    .from(TASK_ATTACHMENTS_BUCKET)
+    .from(CMS_STORAGE_BUCKET)
     .createSignedUrl(storagePath, 60 * 60)
 
   if (!data?.signedUrl) return row

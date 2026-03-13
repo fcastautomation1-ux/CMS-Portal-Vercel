@@ -44,7 +44,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
   const [drafts, setDrafts] = useState<Record<string, DraftCampaign>>({})
 
   const accountNameMap = useMemo(() => {
-    return Object.fromEntries(accounts.map(a => [a.customer_id, a.account_name || a.drive_code_comments || '']))
+    return Object.fromEntries(accounts.map(a => [a.customer_id, a.account_name || '']))
   }, [accounts])
 
   const filtered = useMemo(() => {
