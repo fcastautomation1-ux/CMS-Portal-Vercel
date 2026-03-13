@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import {
   Bold,
+  ChevronDown,
   Italic,
   List,
   ListOrdered,
   Loader2,
   Paperclip,
+  Search,
   Underline,
   X,
 } from 'lucide-react'
@@ -107,6 +109,8 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   )
   const [multiSearch, setMultiSearch] = useState('')
   const [multiDeptFilter, setMultiDeptFilter] = useState('')
+  const [appSearch, setAppSearch] = useState('')
+  const [packageSearch, setPackageSearch] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [error, setError] = useState('')
 
@@ -173,14 +177,41 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   )
 
   const availableApps = useMemo(
-    () =>
-      [...new Set(packages.map((item) => item.app_name).filter(Boolean))].sort() as string[],
+    () => {
+      const apps = [...new Set(packages.map((item) => item.app_name).filter(Boolean))].sort() as string[]
+      return apps.includes('Others') ? apps : [...apps, 'Others']
+    },
     [packages]
   )
 
   const filteredPackagesByApp = useMemo(
-    () => (appName ? packages.filter((item) => item.app_name === appName) : packages),
+    () => {
+      const list = appName
+        ? packages.filter((item) => item.app_name === appName)
+        : packages
+
+      if (appName === 'Others' && !list.some((item) => item.name === 'Others')) {
+        return [{ id: 'others', name: 'Others', app_name: 'Others' }, ...list]
+      }
+      return list
+    },
     [appName, packages]
+  )
+
+  const filteredApps = useMemo(
+    () =>
+      availableApps.filter((app) =>
+        app.toLowerCase().includes(appSearch.toLowerCase())
+      ),
+    [appSearch, availableApps]
+  )
+
+  const filteredPackages = useMemo(
+    () =>
+      filteredPackagesByApp.filter((pkg) =>
+        pkg.name.toLowerCase().includes(packageSearch.toLowerCase())
+      ),
+    [filteredPackagesByApp, packageSearch]
   )
 
   const filteredUsersForMulti = useMemo(
@@ -198,6 +229,36 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   const execCmd = (cmd: string) => {
     document.execCommand(cmd, false)
     goalRef.current?.focus()
+  }
+
+  const selectApp = (nextApp: string) => {
+    setAppName(nextApp)
+    setAppSearch('')
+    setPackageSearch('')
+
+    if (nextApp === 'Others') {
+      setPackageName('Others')
+      return
+    }
+
+    const appPackages = packages.filter((item) => item.app_name === nextApp)
+    if (appPackages.length > 0) {
+      setPackageName(appPackages[0].name)
+      return
+    }
+
+    setPackageName('')
+  }
+
+  const selectPackage = (nextPackage: string) => {
+    setPackageName(nextPackage)
+    setPackageSearch('')
+    if (nextPackage === 'Others') {
+      setAppName('Others')
+      return
+    }
+    const pkg = packages.find((item) => item.name === nextPackage)
+    if (pkg?.app_name) setAppName(pkg.app_name)
   }
 
   const toggleMultiAssignee = (user: User) => {
@@ -407,40 +468,26 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="App Name">
-                  <select
+                  <SearchableDropdown
                     value={appName}
-                    onChange={(event) => {
-                      setAppName(event.target.value)
-                      setPackageName('')
-                    }}
-                    className={selectCls}
-                  >
-                    <option value="">Select App</option>
-                    {availableApps.map((app) => (
-                      <option key={app} value={app}>
-                        {app}
-                      </option>
-                    ))}
-                  </select>
+                    searchValue={appSearch}
+                    onSearchChange={setAppSearch}
+                    onSelect={selectApp}
+                    options={filteredApps.map((app) => ({ value: app, label: app }))}
+                    placeholder="Select App"
+                    searchPlaceholder="Search app name..."
+                  />
                 </Field>
                 <Field label="Package Name" required>
-                  <select
+                  <SearchableDropdown
                     value={packageName}
-                    onChange={(event) => {
-                      const nextPackage = event.target.value
-                      setPackageName(nextPackage)
-                      const pkg = packages.find((item) => item.name === nextPackage)
-                      if (pkg?.app_name) setAppName(pkg.app_name)
-                    }}
-                    className={selectCls}
-                  >
-                    <option value="">Select Package</option>
-                    {filteredPackagesByApp.map((pkg) => (
-                      <option key={pkg.id} value={pkg.name}>
-                        {pkg.name}
-                      </option>
-                    ))}
-                  </select>
+                    searchValue={packageSearch}
+                    onSearchChange={setPackageSearch}
+                    onSelect={selectPackage}
+                    options={filteredPackages.map((pkg) => ({ value: pkg.name, label: pkg.name }))}
+                    placeholder="Select Package"
+                    searchPlaceholder="Search package name..."
+                  />
                 </Field>
               </div>
 
@@ -830,6 +877,98 @@ function SectionCard({
       </div>
       <div className="space-y-4">{children}</div>
     </section>
+  )
+}
+
+function SearchableDropdown({
+  value,
+  options,
+  placeholder,
+  searchValue,
+  onSearchChange,
+  onSelect,
+  searchPlaceholder,
+}: {
+  value: string
+  options: Array<{ value: string; label: string }>
+  placeholder: string
+  searchValue: string
+  onSearchChange: (value: string) => void
+  onSelect: (value: string) => void
+  searchPlaceholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [])
+
+  const selected = options.find((option) => option.value === value)
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={cn(
+          inputCls,
+          'flex items-center justify-between bg-white text-left',
+          open && 'border-blue-400 ring-1 ring-blue-400'
+        )}
+      >
+        <span className={cn('truncate', selected ? 'text-slate-800' : 'text-slate-400')}>
+          {selected?.label || placeholder}
+        </span>
+        <ChevronDown size={16} className={cn('shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
+          <div className="border-b border-slate-100 p-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <Search size={14} className="text-slate-400" />
+              <input
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1.5">
+            {options.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-400">No results found.</div>
+            ) : (
+              options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onSelect(option.value)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'w-full rounded-lg px-3 py-2 text-left text-sm transition',
+                    option.value === value
+                      ? 'bg-blue-50 font-medium text-blue-700'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
