@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useTransition, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
 import {
   ArrowLeft,
   Archive,
@@ -28,8 +28,10 @@ import {
   Users,
   XCircle,
 } from 'lucide-react'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/cn'
+import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
+import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import { CreateTaskModal } from './create-task-modal'
@@ -41,6 +43,8 @@ import {
   declineTodoAction,
   deleteTodoAction,
   getTodoDetails,
+  getUsersForAssignment,
+  saveTodoAttachmentAction,
   shareTodoAction,
   startTaskAction,
   toggleTodoCompleteAction,
@@ -48,6 +52,8 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 type TabId = 'info' | 'history' | 'files' | 'share'
+const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
+const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 
 const STATUS_META: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   backlog: { label: 'Backlog', bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400' },
@@ -80,7 +86,7 @@ const EVT_META: Record<string, { label: string; iconBg: string; iconText: string
 
 function fmtTs(ts: string) {
   try {
-    return format(new Date(ts), "MMM d, yyyy 'at' hh:mm aa")
+    return formatPakistanDateTime(ts)
   } catch {
     return ts
   }
@@ -118,6 +124,71 @@ function getTaskParticipants(task: TodoDetails) {
   return Array.from(seen.values())
 }
 
+function splitDepartments(value: string | null | undefined): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function getDepartmentSummary(task: TodoDetails) {
+  const departments = new Set<string>()
+
+  splitDepartments(task.creator_department ?? task.category ?? null).forEach((department) => departments.add(department))
+  splitDepartments(task.assignee_department).forEach((department) => departments.add(department))
+  if (task.queue_department) departments.add(task.queue_department)
+
+  const list = Array.from(departments)
+  return {
+    count: list.length,
+    label: list.length ? list.join(', ') : '-',
+  }
+}
+
+function getAssignedSummary(task: TodoDetails) {
+  if (task.assigned_to) {
+    return {
+      value: task.assigned_to,
+      sub: task.assignee_department,
+    }
+  }
+
+  const assignees = task.multi_assignment?.assignees ?? []
+  if (assignees.length > 0) {
+    return {
+      value: `${assignees.length} users assigned`,
+      sub: assignees.map((assignee) => assignee.username).join(', '),
+    }
+  }
+
+  if (task.queue_status === 'queued' && task.queue_department) {
+    return {
+      value: 'Department queue',
+      sub: task.queue_department,
+    }
+  }
+
+  return {
+    value: '-',
+    sub: null,
+  }
+}
+
+function getAssigneeDueDate(task: TodoDetails, username: string) {
+  const assignee = task.multi_assignment?.assignees?.find((entry) => entry.username === username)
+  return assignee?.actual_due_date ?? task.due_date ?? task.expected_due_date ?? null
+}
+
+function renderCommentWithMentions(details: string) {
+  const parts = details.split(/(@[a-zA-Z0-9._-]+)/g)
+  return parts.map((part, index) => {
+    if (/^@[a-zA-Z0-9._-]+$/.test(part)) {
+      return <span key={`${part}-${index}`} className="font-semibold underline underline-offset-2">{part}</span>
+    }
+    return <span key={`${part}-${index}`}>{part}</span>
+  })
+}
+
 export function TaskDetailPage({
   initialDetails,
   currentUsername,
@@ -130,11 +201,22 @@ export function TaskDetailPage({
   const [activeTab, setActiveTab] = useState<TabId>('info')
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
+  const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [actionError, setActionError] = useState('')
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getUsersForAssignment().then((users) => {
+      if (!cancelled) setShareUsers(users)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const refreshDetails = async () => {
     const updated = await getTodoDetails(details.id)
@@ -164,6 +246,50 @@ export function TaskDetailPage({
     })
   }
 
+  const uploadFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!files.length) return
+
+    const oversized = files.find((file) => file.size > MAX_ATTACHMENT_SIZE)
+    if (oversized) {
+      setActionError(`${oversized.name} is larger than 1 GB.`)
+      return
+    }
+
+    setActionError('')
+    setUploadingFiles(true)
+
+    try {
+      const supabase = createBrowserClient()
+      for (const file of files) {
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined
+        const storagePath = `todos/${details.id}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+        const upload = await supabase.storage
+          .from(TASK_ATTACHMENTS_BUCKET)
+          .upload(storagePath, file, { upsert: false })
+
+        if (upload.error) throw new Error(upload.error.message)
+
+        const saved = await saveTodoAttachmentAction({
+          todo_id: details.id,
+          file_name: file.name,
+          file_size: file.size,
+          mime_type: file.type || null,
+          storage_path: storagePath,
+        })
+
+        if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)
+      }
+
+      await refreshDetails()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Attachment upload failed.')
+    } finally {
+      setUploadingFiles(false)
+    }
+  }
+
   const t = details
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
@@ -175,6 +301,8 @@ export function TaskDetailPage({
   const historyEvents = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
   const nextStep = nextStepLabel(t)
   const participants = getTaskParticipants(t)
+  const assignedSummary = getAssignedSummary(t)
+  const departmentSummary = getDepartmentSummary(t)
 
   const tabs = [
     { id: 'info' as const, label: 'Details' },
@@ -207,11 +335,11 @@ export function TaskDetailPage({
               </h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
                 <span className="flex items-center gap-1.5"><User size={14} /> {t.username}</span>
-                <span className="flex items-center gap-1.5"><Clock size={14} /> {format(new Date(t.created_at), 'MMM d, yyyy')}</span>
+                <span className="flex items-center gap-1.5"><Clock size={14} /> {formatPakistanDate(t.created_at)}</span>
                 {t.due_date && (
                   <span className={cn('flex items-center gap-1.5', !isCompleted && new Date(t.due_date) < new Date() && 'font-semibold text-red-500')}>
                     <Calendar size={14} />
-                    Due {format(new Date(t.due_date), 'MMM d, yyyy')}
+                    Due {formatPakistanDate(t.due_date)}
                   </span>
                 )}
                 {t.app_name && <span className="flex items-center gap-1.5 font-medium text-blue-600"><Tag size={14} /> {t.app_name}</span>}
@@ -309,9 +437,9 @@ export function TaskDetailPage({
                 {activeTab === 'info' && (
                   <div className="space-y-6">
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={t.assigned_to ?? '-'} sub={t.assignee_department} />
-                      <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label="Department" value={t.creator_department ?? t.category ?? '-'} />
-                      <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date" value={t.due_date ? format(new Date(t.due_date), 'MMM d, yyyy') : '-'} accent={!isCompleted && t.due_date && new Date(t.due_date) < new Date() ? 'red' : undefined} />
+                      <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
+                      <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
+                      <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date" value={t.due_date ? formatPakistanDate(t.due_date) : '-'} accent={!isCompleted && t.due_date && new Date(t.due_date) < new Date() ? 'red' : undefined} />
                       <MetaCard icon={<Target size={13} className="text-pink-500" />} label="KPI Type" value={t.kpi_type ?? '-'} />
                       <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Package" value={t.package_name ?? '-'} />
                       {t.queue_status === 'queued' && t.queue_department && <MetaCard icon={<Flag size={13} className="text-green-500" />} label="Queue" value={t.queue_department} accent="green" />}
@@ -361,6 +489,9 @@ export function TaskDetailPage({
                                   <div className="min-w-0 flex-1">
                                     <p className="truncate text-sm font-semibold text-slate-800">{assignee.username}</p>
                                     <p className="text-xs capitalize text-slate-500">{assignee.status ?? 'pending'}</p>
+                                    <p className="text-[11px] text-slate-400">
+                                      Due {getAssigneeDueDate(t, assignee.username) ? formatPakistanDate(getAssigneeDueDate(t, assignee.username) as string) : '-'}
+                                    </p>
                                   </div>
                                   <span className="text-xs font-semibold text-slate-600">{pct}%</span>
                                 </div>
@@ -436,7 +567,24 @@ export function TaskDetailPage({
                 )}
 
                 {activeTab === 'files' && (
-                  <div>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Attach files</p>
+                        <p className="text-xs text-slate-500">Any attached user can upload. Maximum 1 GB per file. No file-count limit.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={uploadFiles} />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingFiles}
+                          className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          <span className="inline-flex items-center gap-2">{uploadingFiles ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} Upload Files</span>
+                        </button>
+                      </div>
+                    </div>
                     {t.attachments.length === 0 ? (
                       <div className="py-16 text-center">
                         <Paperclip size={28} className="mx-auto mb-3 text-slate-300" />
@@ -452,7 +600,7 @@ export function TaskDetailPage({
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-semibold text-slate-800">{attachment.file_name}</p>
                                 <p className="text-xs text-slate-400">
-                                  {attachment.uploaded_by} · {format(new Date(attachment.created_at), 'MMM d, yyyy')}
+                                  {attachment.uploaded_by} · {formatPakistanDate(attachment.created_at)}
                                   {attachment.file_size ? ` · ${(attachment.file_size / 1024).toFixed(0)} KB` : ''}
                                 </p>
                               </div>
@@ -472,13 +620,20 @@ export function TaskDetailPage({
                     <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                       <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Share with user</label>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <input
-                          type="text"
+                        <select
                           value={shareUsername}
                           onChange={(e) => setShareUsername(e.target.value)}
-                          placeholder="Enter username..."
                           className="min-w-[220px] flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                        />
+                        >
+                          <option value="">Select a user to share with</option>
+                          {shareUsers
+                            .filter((user) => user.username !== t.username && !t.shares.some((share) => share.shared_with === user.username))
+                            .map((user) => (
+                              <option key={user.username} value={user.username}>
+                                {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
+                              </option>
+                            ))}
+                        </select>
                         <button
                           onClick={() => {
                             if (!shareUsername.trim()) return
@@ -542,10 +697,15 @@ export function TaskDetailPage({
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {participants.map((participant) => (
-                    <div key={participant.username} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <p className="text-sm font-semibold text-slate-800">{participant.username}</p>
+                    <button
+                      key={participant.username}
+                      type="button"
+                      onClick={() => setComment((prev) => `${prev.trim()} @${participant.username}`.trim() + ' ')}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-orange-200 hover:bg-orange-50"
+                    >
+                      <p className="text-xs font-semibold text-slate-800">{participant.username}</p>
                       <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{participant.role}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -569,10 +729,15 @@ export function TaskDetailPage({
                           </div>
                         )}
                         <div className={cn('max-w-[85%]', isMe && 'items-end')}>
+                          {entry.mention_users && entry.mention_users.length > 0 && (
+                            <div className={cn('mb-1 text-[10px] font-semibold uppercase tracking-[0.14em]', isMe ? 'text-blue-200 text-right' : 'text-orange-500')}>
+                              For {entry.mention_users.map((username) => `@${username}`).join(', ')}
+                            </div>
+                          )}
                           <div className={cn('rounded-[24px] px-4 py-3 text-sm shadow-sm', isMe ? 'rounded-br-md bg-blue-600 text-white' : 'rounded-bl-md bg-slate-100 text-slate-800')}>
-                            {entry.details}
+                            {renderCommentWithMentions(entry.details)}
                           </div>
-                          <div className={cn('mt-1 px-1 text-[11px] text-slate-400', isMe && 'text-right')}>
+                          <div className={cn('mt-1 px-1 text-[10px] text-slate-400', isMe && 'text-right')}>
                             {entry.user} · {formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })}
                           </div>
                         </div>
@@ -592,7 +757,7 @@ export function TaskDetailPage({
                   <textarea
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Write a message for this task..."
+                    placeholder="Write a message for this task... Use @username to mention someone."
                     rows={3}
                     className="w-full resize-none border-0 bg-transparent px-3 py-2 text-sm text-slate-700 outline-none"
                     onKeyDown={(e) => {

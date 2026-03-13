@@ -11,21 +11,28 @@ const initialState = null
 function SubmitButton() {
   const { pending } = useFormStatus()
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="w-full h-12 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed"
-      style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
-    >
+    <div className="space-y-2">
+      <button
+        type="submit"
+        disabled={pending}
+        className="w-full h-12 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-70 disabled:cursor-not-allowed"
+        style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
+      >
+        {pending ? (
+          <>
+            <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12a9 9 0 11-6.219-8.56"/>
+            </svg>
+            Signing in...
+          </>
+        ) : 'Sign In'}
+      </button>
       {pending ? (
-        <>
-          <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 12a9 9 0 11-6.219-8.56"/>
-          </svg>
-          Signing in...
-        </>
-      ) : 'Sign In'}
-    </button>
+        <p className="text-center text-sm" style={{ color: '#7C3AED' }}>
+          Please wait, logging you in...
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -234,12 +241,6 @@ export default function LoginPage() {
 
             <SubmitButton />
           </form>
-
-          {/* Footer */}
-          <p className="text-sm text-center mt-8" style={{ color: '#94A3B8' }}>
-            Don&apos;t have an account?{' '}
-            <span className="font-semibold cursor-pointer" style={{ color: '#7C3AED' }}>Sign Up</span>
-          </p>
         </div>
 
         {/* ── Right: Illustration Panel ─────────────────────── */}
