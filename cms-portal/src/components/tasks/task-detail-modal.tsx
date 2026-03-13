@@ -664,7 +664,14 @@ export function TaskDetailModal({
                 ))}
               </div>
               <div className="space-y-3 mb-4">
-                {comments.length === 0 && <p className="text-sm text-slate-400 italic">No comments yet.</p>}
+                {comments.length === 0 && (
+                  <div className="flex min-h-[220px] items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-center">
+                    <div>
+                      <MessageCircle size={28} className="mx-auto mb-3 text-slate-300" />
+                      <p className="text-sm text-slate-400 italic">No comments yet.</p>
+                    </div>
+                  </div>
+                )}
                 {comments.map((c, i) => {
                   const isMe = c.user === currentUsername
                   return (

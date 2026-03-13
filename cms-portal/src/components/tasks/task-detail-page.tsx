@@ -828,10 +828,10 @@ export function TaskDetailPage({
 
               <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
                 {comments.length === 0 ? (
-                  <div className="flex h-full min-h-[260px] items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-slate-50 text-center">
+                  <div className="flex h-full min-h-[360px] items-center justify-center rounded-[32px] border border-dashed border-slate-200 bg-slate-50 text-center">
                     <div>
-                      <MessageCircle size={28} className="mx-auto mb-3 text-slate-300" />
-                      <p className="text-sm text-slate-500">No task chat yet.</p>
+                      <MessageCircle size={34} className="mx-auto mb-4 text-slate-300" />
+                      <p className="text-base text-slate-500">No task chat yet.</p>
                     </div>
                   </div>
                 ) : (
