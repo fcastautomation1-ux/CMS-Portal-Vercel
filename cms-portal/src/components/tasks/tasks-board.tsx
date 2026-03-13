@@ -1,12 +1,11 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useState, useTransition, useCallback, useMemo } from 'react'
 import type { ChangeEvent } from 'react'
 import {
   Plus,
   RefreshCw,
-  LayoutGrid,
-  Calendar,
   Search,
   ChevronDown,
   CheckSquare,
@@ -28,7 +27,6 @@ import { cn } from '@/lib/cn'
 import type { Todo, TodoStats, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
-import { TaskDetailModal } from './task-detail-modal'
 import {
   getTodos,
   getTodoStats,
@@ -70,6 +68,7 @@ interface TasksBoardProps {
 }
 
 export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialStats }: TasksBoardProps) {
+  const router = useRouter()
   const [tasks, setTasks] = useState<Todo[]>(initialTasks)
   const [stats, setStats] = useState<TodoStats>(initialStats)
   const [loading, setLoading] = useState(false)
@@ -90,7 +89,6 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
 
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
-  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [, setShareTask] = useState<Todo | null>(null)
   const [, setDeclineTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -516,7 +514,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     currentUsername,
     currentUserDept,
     onEdit: (t: Todo) => setEditTask(t),
-    onViewDetail: (t: Todo) => setDetailTaskId(t.id),
+    onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),
     onDecline: (t: Todo) => setDeclineTask(t),
     onRefresh: refresh,
@@ -913,16 +911,13 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
           )}
 
           {!loading && viewMode === 'calendar' && (
-            <CalendarView tasks={filteredTasks} onTaskClick={(t) => setDetailTaskId(t.id)} />
+            <CalendarView tasks={filteredTasks} onTaskClick={(t) => router.push(`/dashboard/tasks/${t.id}`)} />
           )}
         </div>
       </div>
 
       {(showCreate || editTask) && (
         <CreateTaskModal editTask={editTask} onClose={() => { setShowCreate(false); setEditTask(null) }} onSaved={refresh} />
-      )}
-      {detailTaskId && (
-        <TaskDetailModal taskId={detailTaskId} currentUsername={currentUsername} onClose={() => setDetailTaskId(null)} onEdit={(t) => { setDetailTaskId(null); setEditTask(t) }} onRefresh={refresh} />
       )}
     </div>
   )
