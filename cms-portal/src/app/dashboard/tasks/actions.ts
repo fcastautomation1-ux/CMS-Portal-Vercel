@@ -318,6 +318,65 @@ export async function getDepartmentsForTaskForm(): Promise<string[]> {
   return (data || []).map((d: Record<string, unknown>) => String(d.name))
 }
 
+function toGoogleSheetCsvUrl(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  if (/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[^/]+\/pub\?.*output=csv/i.test(trimmed)) {
+    return trimmed
+  }
+
+  const match = trimmed.match(/^https:\/\/docs\.google\.com\/spreadsheets\/d\/([^/]+)(?:\/.*)?$/i)
+  if (!match) return null
+
+  const url = new URL(trimmed)
+  const gid = url.searchParams.get('gid') || '0'
+  return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=${gid}`
+}
+
+export async function importGoogleSheetCsvAction(
+  sheetUrl: string
+): Promise<{ success: boolean; csv?: string; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const csvUrl = toGoogleSheetCsvUrl(sheetUrl)
+  if (!csvUrl) {
+    return {
+      success: false,
+      error: 'Please enter a valid public Google Sheet URL.',
+    }
+  }
+
+  try {
+    const response = await fetch(csvUrl, {
+      cache: 'no-store',
+      headers: {
+        accept: 'text/csv,text/plain;q=0.9,*/*;q=0.8',
+      },
+    })
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Google Sheet import failed (${response.status}). Make sure the sheet is public.`,
+      }
+    }
+
+    const csv = await response.text()
+    if (!csv.trim()) {
+      return { success: false, error: 'The Google Sheet is empty.' }
+    }
+
+    return { success: true, csv }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unable to import the Google Sheet.',
+    }
+  }
+}
+
 // ── Create / Update todo ──────────────────────────────────────────────────────
 
 export async function saveTodoAction(

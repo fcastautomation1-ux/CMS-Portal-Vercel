@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import { cn } from '@/lib/cn'
+import { taskDescriptionToPlainText } from '@/lib/task-description'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
   ChevronDown, ChevronUp, MessageCircle,
@@ -188,6 +189,7 @@ export function TaskCard({
   const unread = comments.filter((h: HistoryEntry) => Array.isArray(h.unread_by) && h.unread_by.includes(currentUsername))
   const playPkg = task.package_name && task.package_name !== 'Others' ? task.package_name : null
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
+  const summaryText = task.notes || taskDescriptionToPlainText(task.description)
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
@@ -267,9 +269,9 @@ export function TaskCard({
             {task.title}
           </button>
 
-          {(task.notes || task.description) && (
+          {summaryText && (
             <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-400">
-              {task.notes || task.description}
+              {summaryText}
             </p>
           )}
 

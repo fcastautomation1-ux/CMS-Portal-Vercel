@@ -27,6 +27,7 @@ import {
   Send,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { normalizeTaskDescription } from '@/lib/task-description'
 import { format, formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import {
@@ -320,7 +321,18 @@ export function TaskDetailModal({
             {/* Description */}
             {t.description && (
               <Section icon={<AlignLeft size={14} />} label="Description">
-                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{t.description}</p>
+                <div
+                  className={cn(
+                    'text-sm leading-relaxed text-slate-700',
+                    '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
+                    '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
+                    '[&_li]:my-1',
+                    '[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse',
+                    '[&_td]:border [&_td]:border-slate-200 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top',
+                    '[&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold'
+                  )}
+                  dangerouslySetInnerHTML={{ __html: normalizeTaskDescription(t.description) }}
+                />
               </Section>
             )}
 
