@@ -959,7 +959,7 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       </div>
 
       {(showCreate || editTask) && (
-        <CreateTaskModal editTask={editTask} onClose={() => { setShowCreate(false); setEditTask(null) }} onSaved={refresh} />
+        <CreateTaskModal ownerUsername={currentUsername} editTask={editTask} onClose={() => { setShowCreate(false); setEditTask(null) }} onSaved={refresh} />
       )}
     </div>
   )

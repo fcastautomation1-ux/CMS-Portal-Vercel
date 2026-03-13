@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase/server'
 import { DashboardShell } from '@/components/layout/dashboard-shell'
+import { resolveStorageUrl } from '@/lib/storage'
 
 export default async function DashboardLayout({
   children,
@@ -20,8 +21,10 @@ export default async function DashboardLayout({
     .select('avatar_data')
     .eq('username', user.username)
     .single()
-  const avatarData =
+  const avatarData = await resolveStorageUrl(
+    supabase,
     (profileRow as { avatar_data?: string | null } | null)?.avatar_data ?? user.avatarData ?? null
+  )
   const enrichedUser = { ...user, avatarData }
 
   return (

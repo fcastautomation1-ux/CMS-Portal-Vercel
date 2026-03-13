@@ -23,6 +23,7 @@ import { cn } from '@/lib/cn'
 import { isPastPakistanDate, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
+import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import type { MultiAssignmentEntry, Todo } from '@/types'
 import { KPI_TYPES } from '@/types'
 import {
@@ -30,6 +31,7 @@ import {
   getPackagesForTaskForm,
   getUsersForAssignment,
   importGoogleSheetCsvAction,
+  createTaskAttachmentUploadUrlAction,
   saveTodoAction,
   saveTodoAttachmentAction,
 } from '@/app/dashboard/tasks/actions'
@@ -76,17 +78,17 @@ type ImportProgress = {
 }
 
 const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
-const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr><tr><td></td><td></td></tr></tbody></table>'
 
 interface CreateTaskModalProps {
   editTask?: Todo | null
+  ownerUsername?: string
   onClose: () => void
   onSaved: () => void
 }
 
-export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalProps) {
+export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: CreateTaskModalProps) {
   const isEdit = !!editTask
   const draftKey = `${DRAFT_STORAGE_PREFIX}:${editTask?.id ?? 'new'}`
   const initialDraft = readDraft(draftKey)
@@ -343,14 +345,21 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
     if (!pendingAttachments.length) return
 
     const supabase = createBrowserClient()
+    const resolvedOwner = ownerUsername || editTask?.username || 'unknown-user'
     for (const attachment of pendingAttachments) {
-      const ext = attachment.file.name.includes('.')
-        ? attachment.file.name.split('.').pop()
-        : undefined
-      const storagePath = `todos/${todoId}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+      const signedUpload = await createTaskAttachmentUploadUrlAction({
+        todo_id: todoId,
+        owner_username: resolvedOwner,
+        file_name: attachment.file.name,
+      })
+
+      if (!signedUpload.success || !signedUpload.path || !signedUpload.token) {
+        throw new Error(signedUpload.error ?? `Attachment upload failed for ${attachment.file.name}`)
+      }
+
       const upload = await supabase.storage
-        .from(TASK_ATTACHMENTS_BUCKET)
-        .upload(storagePath, attachment.file, { upsert: false })
+        .from(signedUpload.bucket || CMS_STORAGE_BUCKET)
+        .uploadToSignedUrl(signedUpload.path, signedUpload.token, attachment.file)
 
       if (upload.error) {
         throw new Error(`Attachment upload failed for ${attachment.file.name}: ${upload.error.message}`)
@@ -361,7 +370,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
         file_name: attachment.file.name,
         file_size: attachment.file.size,
         mime_type: attachment.file.type || null,
-        storage_path: storagePath,
+        storage_path: signedUpload.path,
       })
 
       if (!saveAttachment.success) {

@@ -56,6 +56,18 @@ export type AccountFormData = {
   enabled: boolean
 }
 
+export interface AccountFile {
+  id: string
+  account_id: string
+  file_name: string
+  file_size: number | null
+  mime_type: string | null
+  storage_path: string
+  uploaded_by: string
+  created_at: string
+  file_url?: string | null
+}
+
 // ─── Users ───────────────────────────────────────────────────
 export interface User {
   username: string

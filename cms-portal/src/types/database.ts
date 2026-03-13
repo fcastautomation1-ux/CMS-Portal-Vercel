@@ -41,6 +41,38 @@ export type Database = {
           created_date?: string
         }
       }
+      account_files: {
+        Row: {
+          id: string
+          account_id: string
+          file_name: string
+          file_size: number | null
+          mime_type: string | null
+          storage_path: string
+          uploaded_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          account_id: string
+          file_name: string
+          file_size?: number | null
+          mime_type?: string | null
+          storage_path: string
+          uploaded_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          account_id?: string
+          file_name?: string
+          file_size?: number | null
+          mime_type?: string | null
+          storage_path?: string
+          uploaded_by?: string
+          created_at?: string
+        }
+      }
       users: {
         Row: {
           username: string

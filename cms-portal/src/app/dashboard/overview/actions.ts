@@ -2,6 +2,7 @@
 
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { resolveStorageUrl } from '@/lib/storage'
 
 export interface OverviewStats {
   accounts: { total: number; running: number; error: number; pending: number }
@@ -108,7 +109,12 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     enabled: allCampaigns.filter(c => c.enabled).length,
   }
 
-  const usersData = (usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>
+  const usersData = await Promise.all(
+    ((usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>).map(async (userRow) => ({
+      ...userRow,
+      avatar_data: await resolveStorageUrl(supabase, userRow.avatar_data),
+    }))
+  )
   const byRole: Record<string, number> = {}
   usersData.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1 })
   const avatarMap = Object.fromEntries(usersData.map(u => [u.username, u.avatar_data ?? null]))

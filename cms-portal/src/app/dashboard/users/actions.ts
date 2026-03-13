@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { resolveStorageUrl } from '@/lib/storage'
 import type { ModuleAccess, User } from '@/types'
 
 export interface UserFormOptions {
@@ -17,11 +18,18 @@ export async function getUsers(): Promise<User[]> {
   if (!user) return []
 
   const supabase = createServerClient()
+  const withResolvedAvatars = async (rows: User[]) =>
+    Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+      }))
+    )
 
   // Admin and Super Manager see ALL users
   if (user.role === 'Admin' || user.role === 'Super Manager') {
     const { data } = await supabase.from('users').select('*').order('username')
-    return (data as unknown as User[]) ?? []
+    return withResolvedAvatars((data as unknown as User[]) ?? [])
   }
 
   // Manager sees a restricted set
@@ -32,16 +40,16 @@ export async function getUsers(): Promise<User[]> {
 
     // If department-restricted: only same-department users
     if (user.moduleAccess?.users?.departmentRestricted && user.department) {
-      return all.filter(u => u.department === user.department)
+      return withResolvedAvatars(all.filter(u => u.department === user.department))
     }
 
     // Default Manager: see self + users where manager_id === me + team_members list
     const teamList = user.teamMembers.map(t => t.toLowerCase())
-    return all.filter(u =>
+    return withResolvedAvatars(all.filter(u =>
       u.username === user.username ||
       u.manager_id === user.username ||
       teamList.includes(u.username.toLowerCase())
-    )
+    ))
   }
 
   // Supervisor / User: no access to Users module

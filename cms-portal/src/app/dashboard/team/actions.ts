@@ -2,6 +2,7 @@
 
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { resolveStorageUrl } from '@/lib/storage'
 
 export interface TeamMember {
   username: string
@@ -51,7 +52,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
 
   const now = new Date().toISOString().split('T')[0]
 
-  return (usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null; avatar_data: string | null }>).map(u => {
+  return Promise.all((usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null; avatar_data: string | null }>).map(async (u) => {
     const myTasks = (todos ?? []).filter((t: Record<string, unknown>) => t.username === u.username || t.assigned_to === u.username)
     const completed = myTasks.filter((t: Record<string, unknown>) => t.completed).length
     const pending = myTasks.filter((t: Record<string, unknown>) => !t.completed).length
@@ -59,7 +60,8 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
 
     return {
       ...u,
+      avatar_data: await resolveStorageUrl(supabase, u.avatar_data),
       taskStats: { total: myTasks.length, completed, pending, overdue },
     }
-  })
+  }))
 }

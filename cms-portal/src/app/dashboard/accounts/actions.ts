@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
-import type { Account, AccountFormData, SessionUser } from '@/types'
+import { buildAccountFilePath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
+import type { Account, AccountFile, AccountFormData, SessionUser } from '@/types'
 
 // ─── Role-based account filtering ────────────────────────────────
 function buildAccountFilter(user: SessionUser) {
@@ -21,6 +22,13 @@ function buildAccountFilter(user: SessionUser) {
   // User role
   if (allowedAccounts.includes('All') || allowedAccounts.includes('*')) return null
   return allowedAccounts
+}
+
+function canAccessAccount(user: SessionUser, accountId: string) {
+  const filter = buildAccountFilter(user)
+  if (filter === 'NO_ACCESS') return false
+  if (filter === null) return true
+  return filter.includes(accountId)
 }
 
 export async function getAccounts(): Promise<Account[]> {
@@ -43,6 +51,127 @@ export async function getAccounts(): Promise<Account[]> {
   const { data, error } = await query
   if (error) { console.error('getAccounts error:', error); return [] }
   return (data as Account[]) ?? []
+}
+
+export async function getAccountFiles(accountId: string): Promise<AccountFile[]> {
+  const user = await getSession()
+  if (!user || !canAccessAccount(user, accountId)) return []
+
+  const supabase = createServerClient()
+  const { data, error } = await supabase
+    .from('account_files')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('created_at', { ascending: false })
+
+  if (error || !data) return []
+
+  return Promise.all((data as AccountFile[]).map(async (row) => ({
+    ...row,
+    file_url: await resolveStorageUrl(supabase, row.storage_path),
+  })))
+}
+
+export async function createAccountFileUploadUrlAction(input: {
+  accountId: string
+  fileName: string
+  fileSize: number
+  mimeType?: string
+}): Promise<{ success: boolean; error?: string; signedUrl?: string; storagePath?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canAccessAccount(user, input.accountId)) return { success: false, error: 'Permission denied.' }
+  if (!input.fileName.trim()) return { success: false, error: 'File name is required.' }
+  if (input.fileSize <= 0) return { success: false, error: 'Invalid file size.' }
+  if (input.fileSize > 1024 * 1024 * 1024) return { success: false, error: 'Each file must be under 1 GB.' }
+
+  const supabase = createServerClient()
+  const storagePath = buildAccountFilePath({
+    ownerUsername: user.username,
+    accountId: input.accountId,
+    fileName: input.fileName,
+  })
+
+  const { data, error } = await supabase.storage
+    .from(CMS_STORAGE_BUCKET)
+    .createSignedUploadUrl(storagePath)
+
+  if (error || !data?.signedUrl) {
+    return { success: false, error: error?.message || 'Failed to prepare upload.' }
+  }
+
+  return {
+    success: true,
+    signedUrl: data.signedUrl,
+    storagePath,
+  }
+}
+
+export async function saveAccountFileAction(input: {
+  accountId: string
+  fileName: string
+  fileSize: number
+  mimeType?: string
+  storagePath: string
+}): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canAccessAccount(user, input.accountId)) return { success: false, error: 'Permission denied.' }
+
+  const supabase = createServerClient()
+  const { error } = await supabase.from('account_files').insert({
+    account_id: input.accountId,
+    file_name: input.fileName,
+    file_size: input.fileSize,
+    mime_type: input.mimeType || null,
+    storage_path: input.storagePath,
+    uploaded_by: user.username,
+  })
+
+  if (error) {
+    return {
+      success: false,
+      error: error.message.includes('account_files')
+        ? 'Missing account_files table in Supabase. Run the SQL setup first.'
+        : error.message,
+    }
+  }
+
+  revalidatePath('/dashboard/accounts')
+  return { success: true }
+}
+
+export async function deleteAccountFileAction(
+  fileId: string,
+  accountId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!canAccessAccount(user, accountId)) return { success: false, error: 'Permission denied.' }
+
+  const supabase = createServerClient()
+  const { data: existing, error: fetchError } = await supabase
+    .from('account_files')
+    .select('storage_path')
+    .eq('id', fileId)
+    .eq('account_id', accountId)
+    .single()
+
+  if (fetchError || !existing) return { success: false, error: 'File not found.' }
+
+  await supabase.storage
+    .from(CMS_STORAGE_BUCKET)
+    .remove([(existing as { storage_path: string }).storage_path])
+
+  const { error } = await supabase
+    .from('account_files')
+    .delete()
+    .eq('id', fileId)
+    .eq('account_id', accountId)
+
+  if (error) return { success: false, error: error.message }
+  revalidatePath('/dashboard/accounts')
+  return { success: true }
 }
 
 // ─── Create account ────────────────────────────────────────────

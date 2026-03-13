@@ -30,6 +30,7 @@ import {
 import { cn } from '@/lib/cn'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
+import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
@@ -45,6 +46,7 @@ import {
   shareTodoAction,
   unshareTodoAction,
   deleteTodoAction,
+  createTaskAttachmentUploadUrlAction,
   getUsersForAssignment,
   saveTodoAttachmentAction,
   archiveTodoAction,
@@ -101,7 +103,6 @@ function fmtTs(ts: string) {
   try { return formatPakistanDateTime(ts) } catch { return ts }
 }
 
-const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 
 function splitDepartments(value: string | null | undefined): string[] {
@@ -290,11 +291,19 @@ export function TaskDetailModal({
     try {
       const supabase = createBrowserClient()
       for (const file of files) {
-        const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined
-        const storagePath = `todos/${details.id}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+        const signedUpload = await createTaskAttachmentUploadUrlAction({
+          todo_id: details.id,
+          owner_username: details.username,
+          file_name: file.name,
+        })
+
+        if (!signedUpload.success || !signedUpload.path || !signedUpload.token) {
+          throw new Error(signedUpload.error ?? 'Unable to prepare file upload.')
+        }
+
         const upload = await supabase.storage
-          .from(TASK_ATTACHMENTS_BUCKET)
-          .upload(storagePath, file, { upsert: false })
+          .from(signedUpload.bucket || CMS_STORAGE_BUCKET)
+          .uploadToSignedUrl(signedUpload.path, signedUpload.token, file)
 
         if (upload.error) throw new Error(upload.error.message)
 
@@ -303,7 +312,7 @@ export function TaskDetailModal({
           file_name: file.name,
           file_size: file.size,
           mime_type: file.type || null,
-          storage_path: storagePath,
+          storage_path: signedUpload.path,
         })
 
         if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)

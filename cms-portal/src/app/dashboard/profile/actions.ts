@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession, createSession, getCookieName } from '@/lib/auth'
+import { buildUserAvatarPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 
 export async function saveThemePreference(
   theme: 'light' | 'dark'
@@ -43,6 +44,7 @@ export async function getProfileData(): Promise<{
   department: string | null
   full_name: string | null
   avatar_data: string | null
+  avatar_url: string | null
   email_notifications_enabled: boolean
 } | null> {
   const user = await getSession()
@@ -62,7 +64,44 @@ export async function getProfileData(): Promise<{
     department: (d.department as string | null) ?? null,
     full_name: (d.full_name as string | null) ?? null,
     avatar_data: (d.avatar_data as string | null) ?? null,
+    avatar_url: await resolveStorageUrl(supabase, (d.avatar_data as string | null) ?? null),
     email_notifications_enabled: (d.email_notifications_enabled as boolean) ?? false,
+  }
+}
+
+export async function createAvatarUploadUrlAction(input: {
+  fileName: string
+  fileSize: number
+  mimeType?: string
+}): Promise<{ success: boolean; error?: string; signedUrl?: string; storagePath?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  if (!input.fileName.trim()) return { success: false, error: 'File name is required' }
+  if (input.fileSize <= 0) return { success: false, error: 'Invalid file size' }
+  if (input.fileSize > 2 * 1024 * 1024) return { success: false, error: 'Avatar must be under 2MB' }
+  if (input.mimeType && !input.mimeType.startsWith('image/')) {
+    return { success: false, error: 'Only image files are allowed' }
+  }
+
+  const supabase = createServerClient()
+  const storagePath = buildUserAvatarPath({
+    username: user.username,
+    fileName: input.fileName,
+  })
+
+  const { data, error } = await supabase.storage
+    .from(CMS_STORAGE_BUCKET)
+    .createSignedUploadUrl(storagePath)
+
+  if (error || !data?.signedUrl) {
+    return { success: false, error: error?.message || 'Failed to prepare avatar upload' }
+  }
+
+  return {
+    success: true,
+    signedUrl: data.signedUrl,
+    storagePath,
   }
 }
 

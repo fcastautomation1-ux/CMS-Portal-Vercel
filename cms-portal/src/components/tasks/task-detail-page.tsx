@@ -33,6 +33,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
@@ -43,6 +44,7 @@ import {
   addCommentAction,
   approveTodoAction,
   archiveTodoAction,
+  createTaskAttachmentUploadUrlAction,
   declineTodoAction,
   deleteTodoAction,
   getTodoDetails,
@@ -55,7 +57,6 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 type TabId = 'info' | 'history' | 'files' | 'share'
-const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 
 const STATUS_META: Record<string, { label: string; bg: string; text: string; dot: string }> = {
@@ -302,11 +303,19 @@ export function TaskDetailPage({
     try {
       const supabase = createBrowserClient()
       for (const file of files) {
-        const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined
-        const storagePath = `todos/${details.id}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+        const signedUpload = await createTaskAttachmentUploadUrlAction({
+          todo_id: details.id,
+          owner_username: details.username,
+          file_name: file.name,
+        })
+
+        if (!signedUpload.success || !signedUpload.path || !signedUpload.token) {
+          throw new Error(signedUpload.error ?? 'Unable to prepare file upload.')
+        }
+
         const upload = await supabase.storage
-          .from(TASK_ATTACHMENTS_BUCKET)
-          .upload(storagePath, file, { upsert: false })
+          .from(signedUpload.bucket || CMS_STORAGE_BUCKET)
+          .uploadToSignedUrl(signedUpload.path, signedUpload.token, file)
 
         if (upload.error) throw new Error(upload.error.message)
 
@@ -315,7 +324,7 @@ export function TaskDetailPage({
           file_name: file.name,
           file_size: file.size,
           mime_type: file.type || null,
-          storage_path: storagePath,
+          storage_path: signedUpload.path,
         })
 
         if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)

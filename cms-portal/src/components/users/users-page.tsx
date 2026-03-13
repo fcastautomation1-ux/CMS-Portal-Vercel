@@ -222,9 +222,6 @@ function UserModal({
 
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>(splitCsv(user?.allowed_accounts))
   const [selectedReports, setSelectedReports] = useState<string[]>(splitCsv(user?.allowed_looker_reports))
-  const [driveAccessLevel, setDriveAccessLevel] = useState(user?.drive_access_level || 'none')
-  const [driveFolders, setDriveFolders] = useState(user?.allowed_drive_folders || '')
-
   const initialAccess = (user?.module_access || null) as ModuleAccess | null
   const [moduleAccess, setModuleAccess] = useState<ModuleAccess | null>(initialAccess)
 
@@ -253,9 +250,9 @@ function UserModal({
       team_members: selectedTeam.join(', '),
       allowed_accounts: selectedAccounts.join(', '),
       allowed_campaigns: '',
-      allowed_drive_folders: driveFolders,
+      allowed_drive_folders: user?.allowed_drive_folders || '',
       allowed_looker_reports: selectedReports.join(', '),
-      drive_access_level: driveAccessLevel,
+      drive_access_level: user?.drive_access_level || 'none',
       module_access: moduleAccess,
       email_notifications_enabled: emailNotificationsEnabled,
     }
@@ -275,8 +272,8 @@ function UserModal({
         team_members: selectedTeam.join(', '),
         allowed_accounts: selectedAccounts.join(', '),
         allowed_looker_reports: selectedReports.join(', '),
-        drive_access_level: driveAccessLevel,
-        allowed_drive_folders: driveFolders,
+        drive_access_level: user?.drive_access_level || 'none',
+        allowed_drive_folders: user?.allowed_drive_folders || '',
         module_access: moduleAccess,
         email_notifications_enabled: emailNotificationsEnabled,
       } as User
@@ -354,19 +351,6 @@ function UserModal({
               selected={selectedAccounts}
               onToggle={(v) => toggleInList(selectedAccounts, v, setSelectedAccounts)}
             />
-
-            <Field label="Allowed Drive Access Level">
-              <select value={driveAccessLevel} onChange={e => setDriveAccessLevel(e.target.value as 'none' | 'view' | 'upload' | 'full')} className="h-10 px-3 rounded-lg text-sm outline-none w-full" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
-                <option value="none">None</option>
-                <option value="view">Viewer (Read Only)</option>
-                <option value="upload">Editor (Upload/Edit)</option>
-                <option value="full">Full</option>
-              </select>
-            </Field>
-
-            <Field label="Allowed Drive Folders / Files">
-              <textarea value={driveFolders} onChange={e => setDriveFolders(e.target.value)} rows={3} className="px-3 py-2 rounded-lg text-sm outline-none w-full" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }} placeholder="Comma-separated folder IDs or paths" />
-            </Field>
 
             <MultiCheck
               title="Allowed Looker Reports"
@@ -452,7 +436,7 @@ function ModuleAccessEditor({ moduleAccess, setModuleAccess }: { moduleAccess: M
         {[
           ['googleAccount', 'Google Accounts'],
           ['users', 'Users'],
-          ['drive', 'Drive'],
+          ['drive', 'Files'],
           ['looker', 'Looker Reports'],
           ['todos', 'Tasks'],
           ['packages', 'Packages'],

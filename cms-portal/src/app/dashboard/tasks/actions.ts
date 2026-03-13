@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { isPastPakistanDate } from '@/lib/pakistan-time'
+import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET } from '@/lib/storage'
 import type {
   Todo,
   TodoAttachment,
@@ -14,8 +15,6 @@ import type {
   MultiAssignment,
   AssignmentChainEntry,
 } from '@/types'
-const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function isOverdue(dateStr: string | null): boolean {
@@ -1185,6 +1184,71 @@ export async function saveTodoAttachmentAction(input: {
 
   revalidatePath('/dashboard/tasks')
   return { success: true }
+}
+
+export async function createTaskAttachmentUploadUrlAction(input: {
+  todo_id: string
+  owner_username: string
+  file_name: string
+}): Promise<{ success: boolean; path?: string; token?: string; bucket?: string; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const [existingRes, sharesRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('id,username,assigned_to,manager_id,multi_assignment')
+      .eq('id', input.todo_id)
+      .single(),
+    supabase.from('todo_shares').select('shared_with').eq('todo_id', input.todo_id),
+  ])
+
+  const existing = existingRes.data
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  const isMultiAssignee = multiAssignment?.assignees?.some(
+    (assignee) => (assignee.username || '').toLowerCase() === user.username.toLowerCase()
+  ) ?? false
+  const isSharedUser = (sharesRes.data || []).some(
+    (share: Record<string, unknown>) => String(share.shared_with || '').toLowerCase() === user.username.toLowerCase()
+  )
+
+  const canAttach =
+    (task.username as string) === user.username ||
+    (task.assigned_to as string | null) === user.username ||
+    isMultiAssignee ||
+    isSharedUser ||
+    isUserInManagerList((task.manager_id as string | null) ?? null, user.username) ||
+    user.role === 'Admin' ||
+    user.role === 'Super Manager'
+
+  if (!canAttach) {
+    return { success: false, error: 'No permission to attach files.' }
+  }
+
+  const path = buildTaskAttachmentPath({
+    ownerUsername: input.owner_username,
+    taskId: input.todo_id,
+    fileName: input.file_name,
+  })
+
+  const { data, error } = await supabase.storage
+    .from(CMS_STORAGE_BUCKET)
+    .createSignedUploadUrl(path)
+
+  if (error || !data?.token) {
+    return { success: false, error: error?.message ?? 'Unable to create upload URL.' }
+  }
+
+  return {
+    success: true,
+    bucket: CMS_STORAGE_BUCKET,
+    path,
+    token: data.token,
+  }
 }
 
 export async function getTodoDetails(todoId: string): Promise<TodoDetails | null> {

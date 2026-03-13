@@ -9,7 +9,7 @@ import {
 import Link from 'next/link'
 import type { SessionUser } from '@/types'
 import type { Department } from '@/types'
-import { updateProfile, changePassword } from '@/app/dashboard/profile/actions'
+import { updateProfile, changePassword, createAvatarUploadUrlAction } from '@/app/dashboard/profile/actions'
 
 const ROLE_GRADIENTS: Record<string, string> = {
   Admin:           'linear-gradient(135deg, #8B5CF6, #7C3AED)',
@@ -24,6 +24,7 @@ interface ProfileData {
   department: string | null
   full_name: string | null
   avatar_data: string | null
+  avatar_url: string | null
   email_notifications_enabled: boolean
 }
 
@@ -151,6 +152,8 @@ export function ProfilePage({ user, profile, departments }: Props) {
   const [email, setEmail] = useState(profile.email)
   const [department, setDepartment] = useState(profile.department ?? '')
   const [avatarData, setAvatarData] = useState<string | null>(profile.avatar_data)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url)
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [savingInfo, setSavingInfo] = useState(false)
 
   // Security state
@@ -177,13 +180,44 @@ export function ProfilePage({ user, profile, departments }: Props) {
   const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('Image must be under 2MB', 'error')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => setAvatarData(reader.result as string)
-    reader.readAsDataURL(file)
+    void (async () => {
+      if (file.size > 2 * 1024 * 1024) {
+        showToast('Image must be under 2MB', 'error')
+        return
+      }
+
+      setAvatarUploading(true)
+      const result = await createAvatarUploadUrlAction({
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+      })
+
+      if (!result.success || !result.signedUrl || !result.storagePath) {
+        setAvatarUploading(false)
+        showToast(result.error ?? 'Failed to upload avatar', 'error')
+        return
+      }
+
+      const uploadResponse = await fetch(result.signedUrl, {
+        method: 'PUT',
+        headers: {
+          'content-type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      })
+
+      if (!uploadResponse.ok) {
+        setAvatarUploading(false)
+        showToast('Avatar upload failed', 'error')
+        return
+      }
+
+      setAvatarData(result.storagePath)
+      setAvatarPreview(URL.createObjectURL(file))
+      setAvatarUploading(false)
+      showToast('Avatar uploaded. Save changes to apply it.', 'success')
+    })()
   }, [])
 
   // Save personal info
@@ -252,10 +286,10 @@ export function ProfilePage({ user, profile, departments }: Props) {
               <div className="relative">
                 <div
                   className="w-16 h-16 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-xl font-bold text-white"
-                  style={{ background: avatarData ? undefined : gradient }}
+                  style={{ background: avatarPreview ? undefined : gradient }}
                 >
-                  {avatarData ? (
-                    <Image src={avatarData} alt="Avatar" width={64} height={64} className="w-full h-full object-cover" unoptimized />
+                  {avatarPreview ? (
+                    <Image src={avatarPreview} alt="Avatar" width={64} height={64} className="w-full h-full object-cover" unoptimized />
                   ) : (
                     user.username.charAt(0).toUpperCase()
                   )}
@@ -273,15 +307,16 @@ export function ProfilePage({ user, profile, departments }: Props) {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
+                    disabled={avatarUploading}
                     className="h-8 px-3 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5"
-                    style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}
+                    style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)', opacity: avatarUploading ? 0.7 : 1 }}
                   >
-                    <Camera size={12} /> Change Avatar
+                    <Camera size={12} /> {avatarUploading ? 'Uploading...' : 'Change Avatar'}
                   </button>
-                  {avatarData && (
+                  {avatarPreview && (
                     <button
                       type="button"
-                      onClick={() => setAvatarData(null)}
+                      onClick={() => { setAvatarData(null); setAvatarPreview(null) }}
                       className="h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5"
                       style={{ border: '1.5px solid var(--color-border)', color: 'var(--color-text-muted)' }}
                     >
@@ -289,7 +324,7 @@ export function ProfilePage({ user, profile, departments }: Props) {
                     </button>
                   )}
                 </div>
-                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>JPG, GIF or PNG. Max size 2MB.</p>
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>JPG, GIF or PNG. Stored in Supabase. Max size 2MB.</p>
               </div>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
             </div>

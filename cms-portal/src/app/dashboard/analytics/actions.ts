@@ -2,6 +2,7 @@
 
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { resolveStorageUrl } from '@/lib/storage'
 
 export interface AnalyticsTask {
   id: string
@@ -97,8 +98,14 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     if (t.assigned_to === user.username) assignedToMe++
   }
 
+  const resolvedUsers = await Promise.all(
+    ((usersData ?? []) as Array<{ username: string; avatar_data: string | null }>).map(async (userRow) => ({
+      ...userRow,
+      avatar_data: await resolveStorageUrl(supabase, userRow.avatar_data),
+    }))
+  )
   const avatarMap = Object.fromEntries(
-    ((usersData ?? []) as Array<{ username: string; avatar_data: string | null }>).map(u => [u.username, u.avatar_data ?? null])
+    resolvedUsers.map(u => [u.username, u.avatar_data ?? null])
   )
 
   const topUsers = Object.entries(userMap)
