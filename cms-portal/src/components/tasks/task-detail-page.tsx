@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -193,6 +193,28 @@ function renderCommentWithMentions(details: string) {
   })
 }
 
+function getUserInitials(username: string) {
+  const parts = username
+    .split(/[._\s-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) return username.charAt(0).toUpperCase()
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+}
+
+function getActiveMentionQuery(value: string, caretIndex: number) {
+  const uptoCaret = value.slice(0, caretIndex)
+  const match = uptoCaret.match(/(^|\s)@([a-zA-Z0-9._-]*)$/)
+  if (!match) return null
+  return {
+    query: match[2] ?? '',
+    start: caretIndex - (match[2]?.length ?? 0) - 1,
+    end: caretIndex,
+  }
+}
+
 export function TaskDetailPage({
   initialDetails,
   currentUsername,
@@ -211,8 +233,10 @@ export function TaskDetailPage({
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
   const [isPending, startTransition] = useTransition()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
 
   const detailsQuery = useQuery({
@@ -351,6 +375,60 @@ export function TaskDetailPage({
   const participants = getTaskParticipants(t)
   const assignedSummary = getAssignedSummary(t)
   const departmentSummary = getDepartmentSummary(t)
+  const activeMention = getActiveMentionQuery(comment, commentInputRef.current?.selectionStart ?? comment.length)
+  const mentionSuggestions = activeMention
+    ? participants.filter((participant) => participant.username.toLowerCase().includes(activeMention.query.toLowerCase()))
+    : []
+
+  const insertMention = (username: string) => {
+    const textarea = commentInputRef.current
+    const selectionStart = textarea?.selectionStart ?? comment.length
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart
+    const active = getActiveMentionQuery(comment, selectionStart)
+    if (!active) return
+
+    const nextValue = `${comment.slice(0, active.start)}@${username} ${comment.slice(selectionEnd)}`
+    setComment(nextValue)
+    setMentionIndex(0)
+
+    window.requestAnimationFrame(() => {
+      const nextCaret = active.start + username.length + 2
+      textarea?.focus()
+      textarea?.setSelectionRange(nextCaret, nextCaret)
+    })
+  }
+
+  const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev + 1) % mentionSuggestions.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev - 1 + mentionSuggestions.length) % mentionSuggestions.length)
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        insertMention(mentionSuggestions[mentionIndex]?.username ?? mentionSuggestions[0].username)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionIndex(0)
+        return
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && comment.trim()) {
+      e.preventDefault()
+      void doAction(() => addCommentAction(t.id, comment.trim()))
+      setComment('')
+      setMentionIndex(0)
+    }
+  }
 
   const tabs = [
     { id: 'info' as const, label: 'Details' },
@@ -743,16 +821,17 @@ export function TaskDetailPage({
                   <Users size={14} />
                   Attached Users
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {participants.map((participant) => (
                     <button
                       key={participant.username}
                       type="button"
-                      onClick={() => setComment((prev) => `${prev.trim()} @${participant.username}`.trim() + ' ')}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-orange-200 hover:bg-orange-50"
+                      title={`${participant.username} (${participant.role})`}
+                      aria-label={`${participant.username} (${participant.role})`}
+                      onClick={() => insertMention(participant.username)}
+                      className="group flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-sm font-bold text-slate-700 transition-colors hover:border-orange-200 hover:bg-orange-50"
                     >
-                      <p className="text-xs font-semibold text-slate-800">{participant.username}</p>
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{participant.role}</p>
+                      <span>{getUserInitials(participant.username)}</span>
                     </button>
                   ))}
                 </div>
@@ -803,19 +882,43 @@ export function TaskDetailPage({
               <div className="border-t border-slate-100 bg-slate-50 px-5 py-4">
                 <div className="rounded-[28px] border border-slate-200 bg-white p-2 shadow-sm">
                   <textarea
+                    ref={commentInputRef}
                     value={comment}
-                    onChange={(e) => setComment(e.target.value)}
+                    onChange={(e) => {
+                      setComment(e.target.value)
+                      setMentionIndex(0)
+                    }}
                     placeholder="Write a message for this task... Use @username to mention someone."
                     rows={3}
                     className="w-full resize-none border-0 bg-transparent px-3 py-2 text-sm text-slate-700 outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && comment.trim()) {
-                        e.preventDefault()
-                        void doAction(() => addCommentAction(t.id, comment.trim()))
-                        setComment('')
-                      }
-                    }}
+                    onClick={() => setMentionIndex(0)}
+                    onKeyUp={() => setMentionIndex(0)}
+                    onKeyDown={handleCommentKeyDown}
                   />
+                  {mentionSuggestions.length > 0 && (
+                    <div className="mx-2 mb-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-sm">
+                      {mentionSuggestions.slice(0, 6).map((participant, index) => (
+                        <button
+                          key={participant.username}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => insertMention(participant.username)}
+                          className={cn(
+                            'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                            index === mentionIndex ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:bg-white'
+                          )}
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-700">
+                            {getUserInitials(participant.username)}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold">@{participant.username}</span>
+                            <span className="block text-[11px] uppercase tracking-[0.14em] text-slate-400">{participant.role}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-2 pt-2">
                     <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Task-only discussion</p>
                     <button
@@ -823,6 +926,7 @@ export function TaskDetailPage({
                         if (!comment.trim()) return
                         void doAction(() => addCommentAction(t.id, comment.trim()))
                         setComment('')
+                        setMentionIndex(0)
                       }}
                       disabled={!comment.trim() || isPending}
                       className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-600 disabled:opacity-50"

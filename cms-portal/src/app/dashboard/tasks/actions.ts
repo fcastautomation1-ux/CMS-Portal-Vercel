@@ -988,16 +988,6 @@ export async function addCommentAction(
   }
 
   const now = new Date().toISOString()
-  const unreadBy: string[] = []
-  if ((task.username as string) && (task.username as string) !== user.username) unreadBy.push(task.username as string)
-  if ((task.assigned_to as string) && (task.assigned_to as string) !== user.username && !unreadBy.includes(task.assigned_to as string)) {
-    unreadBy.push(task.assigned_to as string)
-  }
-  if (task.manager_id) {
-    const managers = String(task.manager_id).split(',').map((m) => m.trim()).filter((m) => m && m !== user.username && !unreadBy.includes(m))
-    unreadBy.push(...managers)
-  }
-
   const candidateMentions = new Set<string>()
   if (task.username) candidateMentions.add(String(task.username))
   if (task.assigned_to) candidateMentions.add(String(task.assigned_to))
@@ -1017,9 +1007,7 @@ export async function addCommentAction(
   })
 
   const mentionUsers = extractMentionedUsernames(message, Array.from(candidateMentions))
-  mentionUsers.forEach((username) => {
-    if (username !== user.username && !unreadBy.includes(username)) unreadBy.push(username)
-  })
+  const unreadBy = mentionUsers.filter((username) => username !== user.username)
 
   const history = parseJson<HistoryEntry[]>(task.history, [])
   const newComment: HistoryEntry = {
@@ -1042,8 +1030,7 @@ export async function addCommentAction(
     updated_at: now,
   }).eq('id', todoId)
 
-  // Notify assignee/creator if different
-  const notifyUsers = new Set<string>(unreadBy.slice(0, 3))
+  const notifyUsers = new Set<string>(unreadBy)
   for (const u of notifyUsers) {
     await createNotification(supabase, {
       userId: u,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect, useRef, type ChangeEvent } from 'react'
+import { useState, useTransition, useEffect, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   X,
@@ -193,6 +193,28 @@ function renderCommentWithMentions(details: string) {
   })
 }
 
+function getUserInitials(username: string) {
+  const parts = username
+    .split(/[._\s-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) return username.charAt(0).toUpperCase()
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+}
+
+function getActiveMentionQuery(value: string, caretIndex: number) {
+  const uptoCaret = value.slice(0, caretIndex)
+  const match = uptoCaret.match(/(^|\s)@([a-zA-Z0-9._-]*)$/)
+  if (!match) return null
+  return {
+    query: match[2] ?? '',
+    start: caretIndex - (match[2]?.length ?? 0) - 1,
+    end: caretIndex,
+  }
+}
+
 export function TaskDetailModal({
   taskId,
   currentUsername,
@@ -211,7 +233,9 @@ export function TaskDetailModal({
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
 
   const detailsQuery = useQuery({
@@ -356,6 +380,60 @@ export function TaskDetailModal({
   const assignedSummary = getAssignedSummary(t)
   const departmentSummary = getDepartmentSummary(t)
   const participants = getTaskParticipants(t)
+  const activeMention = getActiveMentionQuery(comment, commentInputRef.current?.selectionStart ?? comment.length)
+  const mentionSuggestions = activeMention
+    ? participants.filter((participant) => participant.username.toLowerCase().includes(activeMention.query.toLowerCase()))
+    : []
+
+  const insertMention = (username: string) => {
+    const textarea = commentInputRef.current
+    const selectionStart = textarea?.selectionStart ?? comment.length
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart
+    const active = getActiveMentionQuery(comment, selectionStart)
+    if (!active) return
+
+    const nextValue = `${comment.slice(0, active.start)}@${username} ${comment.slice(selectionEnd)}`
+    setComment(nextValue)
+    setMentionIndex(0)
+
+    window.requestAnimationFrame(() => {
+      const nextCaret = active.start + username.length + 2
+      textarea?.focus()
+      textarea?.setSelectionRange(nextCaret, nextCaret)
+    })
+  }
+
+  const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev + 1) % mentionSuggestions.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev - 1 + mentionSuggestions.length) % mentionSuggestions.length)
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        insertMention(mentionSuggestions[mentionIndex]?.username ?? mentionSuggestions[0].username)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionIndex(0)
+        return
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && comment.trim()) {
+      e.preventDefault()
+      doAction(() => addCommentAction(t.id, comment.trim()))
+      setComment('')
+      setMentionIndex(0)
+    }
+  }
 
   const TABS = [
     { id: 'info',    label: 'Details' },
@@ -586,10 +664,12 @@ export function TaskDetailModal({
                   <button
                     key={participant.username}
                     type="button"
-                    onClick={() => setComment((prev) => `${prev.trim()} @${participant.username}`.trim() + ' ')}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-orange-200 hover:bg-orange-50"
+                    title={`${participant.username} (${participant.role})`}
+                    aria-label={`${participant.username} (${participant.role})`}
+                    onClick={() => insertMention(participant.username)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 transition-colors hover:border-orange-200 hover:bg-orange-50"
                   >
-                    @{participant.username}
+                    {getUserInitials(participant.username)}
                   </button>
                 ))}
               </div>
@@ -626,22 +706,46 @@ export function TaskDetailModal({
               <div className="flex gap-2 items-end">
                 <div className="flex-1 relative">
                   <textarea
+                    ref={commentInputRef}
                     value={comment}
-                    onChange={(e) => setComment(e.target.value)}
+                    onChange={(e) => {
+                      setComment(e.target.value)
+                      setMentionIndex(0)
+                    }}
                     placeholder="Write a comment... Use @username to mention someone."
                     rows={1}
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && comment.trim()) {
-                        e.preventDefault()
-                        doAction(() => addCommentAction(t.id, comment.trim()))
-                        setComment('')
-                      }
-                    }}
+                    onClick={() => setMentionIndex(0)}
+                    onKeyUp={() => setMentionIndex(0)}
+                    onKeyDown={handleCommentKeyDown}
                   />
+                  {mentionSuggestions.length > 0 && (
+                    <div className="absolute inset-x-0 bottom-full mb-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-lg">
+                      {mentionSuggestions.slice(0, 6).map((participant, index) => (
+                        <button
+                          key={participant.username}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => insertMention(participant.username)}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                            index === mentionIndex ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
+                          )}
+                        >
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-700">
+                            {getUserInitials(participant.username)}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold">@{participant.username}</span>
+                            <span className="block text-[10px] uppercase tracking-[0.14em] text-slate-400">{participant.role}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
-                  onClick={() => { if (comment.trim()) { doAction(() => addCommentAction(t.id, comment.trim())); setComment('') } }}
+                  onClick={() => { if (comment.trim()) { doAction(() => addCommentAction(t.id, comment.trim())); setComment(''); setMentionIndex(0) } }}
                   disabled={!comment.trim() || isPending}
                   className="shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 transition-colors"
                 >
