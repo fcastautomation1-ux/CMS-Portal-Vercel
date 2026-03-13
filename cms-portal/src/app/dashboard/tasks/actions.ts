@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { isPastPakistanDate } from '@/lib/pakistan-time'
 import type {
   Todo,
   TodoAttachment,
@@ -82,6 +83,29 @@ function isUserInManagerList(managerIdField: string | null, username: string): b
     .split(',')
     .map((m) => m.trim().toLowerCase())
     .includes(username.toLowerCase())
+}
+
+function extractMentionedUsernames(message: string, candidates: string[]): string[] {
+  const candidateMap = new Map(
+    candidates
+      .map((candidate) => candidate.trim())
+      .filter(Boolean)
+      .map((candidate) => [candidate.toLowerCase(), candidate] as const)
+  )
+
+  const matches = message.match(/@([a-zA-Z0-9._-]+)/g) ?? []
+  const seen = new Set<string>()
+  const mentions: string[] = []
+
+  for (const match of matches) {
+    const username = match.slice(1).trim().toLowerCase()
+    const resolved = candidateMap.get(username)
+    if (!resolved || seen.has(resolved.toLowerCase())) continue
+    seen.add(resolved.toLowerCase())
+    mentions.push(resolved)
+  }
+
+  return mentions
 }
 
 // ── Get all todos (role-filtered) ─────────────────────────────────────────────
@@ -388,6 +412,12 @@ export async function saveTodoAction(
   if (!input.kpi_type) return { success: false, error: "KPI type is required." }
   if (!input.title?.trim()) return { success: false, error: 'Title is required.' }
   if (input.title.trim().length > 30) return { success: false, error: 'Title must be 30 characters or less.' }
+  if (input.due_date && isPastPakistanDate(input.due_date)) {
+    return { success: false, error: 'Due date must be an upcoming Pakistan time.' }
+  }
+  if (input.multi_assignment?.enabled && input.multi_assignment.assignees.some((entry) => entry.actual_due_date && isPastPakistanDate(entry.actual_due_date))) {
+    return { success: false, error: 'Each assignee due date must be an upcoming Pakistan time.' }
+  }
 
   const supabase = createServerClient()
   const now = new Date().toISOString()
@@ -931,11 +961,15 @@ export async function addCommentAction(
   if (!message.trim()) return { success: false, error: 'Comment cannot be empty.' }
 
   const supabase = createServerClient()
-  const { data: existing } = await supabase
-    .from('todos')
-    .select('username,assigned_to,manager_id,history,title')
-    .eq('id', todoId)
-    .single()
+  const [existingRes, sharesRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('username,assigned_to,manager_id,history,title,multi_assignment')
+      .eq('id', todoId)
+      .single(),
+    supabase.from('todo_shares').select('shared_with').eq('todo_id', todoId),
+  ])
+  const existing = existingRes.data
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
@@ -965,6 +999,29 @@ export async function addCommentAction(
     unreadBy.push(...managers)
   }
 
+  const candidateMentions = new Set<string>()
+  if (task.username) candidateMentions.add(String(task.username))
+  if (task.assigned_to) candidateMentions.add(String(task.assigned_to))
+  if (task.manager_id) {
+    String(task.manager_id)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => candidateMentions.add(value))
+  }
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  multiAssignment?.assignees?.forEach((assignee) => {
+    if (assignee.username) candidateMentions.add(assignee.username)
+  })
+  ;(sharesRes.data || []).forEach((share: Record<string, unknown>) => {
+    if (share.shared_with) candidateMentions.add(String(share.shared_with))
+  })
+
+  const mentionUsers = extractMentionedUsernames(message, Array.from(candidateMentions))
+  mentionUsers.forEach((username) => {
+    if (username !== user.username && !unreadBy.includes(username)) unreadBy.push(username)
+  })
+
   const history = parseJson<HistoryEntry[]>(task.history, [])
   const newComment: HistoryEntry = {
     type: 'comment',
@@ -976,6 +1033,7 @@ export async function addCommentAction(
     unread_by: unreadBy,
     read_by: [user.username],
     message_id: crypto.randomUUID(),
+    mention_users: mentionUsers,
   }
   history.push(newComment)
   if (history.length > 100) history.splice(0, history.length - 100)
@@ -1077,18 +1135,34 @@ export async function saveTodoAttachmentAction(input: {
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
-  const { data: existing } = await supabase
-    .from('todos')
-    .select('id,username,assigned_to,manager_id')
-    .eq('id', input.todo_id)
-    .single()
+  const [existingRes, sharesRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('id,username,assigned_to,manager_id,multi_assignment')
+      .eq('id', input.todo_id)
+      .single(),
+    supabase.from('todo_shares').select('shared_with').eq('todo_id', input.todo_id),
+  ])
+  const existing = existingRes.data
 
   if (!existing) return { success: false, error: 'Task not found.' }
+  if ((input.file_size ?? 0) > 1024 * 1024 * 1024) {
+    return { success: false, error: 'Each file must be smaller than 1 GB.' }
+  }
 
   const task = existing as Record<string, unknown>
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  const isMultiAssignee = multiAssignment?.assignees?.some(
+    (assignee) => (assignee.username || '').toLowerCase() === user.username.toLowerCase()
+  ) ?? false
+  const isSharedUser = (sharesRes.data || []).some(
+    (share: Record<string, unknown>) => String(share.shared_with || '').toLowerCase() === user.username.toLowerCase()
+  )
   const canAttach =
     (task.username as string) === user.username ||
     (task.assigned_to as string | null) === user.username ||
+    isMultiAssignee ||
+    isSharedUser ||
     isUserInManagerList((task.manager_id as string | null) ?? null, user.username) ||
     user.role === 'Admin' ||
     user.role === 'Super Manager'

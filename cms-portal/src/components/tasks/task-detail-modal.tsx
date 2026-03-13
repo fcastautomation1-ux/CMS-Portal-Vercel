@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useRef, type ChangeEvent } from 'react'
 import {
   X,
   MessageCircle,
@@ -27,8 +27,10 @@ import {
   Send,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { createBrowserClient } from '@/lib/supabase/client'
+import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { normalizeTaskDescription } from '@/lib/task-description'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import {
   getTodoDetails,
@@ -40,6 +42,8 @@ import {
   shareTodoAction,
   unshareTodoAction,
   deleteTodoAction,
+  getUsersForAssignment,
+  saveTodoAttachmentAction,
   archiveTodoAction,
 } from '@/app/dashboard/tasks/actions'
 
@@ -91,7 +95,98 @@ function nextStepLabel(task: TodoDetails): string | null {
 }
 
 function fmtTs(ts: string) {
-  try { return format(new Date(ts), 'MMM d, yyyy \'at\' hh:mm aa') } catch { return ts }
+  try { return formatPakistanDateTime(ts) } catch { return ts }
+}
+
+const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
+const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
+
+function splitDepartments(value: string | null | undefined): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function getDepartmentSummary(task: TodoDetails) {
+  const departments = new Set<string>()
+  splitDepartments(task.creator_department ?? task.category ?? null).forEach((department) => departments.add(department))
+  splitDepartments(task.assignee_department).forEach((department) => departments.add(department))
+  if (task.queue_department) departments.add(task.queue_department)
+
+  const list = Array.from(departments)
+  return {
+    count: list.length,
+    label: list.length ? list.join(', ') : '—',
+  }
+}
+
+function getAssignedSummary(task: TodoDetails) {
+  if (task.assigned_to) {
+    return {
+      value: task.assigned_to,
+      sub: task.assignee_department,
+    }
+  }
+
+  const assignees = task.multi_assignment?.assignees ?? []
+  if (assignees.length > 0) {
+    return {
+      value: `${assignees.length} users assigned`,
+      sub: assignees.map((assignee) => assignee.username).join(', '),
+    }
+  }
+
+  if (task.queue_status === 'queued' && task.queue_department) {
+    return {
+      value: 'Department queue',
+      sub: task.queue_department,
+    }
+  }
+
+  return {
+    value: '—',
+    sub: null,
+  }
+}
+
+function getAssigneeDueDate(task: TodoDetails, username: string) {
+  const assignee = task.multi_assignment?.assignees?.find((entry) => entry.username === username)
+  return assignee?.actual_due_date ?? task.due_date ?? task.expected_due_date ?? null
+}
+
+function getTaskParticipants(task: TodoDetails) {
+  const seen = new Map<string, { username: string; role: string }>()
+
+  const addParticipant = (username: string | null | undefined, role: string) => {
+    const value = (username ?? '').trim()
+    if (!value || seen.has(value)) return
+    seen.set(value, { username: value, role })
+  }
+
+  addParticipant(task.username, 'Creator')
+  addParticipant(task.assigned_to, 'Assignee')
+
+  String(task.manager_id ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .forEach((value) => addParticipant(value, 'Manager'))
+
+  task.multi_assignment?.assignees?.forEach((assignee) => addParticipant(assignee.username, 'Contributor'))
+  task.shares.forEach((share) => addParticipant(share.shared_with, share.can_edit ? 'Shared Editor' : 'Shared Viewer'))
+
+  return Array.from(seen.values())
+}
+
+function renderCommentWithMentions(details: string) {
+  const parts = details.split(/(@[a-zA-Z0-9._-]+)/g)
+  return parts.map((part, index) => {
+    if (/^@[a-zA-Z0-9._-]+$/.test(part)) {
+      return <span key={`${part}-${index}`} className="font-semibold underline underline-offset-2">{part}</span>
+    }
+    return <span key={`${part}-${index}`}>{part}</span>
+  })
 }
 
 export function TaskDetailModal({
@@ -106,10 +201,13 @@ export function TaskDetailModal({
   const [activeTab, setActiveTab] = useState<'info' | 'history' | 'files' | 'share'>('info')
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
+  const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState('')
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -118,6 +216,14 @@ export function TaskDetailModal({
     })
     return () => { cancelled = true }
   }, [taskId])
+
+  useEffect(() => {
+    let cancelled = false
+    getUsersForAssignment().then((users) => {
+      if (!cancelled) setShareUsers(users)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>) => {
     setActionError('')
@@ -131,6 +237,52 @@ export function TaskDetailModal({
         setActionError(res.error ?? 'Action failed')
       }
     })
+  }
+
+  const uploadFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!files.length || !details) return
+
+    const oversized = files.find((file) => file.size > MAX_ATTACHMENT_SIZE)
+    if (oversized) {
+      setActionError(`${oversized.name} is larger than 1 GB.`)
+      return
+    }
+
+    setActionError('')
+    setUploadingFiles(true)
+
+    try {
+      const supabase = createBrowserClient()
+      for (const file of files) {
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : undefined
+        const storagePath = `todos/${details.id}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+        const upload = await supabase.storage
+          .from(TASK_ATTACHMENTS_BUCKET)
+          .upload(storagePath, file, { upsert: false })
+
+        if (upload.error) throw new Error(upload.error.message)
+
+        const saved = await saveTodoAttachmentAction({
+          todo_id: details.id,
+          file_name: file.name,
+          file_size: file.size,
+          mime_type: file.type || null,
+          storage_path: storagePath,
+        })
+
+        if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)
+      }
+
+      const updated = await getTodoDetails(taskId)
+      setDetails(updated)
+      onRefresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Attachment upload failed.')
+    } finally {
+      setUploadingFiles(false)
+    }
   }
 
   if (loading) return (
@@ -158,6 +310,9 @@ export function TaskDetailModal({
   const comments     = t.history.filter((h: HistoryEntry) => h.type === 'comment')
   const historyEvts  = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
   const nextStep     = nextStepLabel(t)
+  const assignedSummary = getAssignedSummary(t)
+  const departmentSummary = getDepartmentSummary(t)
+  const participants = getTaskParticipants(t)
 
   const TABS = [
     { id: 'info',    label: 'Details' },
@@ -212,13 +367,13 @@ export function TaskDetailModal({
               <span className="text-slate-300">·</span>
               <span className="flex items-center gap-1">
                 <Clock size={11} />
-                {format(new Date(t.created_at), 'MMM d, yyyy')}
+                {formatPakistanDate(t.created_at)}
               </span>
               {t.due_date && (
                 <>
                   <span className="text-slate-300">·</span>
                   <span className={cn('flex items-center gap-1', !isCompleted && new Date(t.due_date) < new Date() ? 'text-red-500 font-semibold' : '')}>
-                    <Calendar size={11} /> Due {format(new Date(t.due_date), 'MMM d, yyyy')}
+                    <Calendar size={11} /> Due {formatPakistanDate(t.due_date)}
                   </span>
                 </>
               )}
@@ -307,10 +462,10 @@ export function TaskDetailModal({
           <div className="space-y-5">
             {/* Two-column meta grid */}
             <div className="grid grid-cols-2 gap-3">
-              <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={t.assigned_to ?? '—'} sub={t.assignee_department} />
-              <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label="Department" value={t.creator_department ?? t.category ?? '—'} />
+              <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
+              <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
               {t.due_date && <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date"
-                value={format(new Date(t.due_date), 'MMM d, yyyy')} accent={!isCompleted && new Date(t.due_date) < new Date() ? 'red' : undefined} />}
+                value={formatPakistanDate(t.due_date)} accent={!isCompleted && new Date(t.due_date) < new Date() ? 'red' : undefined} />}
               {t.kpi_type && <MetaCard icon={<Target size={13} className="text-pink-500" />} label="KPI Type" value={t.kpi_type} />}
               {t.package_name && <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Package" value={t.package_name} />}
               {t.queue_status === 'queued' && t.queue_department && (
@@ -366,6 +521,9 @@ export function TaskDetailModal({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-slate-800">{a.username}</p>
                           <p className="text-xs text-slate-500 capitalize">{a.status ?? 'pending'}</p>
+                          <p className="text-[11px] text-slate-400">
+                            Due {getAssigneeDueDate(t, a.username) ? formatPakistanDate(getAssigneeDueDate(t, a.username) as string) : '—'}
+                          </p>
                         </div>
                         <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
                           <div className={cn('h-full rounded-full transition-all', done ? 'bg-green-500' : 'bg-blue-500')} style={{ width: `${pct}%` }} />
@@ -380,6 +538,18 @@ export function TaskDetailModal({
 
             {/* ── Comments ── */}
             <Section icon={<MessageCircle size={14} />} label={`Comments${comments.length ? ` (${comments.length})` : ''}`}>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {participants.map((participant) => (
+                  <button
+                    key={participant.username}
+                    type="button"
+                    onClick={() => setComment((prev) => `${prev.trim()} @${participant.username}`.trim() + ' ')}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-orange-200 hover:bg-orange-50"
+                  >
+                    @{participant.username}
+                  </button>
+                ))}
+              </div>
               <div className="space-y-3 mb-4">
                 {comments.length === 0 && <p className="text-sm text-slate-400 italic">No comments yet.</p>}
                 {comments.map((c, i) => {
@@ -391,9 +561,14 @@ export function TaskDetailModal({
                         {c.user.charAt(0).toUpperCase()}
                       </div>
                       <div className={cn('max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
+                        {c.mention_users && c.mention_users.length > 0 && (
+                          <div className={cn('mb-1 text-[10px] font-semibold uppercase tracking-[0.14em]', isMe ? 'text-blue-200 text-right' : 'text-orange-500')}>
+                            For {c.mention_users.map((username) => `@${username}`).join(', ')}
+                          </div>
+                        )}
                         <div className={cn('px-3.5 py-2.5 rounded-2xl text-sm text-slate-800 shadow-sm',
                           isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-100 rounded-tl-sm')}>
-                          {c.details}
+                          {renderCommentWithMentions(c.details)}
                         </div>
                         <div className={cn('text-[10px] text-slate-400 mt-1 px-1', isMe ? 'text-right' : '')}>
                           {c.user} · {formatDistanceToNow(new Date(c.timestamp), { addSuffix: true })}
@@ -410,7 +585,7 @@ export function TaskDetailModal({
                   <textarea
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Write a comment..."
+                    placeholder="Write a comment... Use @username to mention someone."
                     rows={1}
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none"
                     onKeyDown={(e) => {
@@ -511,7 +686,24 @@ export function TaskDetailModal({
 
         {/* ────── FILES TAB ────── */}
         {activeTab === 'files' && (
-          <div>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Attach files</p>
+                <p className="text-xs text-slate-500">Any attached user can upload. Maximum 1 GB per file. No file-count limit.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={uploadFiles} />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFiles}
+                  className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  <span className="inline-flex items-center gap-1.5">{uploadingFiles ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} Upload Files</span>
+                </button>
+              </div>
+            </div>
             {t.attachments.length === 0 ? (
               <div className="text-center py-12">
                 <Paperclip size={28} className="mx-auto text-slate-300 mb-2" />
@@ -529,7 +721,7 @@ export function TaskDetailModal({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">{a.file_name}</p>
                         <p className="text-xs text-slate-400">
-                          {a.uploaded_by} · {format(new Date(a.created_at), 'MMM d, yyyy')}
+                          {a.uploaded_by} · {formatPakistanDate(a.created_at)}
                           {a.file_size ? ` · ${(a.file_size / 1024).toFixed(0)} KB` : ''}
                         </p>
                       </div>
@@ -551,9 +743,20 @@ export function TaskDetailModal({
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Share with User</label>
               <div className="flex gap-2">
-                <input type="text" value={shareUsername} onChange={(e) => setShareUsername(e.target.value)}
-                  placeholder="Enter username..."
-                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400" />
+                <select
+                  value={shareUsername}
+                  onChange={(e) => setShareUsername(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
+                >
+                  <option value="">Select a user to share with</option>
+                  {shareUsers
+                    .filter((user) => user.username !== t.username && !t.shares.some((share) => share.shared_with === user.username))
+                    .map((user) => (
+                      <option key={user.username} value={user.username}>
+                        {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
+                      </option>
+                    ))}
+                </select>
                 <button onClick={() => { if (shareUsername.trim()) { doAction(() => shareTodoAction(t.id, shareUsername.trim())); setShareUsername('') } }}
                   disabled={!shareUsername.trim() || isPending}
                   className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5">

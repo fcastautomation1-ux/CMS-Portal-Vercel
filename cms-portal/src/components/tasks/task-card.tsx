@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import { cn } from '@/lib/cn'
+import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
@@ -36,29 +37,22 @@ interface TaskCardProps {
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  })
+  return `${formatPakistanDate(iso)} ${formatPakistanTime(iso)} PKT`
 }
 
 function fmtShort(iso: string | null): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return formatPakistanDate(iso, { month: 'short', day: 'numeric' })
 }
 
 function fmtTime(iso: string | null): string {
   if (!iso) return ''
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${formatPakistanTime(iso)} PKT`
 }
 
 function fmtMaDue(iso: string | null | undefined): string {
   if (!iso) return 'No date'
-  const date = new Date(iso)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
+  return formatPakistanDate(iso, { month: 'short', day: 'numeric' })
 }
 
 function formatDuration(fromIso: string, toIso: string): string {

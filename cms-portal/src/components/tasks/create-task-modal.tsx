@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { isPastPakistanDate, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
 import type { MultiAssignmentEntry, Todo } from '@/types'
@@ -76,6 +77,7 @@ type ImportProgress = {
 
 const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
 const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
+const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr><tr><td></td><td></td></tr></tbody></table>'
 
 interface CreateTaskModalProps {
@@ -138,6 +140,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
     progress: 0,
   })
   const [error, setError] = useState('')
+  const minDueDate = pakistanNowInputValue()
 
   const [packages, setPackages] = useState<Package[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -320,6 +323,12 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
   const onAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     if (!files.length) return
+    const oversized = files.find((file) => file.size > MAX_ATTACHMENT_SIZE)
+    if (oversized) {
+      setError(`${oversized.name} is larger than 1 GB.`)
+      event.target.value = ''
+      return
+    }
     setPendingAttachments((current) => [
       ...current,
       ...files.map((file) => ({
@@ -544,6 +553,9 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
     if (routing !== 'self' && routing !== 'multi' && !dueDate) {
       return 'Please set a due date for this task.'
     }
+    if (dueDate && isPastPakistanDate(dueDate)) {
+      return 'Due date must be an upcoming Pakistan time.'
+    }
     if (routing === 'department' && !deptRoutingDept) {
       return 'Please select a department for routing.'
     }
@@ -557,6 +569,10 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
       const missing = multiAssignees.filter((entry) => !entry.actual_due_date)
       if (missing.length) {
         return `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`
+      }
+      const invalid = multiAssignees.find((entry) => entry.actual_due_date && isPastPakistanDate(entry.actual_due_date))
+      if (invalid) {
+        return `Deadline for ${invalid.username} must be an upcoming Pakistan time.`
       }
     }
     return ''
@@ -902,6 +918,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                       type="datetime-local"
                       value={dueDate}
                       onChange={(event) => setDueDate(event.target.value)}
+                      min={minDueDate}
                       className={inputCls}
                     />
                   </Field>
@@ -1052,6 +1069,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                                 onChange={(event) =>
                                   setMultiAssigneeDueDate(entry.username, event.target.value)
                                 }
+                                min={minDueDate}
                                 className={inputCls}
                               />
                             </div>
@@ -1083,7 +1101,7 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
                   <div>
                     <h3 className="text-sm font-semibold text-slate-800">Attachments</h3>
                     <p className="text-xs text-slate-500">
-                      Select files now. They will upload once the task is saved.
+                      Select files now. They will upload once the task is saved. Max 1 GB per file.
                     </p>
                   </div>
                   <button

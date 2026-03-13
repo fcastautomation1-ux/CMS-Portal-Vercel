@@ -171,6 +171,7 @@ export interface HistoryEntry {
   unread_by?: string[]
   read_by?: string[]
   message_id?: string
+  mention_users?: string[]
 }
 
 export interface AssignmentChainEntry {
