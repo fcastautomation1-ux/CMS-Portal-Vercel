@@ -18,22 +18,6 @@ import type {
 } from '@/types'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function isOverdue(dateStr: string | null): boolean {
-  if (!dateStr) return false
-  return new Date(dateStr).getTime() < Date.now()
-}
-
-function isToday(dateStr: string | null): boolean {
-  if (!dateStr) return false
-  const d = new Date(dateStr)
-  const now = new Date()
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  )
-}
-
 function parseJson<T>(val: unknown, fallback: T): T {
   if (!val) return fallback
   if (typeof val === 'string') {

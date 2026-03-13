@@ -161,7 +161,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
       completed: s.completed,
       total: s.total,
       completion: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
-      avatarData: null,
+      avatarData: null as string | null,
     }))
     .sort((a, b) => b.completed - a.completed)
     .slice(0, 8)
