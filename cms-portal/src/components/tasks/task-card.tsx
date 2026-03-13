@@ -1,27 +1,31 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import type { Todo, HistoryEntry } from '@/types'
-import {
-  PriorityBadge,
-  TaskStatusBadge,
-  ApprovalBadge,
-  UserAvatar,
-  DueDateChip,
-} from './task-badges'
+import type { Todo, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import { cn } from '@/lib/cn'
-import { MoreVertical, Edit3, Trash2, Archive, Share2, Eye } from 'lucide-react'
+import { taskDescriptionToPlainText } from '@/lib/task-description'
+import {
+  Eye, Edit3, Trash2, Copy, ExternalLink,
+  ChevronDown, ChevronUp, MessageCircle,
+  Calendar, User, Clock,
+} from 'lucide-react'
 import {
   toggleTodoCompleteAction,
   startTaskAction,
   deleteTodoAction,
   archiveTodoAction,
   approveTodoAction,
+  acknowledgeTaskAction,
+  duplicateTodoAction,
+  claimQueuedTaskAction,
+  updateMaAssigneeStatusAction,
+  acceptMaAssigneeAction,
 } from '@/app/dashboard/tasks/actions'
 
 interface TaskCardProps {
   task: Todo
   currentUsername: string
+  currentUserDept?: string | null
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -30,252 +34,450 @@ interface TaskCardProps {
   compact?: boolean
 }
 
+function fmtDate(iso: string | null): string {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  })
+}
+
+function fmtShort(iso: string | null): string {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function fmtTime(iso: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function fmtMaDue(iso: string | null | undefined): string {
+  if (!iso) return 'No date'
+  const date = new Date(iso)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function formatDuration(fromIso: string, toIso: string): string {
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime()
+  const days = Math.floor(ms / 86_400_000)
+  const hrs = Math.floor((ms % 86_400_000) / 3_600_000)
+  if (days > 0) return `${days}d ${hrs}h`
+  if (hrs > 0) return `${hrs}h`
+  return `${Math.floor((ms % 3_600_000) / 60_000)}m`
+}
+
+function isOverdue(dateStr: string | null): boolean {
+  return !!dateStr && new Date(dateStr).getTime() < Date.now()
+}
+
+const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = {
+  backlog: { label: 'Pending', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
+  todo: { label: 'Pending', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
+  in_progress: { label: 'In Progress', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+  done: { label: 'Done', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+}
+
+const PRIORITY_CFG: Record<string, { label: string; longLabel: string; cls: string; stripe: string }> = {
+  urgent: { label: 'Urgent', longLabel: 'Urgent', cls: 'bg-red-50 text-red-600 border-red-200', stripe: 'bg-red-500' },
+  high: { label: 'High', longLabel: 'High Priority', cls: 'bg-orange-50 text-orange-600 border-orange-200', stripe: 'bg-orange-400' },
+  medium: { label: 'Medium', longLabel: 'Medium Priority', cls: 'bg-blue-50 text-blue-600 border-blue-200', stripe: 'bg-blue-400' },
+  low: { label: 'Low', longLabel: 'Low Priority', cls: 'bg-slate-100 text-slate-500 border-slate-200', stripe: 'bg-slate-300' },
+}
+
+const MA_STATUS: Record<string, string> = {
+  pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
+  completed: 'bg-purple-50 text-purple-700 border-purple-200',
+  accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rejected: 'bg-red-50 text-red-600 border-red-200',
+}
+
+const MA_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Submitted',
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+}
+
+function Badge({ label, cls }: { label: string; cls: string }) {
+  return (
+    <span className={cn('inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold', cls)}>
+      {label}
+    </span>
+  )
+}
+
+function StatusDot({ status, ackNeeded }: { status: string; ackNeeded?: boolean }) {
+  if (ackNeeded) {
+    const cfg = { label: 'Waiting Ack', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-400' }
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold', cfg.cls)}>
+        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', cfg.dot)} />
+        {cfg.label}
+      </span>
+    )
+  }
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.backlog
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold', cfg.cls)}>
+      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', cfg.dot)} />
+      {cfg.label}
+    </span>
+  )
+}
+
+type BtnColor = 'green' | 'blue' | 'amber' | 'red' | 'violet' | 'indigo' | 'teal'
+
+const BTN_CLS: Record<BtnColor, string> = {
+  green: 'bg-green-600 hover:bg-green-700 text-white',
+  blue: 'bg-blue-600 hover:bg-blue-700 text-white',
+  amber: 'bg-amber-500 hover:bg-amber-600 text-white',
+  red: 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200',
+  violet: 'bg-violet-600 hover:bg-violet-700 text-white',
+  indigo: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+  teal: 'bg-teal-600 hover:bg-teal-700 text-white',
+}
+
+function ActBtn({ onClick, color, children }: { onClick: () => void; color: BtnColor; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className={cn('inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors', BTN_CLS[color])}>
+      {children}
+    </button>
+  )
+}
+
 export function TaskCard({
   task,
   currentUsername,
+  currentUserDept,
   onEdit,
   onViewDetail,
-  onShare,
   onDecline,
   onRefresh,
   compact = false,
 }: TaskCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [showMa, setShowMa] = useState(false)
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
-  const isPendingApproval = task.approval_status === 'pending_approval'
   const isCompleted = task.completed
-  const showStartBtn = isAssignee && task.task_status === 'backlog'
-  const showCompleteBtn =
-    !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status !== 'backlog'
-  const showApproveDeclineBtn = isCreator && isPendingApproval
+  const isPendingApproval = task.approval_status === 'pending_approval'
 
-  // Last comment count
+  const ma = task.multi_assignment
+  const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
+  const myMaEntry = maEnabled ? ma.assignees.find((a) => a.username.toLowerCase() === currentUsername.toLowerCase()) : undefined
+
+  const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
+  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
+  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
+  const showApproveBtn = isCreator && isPendingApproval
+  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
+    (!task.queue_department || !currentUserDept || task.queue_department.toLowerCase() === (currentUserDept ?? '').toLowerCase())
+  const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
+  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
+
+  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showClaimBtn || showMaStartBtn || showMaSubmitBtn
+
+  const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment')
-  const unreadComments = comments.filter(
-    (h: HistoryEntry) => Array.isArray(h.unread_by) && h.unread_by.includes(currentUsername)
-  )
+  const unread = comments.filter((h: HistoryEntry) => Array.isArray(h.unread_by) && h.unread_by.includes(currentUsername))
+  const playPkg = task.package_name && task.package_name !== 'Others' ? task.package_name : null
+  const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
+  const summaryText = task.notes || taskDescriptionToPlainText(task.description)
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
-      const res = await fn()
-      if (res.success) onRefresh()
-      // else: could show error toast
+      const result = await fn()
+      if (result.success) onRefresh()
     })
   }
 
-  return (
-    <div
-      className={cn(
-        'group relative rounded-xl border transition-all duration-150',
-        isPending && 'opacity-60 pointer-events-none',
-        isCompleted ? 'opacity-75' : 'hover:shadow-md',
-        compact ? 'p-3' : 'p-4'
-      )}
-      style={{
-        background: 'var(--color-surface)',
-        borderColor: isCompleted ? 'var(--color-border)' : 'var(--color-border)',
-        backdropFilter: 'blur(10px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(10px) saturate(160%)',
-      }}
-    >
-      {/* ── Priority stripe ── */}
+  if (compact) {
+    return (
       <div
         className={cn(
-          'absolute left-0 top-3 bottom-3 w-1 rounded-r-full',
-          task.priority === 'urgent' ? 'bg-red-500' :
-          task.priority === 'high' ? 'bg-orange-500' :
-          task.priority === 'medium' ? 'bg-blue-400' : 'bg-slate-300'
+          'overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition-all hover:border-blue-300 hover:shadow-sm cursor-pointer',
+          isPending && 'pointer-events-none opacity-60',
+          isCompleted && 'opacity-60'
         )}
-      />
-
-      <div className="pl-3">
-        {/* ── Top row ── */}
-        <div className="flex items-start gap-2">
-          {/* Complete checkbox */}
-          <button
-            onClick={() => !isCompleted && showCompleteBtn && doAction(() => toggleTodoCompleteAction(task.id, true))}
-            className={cn(
-              'mt-0.5 shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all',
-              isCompleted
-                ? 'bg-green-500 border-green-500'
-                : 'border-slate-300 hover:border-green-400'
-            )}
-            title={isCompleted ? 'Completed' : 'Mark complete'}
-            disabled={isCompleted || !showCompleteBtn}
-          >
-            {isCompleted && (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            )}
-          </button>
-
-          {/* Title + subtitle */}
-          <div className="flex-1 min-w-0">
-            <button
-              className={cn(
-                'text-left font-semibold text-sm leading-snug w-full',
-                isCompleted ? 'line-through text-slate-400' : 'text-slate-900 hover:text-blue-600'
-              )}
-              onClick={() => onViewDetail(task)}
-            >
-              {task.title}
-            </button>
-            {!compact && task.package_name && (
-              <div className="text-xs text-slate-400 mt-0.5 truncate">
-                {task.app_name && <span className="text-blue-500">{task.app_name}</span>}
-                {task.app_name && task.package_name && <span className="mx-1 text-slate-300">·</span>}
-                {task.package_name}
-              </div>
-            )}
-          </div>
-
-          {/* Menu button */}
-          <div className="relative shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-              className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-slate-100 transition-all"
-            >
-              <MoreVertical size={16} className="text-slate-400" />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute right-0 top-8 rounded-xl z-50 min-w-40 py-1 animate-fade-in"
-                style={{
-                  background: 'var(--color-surface)',
-                  backdropFilter: 'blur(20px) saturate(200%)',
-                  WebkitBackdropFilter: 'blur(20px) saturate(200%)',
-                  border: '1px solid var(--color-border)',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-                }}
-                onMouseLeave={() => setMenuOpen(false)}
-              >
-                <MenuBtn onClick={() => { setMenuOpen(false); onViewDetail(task) }} icon={<Eye size={14}/>} label="View Details" />
-                {isCreator && <MenuBtn onClick={() => { setMenuOpen(false); onEdit(task) }} icon={<Edit3 size={14}/>} label="Edit Task" />}
-                <MenuBtn onClick={() => { setMenuOpen(false); onShare(task) }} icon={<Share2 size={14}/>} label="Share" />
-                {isCreator && !isCompleted && (
-                  <MenuBtn
-                    onClick={() => { setMenuOpen(false); doAction(() => archiveTodoAction(task.id)) }}
-                    icon={<Archive size={14}/>}
-                    label="Archive"
-                  />
-                )}
-                {isCreator && !isCompleted && (
-                  <MenuBtn
-                    onClick={() => { setMenuOpen(false); doAction(() => deleteTodoAction(task.id)) }}
-                    icon={<Trash2 size={14}/>}
-                    label="Delete"
-                    danger
-                  />
-                )}
-              </div>
-            )}
-          </div>
+        onClick={() => onViewDetail(task)}
+      >
+        <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+          <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
-
-        {/* ── Badge row ── */}
-        <div className="flex flex-wrap items-center gap-1.5 mt-2 pl-7">
-          <TaskStatusBadge status={task.task_status} />
-          <PriorityBadge priority={task.priority} />
-          {task.kpi_type && (
-            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
-              {task.kpi_type}
+        {task.app_name && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{task.app_name}</p>}
+        <p className={cn('text-sm font-semibold leading-snug', isCompleted ? 'line-through text-slate-400' : 'text-slate-800')}>
+          {task.title}
+        </p>
+        {task.assigned_to && (
+          <div className="mt-2.5 flex items-center gap-1.5">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
+              {task.assigned_to.charAt(0).toUpperCase()}
             </span>
-          )}
-          <ApprovalBadge status={task.approval_status} />
-          {task.archived && (
-            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-xs">Archived</span>
-          )}
-        </div>
-
-        {/* ── Meta row ── */}
-        {!compact && (
-          <div className="flex flex-wrap items-center gap-3 mt-2.5 pl-7">
-            {/* Assignee */}
-            {task.assigned_to && (
-              <div className="flex items-center gap-1.5">
-                <UserAvatar username={task.assigned_to} />
-                <span className="text-xs text-slate-500">{task.assigned_to}</span>
-              </div>
-            )}
-            {/* Due date */}
-            <DueDateChip dateStr={task.due_date} completed={isCompleted} />
-            {/* Comments */}
-            {comments.length > 0 && (
-              <span className={cn('flex items-center gap-1 text-xs', unreadComments.length > 0 ? 'text-blue-600 font-semibold' : 'text-slate-400')}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M14 0H2C.9 0 0 .9 0 2v9c0 1.1.9 2 2 2h3l3 3 3-3h3c1.1 0 2-.9 2-2V2c0-1.1-.9-2-2-2z"/>
-                </svg>
-                {unreadComments.length > 0 ? `${unreadComments.length} new` : comments.length}
-              </span>
-            )}
-            {/* Shared flag */}
-            {task.is_shared && (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <Share2 size={10} /> Shared
-              </span>
-            )}
+            <span className="truncate text-[11px] text-slate-500">{task.assigned_to}</span>
           </div>
         )}
-
-        {/* ── Action buttons ── */}
-        {(showStartBtn || showApproveDeclineBtn) && (
-          <div className="flex gap-2 mt-3 pl-7">
-            {showStartBtn && (
-              <button
-                onClick={() => doAction(() => startTaskAction(task.id))}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-              >
-                🚀 Start Work
-              </button>
-            )}
-            {showApproveDeclineBtn && (
-              <>
-                <button
-                  onClick={() => doAction(() => approveTodoAction(task.id))}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
-                >
-                  ✅ Approve
-                </button>
-                <button
-                  onClick={() => onDecline(task)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 text-xs font-semibold hover:bg-red-100 transition-colors"
-                >
-                  ❌ Decline
-                </button>
-              </>
-            )}
-          </div>
+        {task.due_date && (
+          <p className={cn('mt-1.5 flex items-center gap-1 text-[11px]', isOverdue(task.due_date) && !isCompleted ? 'font-semibold text-red-500' : 'text-slate-400')}>
+            <Calendar size={10} /> {fmtShort(task.due_date)}
+          </p>
         )}
       </div>
-    </div>
-  )
-}
+    )
+  }
 
-function MenuBtn({
-  onClick,
-  icon,
-  label,
-  danger = false,
-}: {
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  danger?: boolean
-}) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left hover:bg-slate-50',
-        danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700'
-      )}
-    >
-      {icon}
-      {label}
-    </button>
+    <div className={cn(
+      'group/row relative flex overflow-hidden rounded-[18px] border border-[#dfe5f1] bg-white shadow-[0_6px_18px_rgba(31,65,132,0.05)] transition-colors',
+      'flex-col md:flex-row',
+      isPending && 'pointer-events-none opacity-60',
+      isCompleted ? 'bg-slate-50/60' : 'hover:border-[#cfd9ec] hover:shadow-[0_8px_22px_rgba(31,65,132,0.08)]'
+    )}>
+      <div className={cn('w-1 shrink-0 self-stretch', pCfg.stripe)} />
+
+      <div className="flex min-w-0 flex-1 gap-4 px-4 py-4">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {task.app_name && (
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#5d6fe0]">
+                {task.app_name}
+              </span>
+            )}
+            {task.kpi_type && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-600">
+                {task.kpi_type}
+              </span>
+            )}
+            <span className="text-[10px] font-semibold text-[#9aabca]">#{task.id.slice(0, 4)}</span>
+          </div>
+
+          <button
+            onClick={() => onViewDetail(task)}
+            className={cn(
+              'block w-full text-left text-[18px] font-bold leading-snug',
+              isCompleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-blue-600'
+            )}
+          >
+            {task.title}
+          </button>
+
+          {summaryText && (
+            <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-400">
+              {summaryText}
+            </p>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
+            {task.assigned_to && (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-[#9aabca]">
+                <User size={10} className="shrink-0" />
+                {task.assigned_to}
+              </span>
+            )}
+            {task.category && (
+              <span className="rounded-full bg-[#eef3ff] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a7de8]">
+                {task.category}
+              </span>
+            )}
+          </div>
+
+          {hasActions && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber">Acknowledge</ActBtn>}
+              {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue">Start Work</ActBtn>}
+              {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet">Pick Task</ActBtn>}
+              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo">MA: Start</ActBtn>}
+              {showMaSubmitBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'completed'))} color="teal">MA: Submit</ActBtn>}
+              {showCompleteBtn && <ActBtn onClick={() => doAction(() => toggleTodoCompleteAction(task.id, true))} color="green">Complete</ActBtn>}
+              {showApproveBtn && (
+                <>
+                  <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green">Approve</ActBtn>
+                  <ActBtn onClick={() => onDecline(task)} color="red">Decline</ActBtn>
+                </>
+              )}
+            </div>
+          )}
+
+          {maEnabled && (
+            <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-[#fafcff]">
+              <button
+                className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                onClick={() => setShowMa((v) => !v)}
+              >
+                <span className="text-xs font-semibold text-slate-600">
+                  Multi-Assignment Progress · {ma.completion_percentage ?? 0}% Complete · {ma.assignees.length} Assignee{ma.assignees.length !== 1 ? 's' : ''}
+                </span>
+                {showMa ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}
+              </button>
+              {showMa && (
+                <div className="divide-y divide-slate-100 border-t border-slate-100">
+                  {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
+                    const status = assignee.status || 'pending'
+                    const assigneeDueDate = assignee.actual_due_date || null
+                    const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
+                    const assigneeOverdue =
+                      !!assigneeDueDate &&
+                      ['accepted', 'completed'].includes(status) === false &&
+                      isOverdue(assigneeDueDate)
+                    return (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                          {assignee.username.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{assignee.username}</span>
+                        <div className="min-w-[74px] text-right">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a2b1ca]">
+                            Due
+                          </div>
+                          <div
+                            className={cn(
+                              'text-xs font-semibold',
+                              assigneeOverdue ? 'text-red-500' : 'text-slate-700'
+                            )}
+                          >
+                            {fmtMaDue(assigneeDueDate)}
+                          </div>
+                          {assigneeDueTime && (
+                            <div
+                              className={cn(
+                                'text-[10px] font-medium',
+                                assigneeOverdue ? 'text-red-400' : 'text-slate-400'
+                              )}
+                            >
+                              {assigneeDueTime}
+                            </div>
+                          )}
+                        </div>
+                        <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
+                          {MA_LABEL[status] ?? status}
+                        </span>
+                        {isCreator && assignee.status === 'completed' && (
+                          <>
+                            <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded bg-green-600 px-2 py-0.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
+                            <button onClick={() => onDecline(task)} className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100">Reject</button>
+                          </>
+                        )}
+                        <button onClick={() => onViewDetail(task)} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+            <span className="flex items-center gap-1">
+              <Clock size={10} className="shrink-0" />
+              {fmtDate(task.created_at)}
+              {task.username && (
+                <> by <span className="font-medium text-slate-500">{task.username}</span>{task.creator_department && <span> ({task.creator_department})</span>}</>
+              )}
+            </span>
+            {task.assigned_to && (
+              <span className="flex items-center gap-1">
+                <User size={10} className="shrink-0" />
+                {task.assigned_to}
+                {task.assignee_department && <span> ({task.assignee_department})</span>}
+              </span>
+            )}
+            {(task.expected_due_date || task.due_date) && (
+              <span className={cn('flex items-center gap-1', isOverdue(task.due_date) && !isCompleted ? 'font-semibold text-red-500' : '')}>
+                <Calendar size={10} className="shrink-0" />
+                Expected: {fmtShort(task.expected_due_date || task.due_date)}
+              </span>
+            )}
+            {task.approval_status === 'pending_approval' && (
+              <span className="flex items-center gap-1 font-semibold text-amber-500">Waiting for Approval</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex min-w-[112px] shrink-0 flex-row items-stretch justify-between border-t border-[#edf1f7] pt-4 md:min-w-[170px] md:flex-col md:items-end md:justify-between md:border-l md:border-t-0 md:pl-5 md:pt-0">
+          <div className="text-left md:text-right">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#a2b1ca]">Expected</div>
+            <div className={cn('mt-1 text-sm font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-[#44526e]')}>
+              {task.due_date ? fmtShort(task.due_date) : 'No date'}
+            </div>
+            {task.due_date && (
+              <div className={cn('mt-0.5 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-[#8fa0bf]')}>
+                {fmtTime(task.due_date)}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col items-end gap-1.5 md:mt-4">
+            {task.queue_status === 'queued' && (
+              <Badge label={`Queued${task.queue_department ? ` · ${task.queue_department}` : ''}`} cls="bg-sky-50 text-sky-700 border-sky-200" />
+            )}
+            {maEnabled && (
+              <Badge label={`${ma.completion_percentage ?? 0}% · ${ma.assignees.length} Assignees`} cls="bg-cyan-50 text-cyan-700 border-cyan-200" />
+            )}
+            {task.approval_status === 'declined' && (
+              <Badge label="Declined" cls="bg-red-50 text-red-600 border-red-200" />
+            )}
+            {completionTime && (
+              <Badge label={`⏱ ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
+            )}
+            {playPkg && (
+              <a
+                href={`https://play.google.com/store/apps/details?id=${playPkg}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-teal-700"
+              >
+                <ExternalLink size={10} /> Play Store
+              </a>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-row items-center justify-end gap-1 border-t border-[#edf1f7] px-4 py-3 opacity-80 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-3 md:flex-col md:justify-center">
+          {unread.length > 0 && (
+            <span className="relative inline-flex h-6 w-6 items-center justify-center">
+              <span className="absolute h-4 w-4 animate-ping rounded-full bg-green-400 opacity-40" />
+              <span className="relative flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[9px] font-bold text-white">{unread.length}</span>
+            </span>
+          )}
+          {comments.length > 0 && unread.length === 0 && (
+            <span className="flex items-center gap-0.5 px-1 text-[10px] text-slate-400">
+              <MessageCircle size={10} />{comments.length}
+            </span>
+          )}
+          <button onClick={() => onViewDetail(task)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-500" title="View">
+            <Eye size={14} />
+          </button>
+          {isCreator && (
+            <button onClick={() => onEdit(task)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Edit">
+              <Edit3 size={13} />
+            </button>
+          )}
+          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Duplicate">
+            <Copy size={13} />
+          </button>
+          {isCreator && !isCompleted && (
+            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Delete">
+              <Trash2 size={13} />
+            </button>
+          )}
+          {isCreator && !isCompleted && task.task_status === 'done' && (
+            <button onClick={() => doAction(() => archiveTodoAction(task.id))} className="rounded-lg p-1.5 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
+              ↓
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

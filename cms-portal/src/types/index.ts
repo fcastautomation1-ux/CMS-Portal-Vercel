@@ -92,10 +92,16 @@ export interface Notification {
   id: string
   user_id: string
   title: string
-  body: string | null
+  // DB schema (old system): message / read / link / created_by
+  message: string | null
+  body: string | null          // alias kept for new inserts
   type: string | null
+  link: string | null          // old-system navigation link
   related_id: string | null
-  is_read: boolean
+  read: boolean                // old DB column
+  is_read: boolean             // alias kept for compat
+  created_by: string | null
+  metadata: Record<string, unknown> | string | null
   created_at: string
 }
 
@@ -103,6 +109,13 @@ export interface Notification {
 export interface Package {
   id: string
   name: string
+  app_name?: string | null
+  department?: string | null
+  playconsole_account?: string | null
+  marketer?: string | null
+  product_owner?: string | null
+  monetization?: string | null
+  admob?: string | null
   description: string | null
   category: string | null
   price: number | null
@@ -110,6 +123,7 @@ export interface Package {
   created_by: string | null
   created_at: string
   updated_at: string
+  assigned_users_count?: number
 }
 
 // ─── Looker Reports ──────────────────────────────────────────
@@ -167,16 +181,34 @@ export interface AssignmentChainEntry {
   feedback?: string
 }
 
+export interface MultiAssignmentSubEntry {
+  username: string
+  status?: string              // pending | in_progress | completed | accepted | rejected
+  completed_at?: string
+  notes?: string               // feedback note when submitting
+  delegation_instructions?: string
+  delegated_to?: MultiAssignmentSubEntry[]
+}
+
 export interface MultiAssignmentEntry {
   username: string
-  status?: string
+  status?: string              // pending | in_progress | completed | accepted | rejected
+  assigned_at?: string
   completed_at?: string
-  delegated_to?: Array<{ username: string; status?: string; completed_at?: string }>
+  accepted_at?: string
+  accepted_by?: string
+  rejection_reason?: string
+  actual_due_date?: string
+  notes?: string               // feedback note
+  delegated_to?: MultiAssignmentSubEntry[]
 }
 
 export interface MultiAssignment {
   enabled: boolean
   assignees: MultiAssignmentEntry[]
+  created_by?: string
+  completion_percentage?: number
+  all_completed?: boolean
 }
 
 export interface Todo {

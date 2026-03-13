@@ -41,9 +41,11 @@ function formatRelativeTime(isoDate: string | null): string {
 interface AccountsTableProps {
   accounts: Account[]
   user: SessionUser
+  /** customer_id → usernames with explicit access */
+  userAccess?: Record<string, string[]>
 }
 
-export function AccountsTable({ accounts, user }: AccountsTableProps) {
+export function AccountsTable({ accounts, user, userAccess = {} }: AccountsTableProps) {
   const router = useRouter()
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
 
@@ -270,7 +272,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                     </div>
                   </th>
                 )}
-                {['Customer ID', 'Account Name', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Actions'].map(h => (
+                {['Customer ID', 'Account Name', 'Workflow', 'Status', 'Enabled', 'Last Run', 'Created', 'Users with Access', 'Actions'].map(h => (
                   <th
                     key={h}
                     className="py-3.5 px-4 text-left font-semibold text-xs uppercase tracking-wider whitespace-nowrap"
@@ -285,7 +287,7 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 9 : 8}
+                    colSpan={canEdit ? 10 : 9}
                     className="py-20 text-center"
                     style={{ color: 'var(--slate-400)' }}
                   >
@@ -374,6 +376,38 @@ export function AccountsTable({ accounts, user }: AccountsTableProps) {
                       {/* Created */}
                       <td className="py-3.5 px-4 whitespace-nowrap text-sm" style={{ color: 'var(--slate-500)' }}>
                         {new Date(account.created_date).toLocaleDateString()}
+                      </td>
+
+                      {/* Users with Access */}
+                      <td className="py-3.5 px-4">
+                        {(() => {
+                          const users = userAccess[account.customer_id] ?? []
+                          if (users.length === 0) return (
+                            <span className="text-xs" style={{ color: 'var(--slate-400)' }}>—</span>
+                          )
+                          return (
+                            <div className="flex flex-wrap gap-1 max-w-[180px]">
+                              {users.slice(0, 3).map(u => (
+                                <span
+                                  key={u}
+                                  className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'rgba(99,102,241,0.1)', color: '#6366F1' }}
+                                >
+                                  {u}
+                                </span>
+                              ))}
+                              {users.length > 3 && (
+                                <span
+                                  className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'var(--slate-100)', color: 'var(--slate-500)' }}
+                                  title={users.slice(3).join(', ')}
+                                >
+                                  +{users.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
 
                       {/* Actions */}

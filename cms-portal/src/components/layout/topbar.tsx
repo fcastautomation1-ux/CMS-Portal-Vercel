@@ -60,7 +60,7 @@ export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggl
         </button>
 
         {/* Notifications */}
-        <NotificationPanel />
+        <NotificationPanel currentUsername={user.username} />
 
         {/* User profile chip */}
         <Link

@@ -29,19 +29,6 @@ export default async function TasksPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Page header */}
-      <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100">
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Tasks</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          {stats.total} total · {stats.completed} done · {stats.overdue > 0 && (
-            <span className="text-red-500 font-medium">{stats.overdue} overdue · </span>
-          )}
-          {stats.dueToday > 0 && (
-            <span className="text-amber-600 font-medium">{stats.dueToday} due today</span>
-          )}
-        </p>
-      </div>
-
       <div className="flex-1 overflow-hidden">
         <Suspense
           fallback={
@@ -52,6 +39,9 @@ export default async function TasksPage() {
         >
           <TasksBoard
             currentUsername={user.username}
+            currentUserRole={user.role}
+            currentUserDept={user.department}
+            currentUserTeamMembers={user.teamMembers}
             initialTasks={tasks}
             initialStats={stats}
           />

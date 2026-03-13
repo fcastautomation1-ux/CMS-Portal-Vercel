@@ -1,25 +1,36 @@
 'use client'
 
-import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import * as XLSX from 'xlsx'
 import {
-  X,
-  ChevronDown,
   Bold,
+  ChevronDown,
+  FileSpreadsheet,
   Italic,
-  Underline,
+  Link2,
   List,
   ListOrdered,
-  Paperclip,
   Loader2,
+  Paperclip,
+  Plus,
+  Search,
+  Table2,
+  Underline,
+  Upload,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import type { Todo } from '@/types'
+import { createBrowserClient } from '@/lib/supabase/client'
+import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
+import type { MultiAssignmentEntry, Todo } from '@/types'
 import { KPI_TYPES } from '@/types'
 import {
-  saveTodoAction,
+  getDepartmentsForTaskForm,
   getPackagesForTaskForm,
   getUsersForAssignment,
-  getDepartmentsForTaskForm,
+  importGoogleSheetCsvAction,
+  saveTodoAction,
+  saveTodoAttachmentAction,
 } from '@/app/dashboard/tasks/actions'
 
 interface Package {
@@ -36,10 +47,36 @@ interface User {
 
 type TaskRouting = 'self' | 'department' | 'manager' | 'multi'
 
-interface MultiAssignee {
-  username: string
-  delegated_to?: { username: string }[]
+type PendingAttachment = {
+  file: File
+  id: string
 }
+
+type DraftPayload = {
+  appName: string
+  packageName: string
+  kpiType: string
+  title: string
+  description: string
+  ourGoal: string
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  dueDate: string
+  notes: string
+  routing: TaskRouting
+  deptRoutingDept: string
+  assignedManager: string
+  multiAssignees: MultiAssignmentEntry[]
+}
+
+type ImportProgress = {
+  active: boolean
+  label: string
+  progress: number
+}
+
+const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
+const TASK_ATTACHMENTS_BUCKET = 'task-attachments'
+const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr><tr><td></td><td></td></tr></tbody></table>'
 
 interface CreateTaskModalProps {
   editTask?: Todo | null
@@ -49,50 +86,59 @@ interface CreateTaskModalProps {
 
 export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalProps) {
   const isEdit = !!editTask
+  const draftKey = `${DRAFT_STORAGE_PREFIX}:${editTask?.id ?? 'new'}`
+  const initialDraft = readDraft(draftKey)
+  const descriptionRef = useRef<HTMLDivElement>(null)
+  const goalRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const importFileInputRef = useRef<HTMLInputElement>(null)
+  const [isPending, startTransition] = useTransition()
 
-  // ── Form fields ──
-  const [appName, setAppName] = useState(editTask?.app_name ?? '')
-  const [packageName, setPackageName] = useState(editTask?.package_name ?? '')
-  const [kpiType, setKpiType] = useState(editTask?.kpi_type ?? '')
-  const [title, setTitle] = useState(editTask?.title ?? '')
-  const [description, setDescription] = useState(editTask?.description ?? '')
+  const [appName, setAppName] = useState(initialDraft?.appName ?? editTask?.app_name ?? '')
+  const [packageName, setPackageName] = useState(initialDraft?.packageName ?? editTask?.package_name ?? '')
+  const [kpiType, setKpiType] = useState(initialDraft?.kpiType ?? editTask?.kpi_type ?? '')
+  const [title, setTitle] = useState(initialDraft?.title ?? editTask?.title ?? '')
+  const [description, setDescription] = useState(
+    normalizeTaskDescription(initialDraft?.description ?? editTask?.description ?? '')
+  )
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>(
-    editTask?.priority ?? 'medium'
+    initialDraft?.priority ?? editTask?.priority ?? 'medium'
   )
   const [dueDate, setDueDate] = useState(
-    editTask?.due_date ? editTask.due_date.slice(0, 16) : ''
+    initialDraft?.dueDate ??
+      (editTask?.expected_due_date
+        ? editTask.expected_due_date.slice(0, 16)
+        : editTask?.due_date
+          ? editTask.due_date.slice(0, 16)
+          : '')
   )
-  const [notes, setNotes] = useState(editTask?.notes ?? '')
+  const [notes, setNotes] = useState(initialDraft?.notes ?? editTask?.notes ?? '')
   const [routing, setRouting] = useState<TaskRouting>(() => {
+    if (initialDraft?.routing) return initialDraft.routing
     if (!editTask) return 'self'
     if (editTask.multi_assignment?.enabled) return 'multi'
     if (editTask.queue_status === 'queued') return 'department'
     if (editTask.assigned_to) return 'manager'
     return 'self'
   })
-
-  // Department routing
-  const [deptRoutingDept, setDeptRoutingDept] = useState(
-    editTask?.queue_department ?? ''
-  )
-
-  // Manager routing
-  const [assignedManager, setAssignedManager] = useState(
-    editTask?.assigned_to ?? ''
-  )
-
-  // Multi-assignment
-  const [multiAssignees, setMultiAssignees] = useState<MultiAssignee[]>(
-    editTask?.multi_assignment?.assignees ?? []
+  const [deptRoutingDept, setDeptRoutingDept] = useState(initialDraft?.deptRoutingDept ?? editTask?.queue_department ?? '')
+  const [assignedManager, setAssignedManager] = useState(initialDraft?.assignedManager ?? editTask?.assigned_to ?? '')
+  const [multiAssignees, setMultiAssignees] = useState<MultiAssignmentEntry[]>(
+    initialDraft?.multiAssignees ?? editTask?.multi_assignment?.assignees ?? []
   )
   const [multiSearch, setMultiSearch] = useState('')
   const [multiDeptFilter, setMultiDeptFilter] = useState('')
-
-  const goalRef = useRef<HTMLDivElement>(null)
-  const [isPending, startTransition] = useTransition()
+  const [appSearch, setAppSearch] = useState('')
+  const [packageSearch, setPackageSearch] = useState('')
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [descriptionImport, setDescriptionImport] = useState<ImportProgress>({
+    active: false,
+    label: '',
+    progress: 0,
+  })
   const [error, setError] = useState('')
 
-  // ── Data loaders ──
   const [packages, setPackages] = useState<Package[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [departments, setDepartments] = useState<string[]>([])
@@ -109,412 +155,998 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
     })
   }, [])
 
-  // Set initial our_goal HTML
   useEffect(() => {
-    if (goalRef.current && editTask?.our_goal) {
-      goalRef.current.innerHTML = editTask.our_goal
+    if (descriptionRef.current) {
+      descriptionRef.current.innerHTML = normalizeTaskDescription(
+        initialDraft?.description ?? editTask?.description ?? ''
+      )
     }
-  }, [editTask])
+    if (goalRef.current) {
+      goalRef.current.innerHTML = initialDraft?.ourGoal ?? editTask?.our_goal ?? ''
+    }
+  }, [editTask, initialDraft?.description, initialDraft?.ourGoal])
 
-  // Packages filtered by selected app_name
-  const filteredPackagesByApp = appName
-    ? packages.filter((p) => p.app_name === appName)
-    : packages
-
-  // Auto-fill app_name when package_name is selected
   useEffect(() => {
-    if (packageName) {
-      const pkg = packages.find((p) => p.name === packageName)
-      if (pkg?.app_name) setAppName(pkg.app_name)
+    const snapshot: DraftPayload = {
+      appName,
+      packageName,
+      kpiType,
+      title,
+      description,
+      ourGoal: goalRef.current?.innerHTML ?? '',
+      priority,
+      dueDate,
+      notes,
+      routing,
+      deptRoutingDept,
+      assignedManager,
+      multiAssignees,
     }
-  }, [packageName, packages])
+    window.localStorage.setItem(draftKey, JSON.stringify(snapshot))
+  }, [
+    appName,
+    assignedManager,
+    deptRoutingDept,
+    description,
+    draftKey,
+    dueDate,
+    kpiType,
+    multiAssignees,
+    notes,
+    packageName,
+    priority,
+    routing,
+    title,
+  ])
 
-  // Rich-text toolbar
-  const execCmd = (cmd: string, value?: string) => {
-    document.execCommand(cmd, false, value)
-    goalRef.current?.focus()
+  const managerUsers = useMemo(
+    () =>
+      users.filter((user) =>
+        ['Admin', 'Super Manager', 'Manager', 'Supervisor'].includes(user.role)
+      ),
+    [users]
+  )
+
+  const availableApps = useMemo(() => {
+    const apps = [...new Set(packages.map((item) => item.app_name).filter(Boolean))].sort() as string[]
+    return apps.includes('Others') ? apps : [...apps, 'Others']
+  }, [packages])
+
+  const filteredPackagesByApp = useMemo(() => {
+    const list = appName ? packages.filter((item) => item.app_name === appName) : packages
+
+    if (appName === 'Others' && !list.some((item) => item.name === 'Others')) {
+      return [{ id: 'others', name: 'Others', app_name: 'Others' }, ...list]
+    }
+    return list
+  }, [appName, packages])
+
+  const filteredApps = useMemo(
+    () => availableApps.filter((app) => app.toLowerCase().includes(appSearch.toLowerCase())),
+    [appSearch, availableApps]
+  )
+
+  const filteredPackages = useMemo(
+    () =>
+      filteredPackagesByApp.filter((pkg) =>
+        pkg.name.toLowerCase().includes(packageSearch.toLowerCase())
+      ),
+    [filteredPackagesByApp, packageSearch]
+  )
+
+  const filteredUsersForMulti = useMemo(
+    () =>
+      users.filter((user) => {
+        const matchSearch =
+          !multiSearch || user.username.toLowerCase().includes(multiSearch.toLowerCase())
+        const matchDept = !multiDeptFilter || user.department === multiDeptFilter
+        return matchSearch && matchDept
+      }),
+    [multiDeptFilter, multiSearch, users]
+  )
+
+  const syncDescription = () => {
+    setDescription(descriptionRef.current?.innerHTML ?? '')
   }
 
-  // Multi-assignee helpers
-  const filteredUsersForMulti = users.filter((u) => {
-    const matchSearch =
-      !multiSearch ||
-      u.username.toLowerCase().includes(multiSearch.toLowerCase())
-    const matchDept = !multiDeptFilter || u.department === multiDeptFilter
-    return matchSearch && matchDept
-  })
+  const execCmd = (cmd: string, targetRef: React.RefObject<HTMLDivElement | null>) => {
+    targetRef.current?.focus()
+    document.execCommand(cmd, false)
+    if (targetRef.current === descriptionRef.current) {
+      syncDescription()
+    }
+  }
 
-  const toggleMultiAssignee = (username: string) => {
-    setMultiAssignees((prev) =>
-      prev.some((a) => a.username === username)
-        ? prev.filter((a) => a.username !== username)
-        : [...prev, { username }]
+  const selectApp = (nextApp: string) => {
+    setAppName(nextApp)
+    setAppSearch('')
+    setPackageSearch('')
+
+    if (nextApp === 'Others') {
+      setPackageName('Others')
+      return
+    }
+
+    const appPackages = packages.filter((item) => item.app_name === nextApp)
+    if (appPackages.length > 0) {
+      setPackageName(appPackages[0].name)
+      return
+    }
+
+    setPackageName('')
+  }
+
+  const selectPackage = (nextPackage: string) => {
+    setPackageName(nextPackage)
+    setPackageSearch('')
+    if (nextPackage === 'Others') {
+      setAppName('Others')
+      return
+    }
+    const pkg = packages.find((item) => item.name === nextPackage)
+    if (pkg?.app_name) setAppName(pkg.app_name)
+  }
+
+  const toggleMultiAssignee = (user: User) => {
+    setMultiAssignees((current) => {
+      const exists = current.some((entry) => entry.username === user.username)
+      if (exists) {
+        return current.filter((entry) => entry.username !== user.username)
+      }
+      return [
+        ...current,
+        {
+          username: user.username,
+          status: 'pending',
+          actual_due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
+        },
+      ]
+    })
+  }
+
+  const setMultiAssigneeDueDate = (username: string, value: string) => {
+    setMultiAssignees((current) =>
+      current.map((entry) =>
+        entry.username === username
+          ? {
+              ...entry,
+              actual_due_date: value ? new Date(value).toISOString() : undefined,
+            }
+          : entry
+      )
     )
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!title.trim() || !packageName || !kpiType || !dueDate) {
-      setError('Please fill in all required fields.')
+  const onAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    if (!files.length) return
+    setPendingAttachments((current) => [
+      ...current,
+      ...files.map((file) => ({
+        file,
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+      })),
+    ])
+    event.target.value = ''
+  }
+
+  const uploadAttachments = async (todoId: string) => {
+    if (!pendingAttachments.length) return
+
+    const supabase = createBrowserClient()
+    for (const attachment of pendingAttachments) {
+      const ext = attachment.file.name.includes('.')
+        ? attachment.file.name.split('.').pop()
+        : undefined
+      const storagePath = `todos/${todoId}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`
+      const upload = await supabase.storage
+        .from(TASK_ATTACHMENTS_BUCKET)
+        .upload(storagePath, attachment.file, { upsert: false })
+
+      if (upload.error) {
+        throw new Error(`Attachment upload failed for ${attachment.file.name}: ${upload.error.message}`)
+      }
+
+      const saveAttachment = await saveTodoAttachmentAction({
+        todo_id: todoId,
+        file_name: attachment.file.name,
+        file_size: attachment.file.size,
+        mime_type: attachment.file.type || null,
+        storage_path: storagePath,
+      })
+
+      if (!saveAttachment.success) {
+        throw new Error(saveAttachment.error ?? `Failed to link ${attachment.file.name}`)
+      }
+    }
+  }
+
+  const updateImportProgress = (label: string, progress: number) => {
+    setDescriptionImport({
+      active: true,
+      label,
+      progress,
+    })
+  }
+
+  const finishImportProgress = (label: string) => {
+    setDescriptionImport({
+      active: true,
+      label,
+      progress: 100,
+    })
+    window.setTimeout(() => {
+      setDescriptionImport({
+        active: false,
+        label: '',
+        progress: 0,
+      })
+    }, 500)
+  }
+
+  const insertDescriptionHtml = (html: string) => {
+    const editor = descriptionRef.current
+    if (!editor) return
+
+    editor.focus()
+    const selection = window.getSelection()
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+    const isInsideEditor = !!range && editor.contains(range.commonAncestorContainer)
+
+    if (isInsideEditor && range) {
+      range.deleteContents()
+      const fragment = range.createContextualFragment(html)
+      range.insertNode(fragment)
+      range.collapse(false)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    } else {
+      editor.insertAdjacentHTML('beforeend', html)
+    }
+
+    syncDescription()
+  }
+
+  const handleInsertTable = () => {
+    const cols = clampCount(window.prompt('How many columns?', '2'), 2)
+    const rows = clampCount(window.prompt('How many rows?', '2'), 2)
+    insertDescriptionHtml(buildTableHtml(createEmptyGrid(rows, cols)))
+  }
+
+  const handleAddTableRow = () => {
+    const context = getSelectedTableContext(descriptionRef.current)
+    if (!context?.row) {
+      setError('Place the cursor inside a description table first.')
       return
+    }
+
+    const newRow = context.row.cloneNode(true) as HTMLTableRowElement
+    Array.from(newRow.cells).forEach((cell, index) => {
+      const headerText = `Column ${index + 1}`
+      cell.innerHTML = cell.tagName === 'TH' ? headerText : ''
+    })
+    context.row.insertAdjacentElement('afterend', newRow)
+    syncDescription()
+  }
+
+  const handleAddTableColumn = () => {
+    const context = getSelectedTableContext(descriptionRef.current)
+    if (!context?.table || !context.cell) {
+      setError('Place the cursor inside a description table first.')
+      return
+    }
+
+    const insertIndex = context.cell.cellIndex + 1
+    Array.from(context.table.rows).forEach((row, rowIndex) => {
+      const tagName = row.cells[0]?.tagName === 'TH' || rowIndex === 0 ? 'th' : 'td'
+      const cell = document.createElement(tagName)
+      cell.innerHTML = tagName === 'th' ? `Column ${insertIndex + 1}` : ''
+
+      if (insertIndex >= row.cells.length) {
+        row.appendChild(cell)
+      } else {
+        row.insertBefore(cell, row.cells[insertIndex])
+      }
+    })
+
+    syncDescription()
+  }
+
+  const importRowsIntoDescription = (rows: unknown[][], sourceLabel: string) => {
+    insertDescriptionHtml(buildTableHtml(rows))
+    finishImportProgress(`${sourceLabel} imported`)
+  }
+
+  const importSpreadsheetFile = async (file: File) => {
+    setError('')
+    updateImportProgress(`Uploading ${file.name}`, 5)
+
+    try {
+      const buffer = await readFileAsArrayBuffer(file, (progress) =>
+        updateImportProgress(`Uploading ${file.name}`, progress)
+      )
+      updateImportProgress(`Parsing ${file.name}`, 82)
+      const workbook = XLSX.read(buffer, { type: 'array' })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        raw: false,
+        defval: '',
+      }) as unknown[][]
+
+      if (!rows.length) {
+        throw new Error('The selected file is empty.')
+      }
+
+      importRowsIntoDescription(rows, file.name)
+    } catch (importError) {
+      setDescriptionImport({ active: false, label: '', progress: 0 })
+      setError(importError instanceof Error ? importError.message : 'Import failed.')
+    }
+  }
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    await importSpreadsheetFile(file)
+    event.target.value = ''
+  }
+
+  const handleGoogleSheetImport = async () => {
+    if (!googleSheetUrl.trim()) {
+      setError('Paste a Google Sheet URL first.')
+      return
+    }
+
+    setError('')
+    let progress = 12
+    updateImportProgress('Fetching Google Sheet', progress)
+    const timer = window.setInterval(() => {
+      progress = Math.min(progress + 8, 88)
+      updateImportProgress('Fetching Google Sheet', progress)
+    }, 180)
+
+    try {
+      const result = await importGoogleSheetCsvAction(googleSheetUrl.trim())
+      window.clearInterval(timer)
+
+      if (!result.success || !result.csv) {
+        throw new Error(result.error ?? 'Unable to import the Google Sheet.')
+      }
+
+      updateImportProgress('Parsing Google Sheet', 92)
+      const workbook = XLSX.read(result.csv, { type: 'string' })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        raw: false,
+        defval: '',
+      }) as unknown[][]
+
+      if (!rows.length) {
+        throw new Error('The Google Sheet is empty.')
+      }
+
+      importRowsIntoDescription(rows, 'Google Sheet')
+      setGoogleSheetUrl('')
+    } catch (importError) {
+      window.clearInterval(timer)
+      setDescriptionImport({ active: false, label: '', progress: 0 })
+      setError(importError instanceof Error ? importError.message : 'Unable to import the Google Sheet.')
+    }
+  }
+
+  const validate = () => {
+    if (!kpiType) return 'Please select a KPI type.'
+    if (!title.trim()) return 'Please enter a task title.'
+    if (title.trim().length < 3) return 'Title must be at least 3 characters.'
+    if (!packageName) return 'Please select a package.'
+    if (routing !== 'self' && routing !== 'multi' && !dueDate) {
+      return 'Please set a due date for this task.'
     }
     if (routing === 'department' && !deptRoutingDept) {
-      setError('Please select a department for routing.')
-      return
+      return 'Please select a department for routing.'
     }
     if (routing === 'manager' && !assignedManager) {
-      setError('Please select a manager to assign to.')
-      return
+      return 'Please select a manager.'
     }
     if (routing === 'multi' && multiAssignees.length === 0) {
-      setError('Please select at least one assignee for multi-assignment.')
+      return 'Please select at least one user for multi-assignment.'
+    }
+    if (routing === 'multi') {
+      const missing = multiAssignees.filter((entry) => !entry.actual_due_date)
+      if (missing.length) {
+        return `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`
+      }
+    }
+    return ''
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const nextError = validate()
+    if (nextError) {
+      setError(nextError)
       return
     }
-    setError('')
 
+    setError('')
+    const descriptionHtml = sanitizeTaskDescriptionHtml(descriptionRef.current?.innerHTML ?? description)
     const ourGoalHtml = goalRef.current?.innerHTML ?? ''
 
     startTransition(async () => {
-      const res = await saveTodoAction({
+      const result = await saveTodoAction({
         id: editTask?.id,
         app_name: appName,
-        package_name: packageName,
+        package_name: packageName || 'Others',
         kpi_type: kpiType,
         title: title.trim().slice(0, 30),
-        description,
+        description: descriptionHtml || undefined,
         our_goal: ourGoalHtml,
         priority,
-        due_date: dueDate,
+        due_date: routing === 'multi' ? undefined : dueDate || undefined,
         notes,
         routing,
         queue_department: routing === 'department' ? deptRoutingDept : undefined,
         assigned_to: routing === 'manager' ? assignedManager : undefined,
+        manager_id: routing === 'manager' ? assignedManager : undefined,
         multi_assignment:
           routing === 'multi'
-            ? { enabled: true, assignees: multiAssignees }
+            ? {
+                enabled: true,
+                created_by: editTask?.username,
+                assignees: multiAssignees,
+              }
             : undefined,
       })
-      if (res.success) {
-        onSaved()
-        onClose()
-      } else {
-        setError(res.error ?? 'Failed to save task.')
+
+      if (!result.success || !result.id) {
+        setError(result.error ?? 'Failed to save task.')
+        return
       }
+
+      try {
+        await uploadAttachments(result.id)
+      } catch (attachmentError) {
+        setError(
+          attachmentError instanceof Error
+            ? attachmentError.message
+            : 'Task saved but attachment upload failed.'
+        )
+        return
+      }
+
+      window.localStorage.removeItem(draftKey)
+      setPendingAttachments([])
+      onSaved()
+      onClose()
     })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-      <div className="rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px) saturate(200%)', WebkitBackdropFilter: 'blur(20px) saturate(200%)', border: '1px solid rgba(255,255,255,0.65)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">
-            {isEdit ? 'Edit Task' : 'Create New Task'}
-          </h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] px-4 py-6 backdrop-blur-[4px]">
+      <div
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
+        style={{
+          background: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'blur(18px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(18px) saturate(180%)',
+          border: '1px solid var(--slate-200)',
+          boxShadow: '0 24px 70px rgba(15,23,42,0.14)',
+        }}
+      >
+        <div className="h-1.5 w-full bg-[linear-gradient(90deg,var(--blue-500),#7c93ff)]" />
+        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+          <div className="pr-4">
+            <h2 className="text-xl font-bold tracking-[-0.02em] text-slate-900">
+              {isEdit ? 'Edit Task' : 'Create New Task'}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create work in the same routing flow used across the portal.
+            </p>
+          </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-600"
+            className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="px-6 py-5 space-y-5">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-slate-50/60">
+          <div className="space-y-5 px-6 py-5">
             {error && (
-              <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
               </div>
             )}
 
-            {/* App Name + Package Name */}
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="App Name">
-                <select
-                  value={appName}
-                  onChange={(e) => { setAppName(e.target.value); setPackageName('') }}
-                  className={selectCls}
-                >
-                  <option value="">Select App</option>
-                  {[...new Set(packages.map((p) => p.app_name).filter(Boolean))].map(
-                    (a) => <option key={a!} value={a!}>{a}</option>
-                  )}
-                </select>
-              </Field>
-              <Field label="Package Name" required>
-                <select
-                  value={packageName}
-                  onChange={(e) => setPackageName(e.target.value)}
-                  className={selectCls}
-                  required
-                >
-                  <option value="">Select Package</option>
-                  {filteredPackagesByApp.map((p) => (
-                    <option key={p.id} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            {/* KPI Type */}
-            <Field label="KPI Type" required>
-              <select
-                value={kpiType}
-                onChange={(e) => setKpiType(e.target.value)}
-                className={selectCls}
-                required
-              >
-                <option value="">Select KPI Type</option>
-                {KPI_TYPES.map((k) => <option key={k} value={k}>{k}</option>)}
-              </select>
-            </Field>
-
-            {/* Title */}
-            <Field label={`Title (${title.length}/30)`} required>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value.slice(0, 30))}
-                placeholder="Task title..."
-                className={inputCls}
-                required
-              />
-            </Field>
-
-            {/* Description */}
-            <Field label="Description">
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description..."
-                rows={2}
-                className={cn(inputCls, 'resize-none')}
-              />
-            </Field>
-
-            {/* Our Goal — rich text */}
-            <Field label="Our Goal">
-              <div className="border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400">
-                {/* toolbar */}
-                <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100 bg-slate-50">
-                  {[
-                    { icon: <Bold size={14}/>, cmd: 'bold', title: 'Bold' },
-                    { icon: <Italic size={14}/>, cmd: 'italic', title: 'Italic' },
-                    { icon: <Underline size={14}/>, cmd: 'underline', title: 'Underline' },
-                    { icon: <List size={14}/>, cmd: 'insertUnorderedList', title: 'Bullet List' },
-                    { icon: <ListOrdered size={14}/>, cmd: 'insertOrderedList', title: 'Numbered List' },
-                  ].map(({ icon, cmd, title }) => (
-                    <button
-                      key={cmd}
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); execCmd(cmd) }}
-                      className="p-1.5 rounded-lg hover:bg-white text-slate-500 hover:text-slate-800 transition-colors"
-                      title={title}
-                    >
-                      {icon}
-                    </button>
-                  ))}
-                </div>
-                <div
-                  ref={goalRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  className="min-h-20 px-3 py-2.5 text-sm text-slate-700 outline-none bg-white"
-                  data-placeholder="Write your goals here..."
-                  onInput={() => {}}
-                />
+            <SectionCard
+              title="Task Basics"
+              description="Core task details, package binding, and the shared goal text."
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="App Name">
+                  <SearchableDropdown
+                    value={appName}
+                    searchValue={appSearch}
+                    onSearchChange={setAppSearch}
+                    onSelect={selectApp}
+                    options={filteredApps.map((app) => ({ value: app, label: app }))}
+                    placeholder="Select App"
+                    searchPlaceholder="Search app name..."
+                  />
+                </Field>
+                <Field label="Package Name" required>
+                  <SearchableDropdown
+                    value={packageName}
+                    searchValue={packageSearch}
+                    onSearchChange={setPackageSearch}
+                    onSelect={selectPackage}
+                    options={filteredPackages.map((pkg) => ({ value: pkg.name, label: pkg.name }))}
+                    placeholder="Select Package"
+                    searchPlaceholder="Search package name..."
+                  />
+                </Field>
               </div>
-            </Field>
 
-            {/* Priority + Due Date */}
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Priority" required>
+              <Field label="KPI Type" required>
                 <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
+                  value={kpiType}
+                  onChange={(event) => setKpiType(event.target.value)}
                   className={selectCls}
                 >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
+                  <option value="">Select KPI Type</option>
+                  {KPI_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
                 </select>
               </Field>
-              <Field label="Due Date" required>
+
+              <Field label={`Title (${title.length}/30)`} required>
                 <input
-                  type="datetime-local"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value.slice(0, 30))}
+                  placeholder="What needs to be done?"
                   className={inputCls}
-                  required
                 />
               </Field>
-            </div>
 
-            {/* Task Routing (hidden in edit mode) */}
-            {!isEdit && (
+              <Field label="Description">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400">
+                  <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                    {[
+                      { icon: <Bold size={14} />, cmd: 'bold', title: 'Bold' },
+                      { icon: <Italic size={14} />, cmd: 'italic', title: 'Italic' },
+                      { icon: <Underline size={14} />, cmd: 'underline', title: 'Underline' },
+                      { icon: <List size={14} />, cmd: 'insertUnorderedList', title: 'Bullet List' },
+                      { icon: <ListOrdered size={14} />, cmd: 'insertOrderedList', title: 'Numbered List' },
+                    ].map(({ icon, cmd, title }) => (
+                      <button
+                        key={cmd}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          execCmd(cmd, descriptionRef)
+                        }}
+                        className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-slate-800"
+                        title={title}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                    <Divider />
+                    <ToolbarAction
+                      icon={<Table2 size={14} />}
+                      title="Insert Table"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleInsertTable()
+                      }}
+                    />
+                    <ToolbarAction
+                      icon={<Plus size={14} />}
+                      title="Add Table Row"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleAddTableRow()
+                      }}
+                    />
+                    <ToolbarAction
+                      icon={<Plus size={14} />}
+                      label="Col"
+                      title="Add Table Column"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleAddTableColumn()
+                      }}
+                    />
+                    <Divider />
+                    <ToolbarAction
+                      icon={<Upload size={14} />}
+                      label="Excel/CSV"
+                      title="Import Excel or CSV"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        importFileInputRef.current?.click()
+                      }}
+                    />
+                  </div>
+
+                  <div className="border-b border-slate-100 bg-white px-3 py-3">
+                    <div className="flex flex-col gap-2 md:flex-row">
+                      <div className="relative flex-1">
+                        <Link2 size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={googleSheetUrl}
+                          onChange={(event) => setGoogleSheetUrl(event.target.value)}
+                          placeholder="Paste a public Google Sheet URL..."
+                          className={cn(inputCls, 'pl-9')}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleGoogleSheetImport}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                      >
+                        <FileSpreadsheet size={14} />
+                        Import Sheet
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Supports bullet lists, manual tables, Excel, CSV, and public Google Sheets.
+                    </p>
+
+                    {descriptionImport.active && (
+                      <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-blue-700">
+                          <span>{descriptionImport.label}</span>
+                          <span>{descriptionImport.progress}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                            style={{ width: `${descriptionImport.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    ref={descriptionRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={syncDescription}
+                    className={cn(
+                      'min-h-40 px-3 py-3 text-sm text-slate-700 outline-none',
+                      '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
+                      '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
+                      '[&_li]:my-1',
+                      '[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse',
+                      '[&_td]:min-w-[120px] [&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top',
+                      '[&_th]:min-w-[120px] [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold'
+                    )}
+                  />
+
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={handleImportFileChange}
+                    className="hidden"
+                  />
+                </div>
+              </Field>
+
+              <Field label="Our Goal">
+                <div className="overflow-hidden rounded-xl border border-slate-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400">
+                  <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                    {[
+                      { icon: <Bold size={14} />, cmd: 'bold', title: 'Bold' },
+                      { icon: <Italic size={14} />, cmd: 'italic', title: 'Italic' },
+                      { icon: <Underline size={14} />, cmd: 'underline', title: 'Underline' },
+                      { icon: <List size={14} />, cmd: 'insertUnorderedList', title: 'Bullet List' },
+                      { icon: <ListOrdered size={14} />, cmd: 'insertOrderedList', title: 'Numbered List' },
+                    ].map(({ icon, cmd, title }) => (
+                      <button
+                        key={cmd}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          execCmd(cmd, goalRef)
+                        }}
+                        className="rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-slate-800"
+                        title={title}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    ref={goalRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="min-h-32 bg-white px-3 py-3 text-sm text-slate-700 outline-none"
+                  />
+                </div>
+              </Field>
+            </SectionCard>
+
+            <SectionCard
+              title="Timing & Routing"
+              description="Choose urgency and decide where the task should flow next."
+            >
+              <div className={cn('grid gap-4', routing === 'multi' ? 'md:grid-cols-1' : 'md:grid-cols-2')}>
+                <Field label="Priority">
+                  <select
+                    value={priority}
+                    onChange={(event) => setPriority(event.target.value as typeof priority)}
+                    className={selectCls}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </Field>
+
+                {routing !== 'multi' && (
+                  <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
+                    <input
+                      type="datetime-local"
+                      value={dueDate}
+                      onChange={(event) => setDueDate(event.target.value)}
+                      className={inputCls}
+                    />
+                  </Field>
+                )}
+              </div>
+
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Task Routing
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3 md:grid-cols-2">
                   <RoutingCard
                     selected={routing === 'self'}
                     onClick={() => setRouting('self')}
                     color="yellow"
-                    emoji="📝"
+                    emoji="Self"
                     title="Self Todo"
-                    desc="Add to your own task list"
+                    desc="Create this task for yourself"
                   />
                   <RoutingCard
                     selected={routing === 'department'}
                     onClick={() => setRouting('department')}
                     color="green"
-                    emoji="🏢"
+                    emoji="Dept"
                     title="Department Queue"
-                    desc="Send to a department queue"
+                    desc="Route to a department queue"
                   />
                   <RoutingCard
                     selected={routing === 'manager'}
                     onClick={() => setRouting('manager')}
                     color="purple"
-                    emoji="👤"
+                    emoji="Mgr"
                     title="Send to Manager"
-                    desc="Directly assign to a person"
+                    desc="Assign directly to a manager"
                   />
                   <RoutingCard
                     selected={routing === 'multi'}
                     onClick={() => setRouting('multi')}
                     color="cyan"
-                    emoji="👥"
+                    emoji="Team"
                     title="Multi-Assignment"
-                    desc="Assign to multiple people"
+                    desc="Assign to multiple users with individual deadlines"
                   />
                 </div>
 
-                {/* Department routing details */}
                 {routing === 'department' && (
-                  <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-200">
-                    <label className={labelCls}>Select Department</label>
-                    <select
-                      value={deptRoutingDept}
-                      onChange={(e) => setDeptRoutingDept(e.target.value)}
-                      className={cn(selectCls, 'bg-white')}
-                    >
-                      <option value="">Choose department...</option>
-                      {departments.map((d) => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <Field label="Department">
+                      <select
+                        value={deptRoutingDept}
+                        onChange={(event) => setDeptRoutingDept(event.target.value)}
+                        className={cn(selectCls, 'bg-white')}
+                      >
+                        <option value="">Choose department...</option>
+                        {departments.map((dept) => (
+                          <option key={dept} value={dept}>
+                            {dept}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
                   </div>
                 )}
 
-                {/* Manager routing details */}
                 {routing === 'manager' && (
-                  <div className="mt-4 p-4 bg-purple-50 rounded-xl border border-purple-200">
-                    <label className={labelCls}>Assign To</label>
-                    <select
-                      value={assignedManager}
-                      onChange={(e) => setAssignedManager(e.target.value)}
-                      className={cn(selectCls, 'bg-white')}
-                    >
-                      <option value="">Select person...</option>
-                      {users.map((u) => (
-                        <option key={u.username} value={u.username}>
-                          {u.username}
-                          {u.department ? ` — ${u.department}` : ''}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <Field label="Assign To">
+                      <select
+                        value={assignedManager}
+                        onChange={(event) => setAssignedManager(event.target.value)}
+                        className={cn(selectCls, 'bg-white')}
+                      >
+                        <option value="">Select manager...</option>
+                        {managerUsers.map((user) => (
+                          <option key={user.username} value={user.username}>
+                            {user.username}
+                            {user.department ? ` - ${user.department}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
                   </div>
                 )}
 
-                {/* Multi-assignment details */}
                 {routing === 'multi' && (
-                  <div className="mt-4 p-4 bg-cyan-50 rounded-xl border border-cyan-200">
-                    <div className="flex gap-2 mb-3">
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex flex-col gap-2 md:flex-row">
                       <input
-                        type="text"
-                        placeholder="Search users..."
                         value={multiSearch}
-                        onChange={(e) => setMultiSearch(e.target.value)}
-                        className={cn(inputCls, 'flex-1 bg-white text-sm')}
+                        onChange={(event) => setMultiSearch(event.target.value)}
+                        placeholder="Search users..."
+                        className={cn(inputCls, 'bg-white')}
                       />
                       <select
                         value={multiDeptFilter}
-                        onChange={(e) => setMultiDeptFilter(e.target.value)}
-                        className={cn(selectCls, 'bg-white text-sm')}
+                        onChange={(event) => setMultiDeptFilter(event.target.value)}
+                        className={cn(selectCls, 'bg-white md:w-56')}
                       >
-                        <option value="">All Depts</option>
-                        {departments.map((d) => (
-                        <option key={d} value={d}>{d}</option>
+                        <option value="">All Departments</option>
+                        {departments.map((dept) => (
+                          <option key={dept} value={dept}>
+                            {dept}
+                          </option>
                         ))}
                       </select>
                     </div>
-                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                      {filteredUsersForMulti.map((u) => {
-                        const checked = multiAssignees.some((a) => a.username === u.username)
+
+                    <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+                      {filteredUsersForMulti.map((user) => {
+                        const checked = multiAssignees.some((entry) => entry.username === user.username)
                         return (
                           <label
-                            key={u.username}
-                            className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                            key={user.username}
+                            className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50"
                           >
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => toggleMultiAssignee(u.username)}
-                              className="rounded text-blue-600"
+                              onChange={() => toggleMultiAssignee(user)}
+                              className="rounded text-cyan-600"
                             />
                             <span className="text-sm text-slate-700">
-                              {u.username}
-                              {u.department && (
-                                <span className="text-xs text-slate-400 ml-1">({u.department})</span>
-                              )}
+                              {user.username}
+                              {user.department ? (
+                                <span className="ml-1 text-xs text-slate-400">({user.department})</span>
+                              ) : null}
                             </span>
                           </label>
                         )
                       })}
-                      {filteredUsersForMulti.length === 0 && (
-                        <p className="text-xs text-slate-400 text-center py-2">No users found</p>
-                      )}
                     </div>
+
                     {multiAssignees.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-cyan-200">
-                        <p className="text-xs text-cyan-700 font-semibold">
-                          Selected: {multiAssignees.map((a) => a.username).join(', ')}
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                          Individual Deadlines
                         </p>
+                        <div className="space-y-2">
+                          {multiAssignees.map((entry) => (
+                            <div
+                              key={entry.username}
+                              className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px]"
+                            >
+                              <div className="text-sm font-semibold text-slate-800">{entry.username}</div>
+                              <input
+                                type="datetime-local"
+                                value={toInputDate(entry.actual_due_date)}
+                                onChange={(event) =>
+                                  setMultiAssigneeDueDate(entry.username, event.target.value)
+                                }
+                                className={inputCls}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
                 )}
               </div>
-            )}
+            </SectionCard>
 
-            {/* Notes */}
-            <Field label="Notes">
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Additional notes..."
-                rows={2}
-                className={cn(inputCls, 'resize-none')}
-              />
-            </Field>
+            <SectionCard
+              title="Notes & Files"
+              description="Context, references, and upload items that should travel with the task."
+            >
+              <Field label="Notes">
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={2}
+                  placeholder="Additional notes..."
+                  className={cn(inputCls, 'resize-none')}
+                />
+              </Field>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Attachments</h3>
+                    <p className="text-xs text-slate-500">
+                      Select files now. They will upload once the task is saved.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                  >
+                    <Paperclip size={14} />
+                    Add Files
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={onAttachmentChange}
+                    className="hidden"
+                  />
+                </div>
+                <div className="space-y-2">
+                  {pendingAttachments.length === 0 && (
+                    <p className="text-sm text-slate-400">No attachments selected yet.</p>
+                  )}
+                  {pendingAttachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{attachment.file.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {(attachment.file.size / 1024).toFixed(0)} KB
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingAttachments((current) =>
+                            current.filter((item) => item.id !== attachment.id)
+                          )
+                        }
+                        className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </SectionCard>
           </div>
 
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
+          <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl text-slate-600 font-semibold hover:bg-slate-100 transition-colors text-sm"
+              className="rounded-xl px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center gap-2"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
             >
               {isPending && <Loader2 size={14} className="animate-spin" />}
               {isPending ? 'Saving...' : isEdit ? 'Update Task' : 'Create Task'}
@@ -525,8 +1157,6 @@ export function CreateTaskModal({ editTask, onClose, onSaved }: CreateTaskModalP
     </div>
   )
 }
-
-// ── Helper components ──
 
 function Field({
   label,
@@ -541,9 +1171,149 @@ function Field({
     <div>
       <label className={labelCls}>
         {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+        {required && <span className="ml-0.5 text-red-500">*</span>}
       </label>
       {children}
+    </div>
+  )
+}
+
+function SectionCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
+function Divider() {
+  return <div className="mx-1 h-5 w-px bg-slate-200" />
+}
+
+function ToolbarAction({
+  icon,
+  title,
+  label,
+  onMouseDown,
+}: {
+  icon: React.ReactNode
+  title: string
+  label?: string
+  onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={onMouseDown}
+      className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-slate-500 transition hover:bg-white hover:text-slate-800"
+    >
+      {icon}
+      {label ? <span className="text-xs font-semibold">{label}</span> : null}
+    </button>
+  )
+}
+
+function SearchableDropdown({
+  value,
+  options,
+  placeholder,
+  searchValue,
+  onSearchChange,
+  onSelect,
+  searchPlaceholder,
+}: {
+  value: string
+  options: Array<{ value: string; label: string }>
+  placeholder: string
+  searchValue: string
+  onSearchChange: (value: string) => void
+  onSelect: (value: string) => void
+  searchPlaceholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [])
+
+  const selected = options.find((option) => option.value === value)
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={cn(
+          inputCls,
+          'flex items-center justify-between bg-white text-left',
+          open && 'border-blue-400 ring-1 ring-blue-400'
+        )}
+      >
+        <span className={cn('truncate', selected ? 'text-slate-800' : 'text-slate-400')}>
+          {selected?.label || placeholder}
+        </span>
+        <ChevronDown size={16} className={cn('shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
+          <div className="border-b border-slate-100 p-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <Search size={14} className="text-slate-400" />
+              <input
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1.5">
+            {options.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-400">No results found.</div>
+            ) : (
+              options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onSelect(option.value)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'w-full rounded-lg px-3 py-2 text-left text-sm transition',
+                    option.value === value
+                      ? 'bg-blue-50 font-medium text-blue-700'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -563,37 +1333,164 @@ function RoutingCard({
   title: string
   desc: string
 }) {
-  const colors = {
-    yellow: 'border-yellow-300 bg-yellow-50',
-    green: 'border-green-300 bg-green-50',
-    purple: 'border-purple-300 bg-purple-50',
-    cyan: 'border-cyan-300 bg-cyan-50',
+  const palette = {
+    yellow: {
+      badge: 'bg-amber-50 text-amber-700',
+      selected: 'border-amber-300 bg-amber-50/60 ring-2 ring-amber-200',
+    },
+    green: {
+      badge: 'bg-emerald-50 text-emerald-700',
+      selected: 'border-emerald-300 bg-emerald-50/60 ring-2 ring-emerald-200',
+    },
+    purple: {
+      badge: 'bg-violet-50 text-violet-700',
+      selected: 'border-violet-300 bg-violet-50/60 ring-2 ring-violet-200',
+    },
+    cyan: {
+      badge: 'bg-cyan-50 text-cyan-700',
+      selected: 'border-cyan-300 bg-cyan-50/60 ring-2 ring-cyan-200',
+    },
   }
-  const selectedBorder = {
-    yellow: 'ring-2 ring-yellow-400',
-    green: 'ring-2 ring-green-400',
-    purple: 'ring-2 ring-purple-400',
-    cyan: 'ring-2 ring-cyan-400',
-  }
+
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'p-4 rounded-xl border-2 text-left transition-all',
-        colors[color],
-        selected ? selectedBorder[color] : 'border-transparent opacity-60 hover:opacity-100'
+        'rounded-xl border p-4 text-left transition-all',
+        selected
+          ? palette[color].selected
+          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
       )}
     >
-      <div className="text-xl mb-1">{emoji}</div>
-      <div className="text-xs font-bold text-slate-800">{title}</div>
-      <div className="text-xs text-slate-500 mt-0.5">{desc}</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className={cn('inline-flex rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]', palette[color].badge)}>
+            {emoji}
+          </div>
+          <div className="mt-3 text-sm font-bold text-slate-800">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{desc}</div>
+        </div>
+        {selected && <div className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />}
+      </div>
     </button>
   )
 }
 
-const labelCls = 'block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5'
+function toInputDate(value?: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 16)
+}
+
+function readDraft(key: string): DraftPayload | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as DraftPayload) : null
+  } catch {
+    window.localStorage.removeItem(key)
+    return null
+  }
+}
+
+function clampCount(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value || '', 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(parsed, 12)
+}
+
+function createEmptyGrid(rows: number, cols: number): string[][] {
+  return Array.from({ length: rows }, (_, rowIndex) =>
+    Array.from({ length: cols }, (_, colIndex) =>
+      rowIndex === 0 ? `Column ${colIndex + 1}` : ''
+    )
+  )
+}
+
+function buildTableHtml(rows: unknown[][]): string {
+  const normalized = rows
+    .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : []))
+    .filter((row) => row.length > 0)
+
+  if (!normalized.length) {
+    return EMPTY_TABLE_HTML
+  }
+
+  const columnCount = Math.max(...normalized.map((row) => row.length))
+  const header = normalized[0]
+  const body = normalized.slice(1)
+
+  const renderCells = (cells: string[], cellTag: 'th' | 'td') =>
+    Array.from({ length: columnCount }, (_, index) => {
+      const value = cells[index] ?? ''
+      return `<${cellTag}>${escapeHtml(value)}</${cellTag}>`
+    }).join('')
+
+  return [
+    '<table><tbody>',
+    `<tr>${renderCells(header, 'th')}</tr>`,
+    ...(body.length > 0
+      ? body.map((row) => `<tr>${renderCells(row, 'td')}</tr>`)
+      : [`<tr>${renderCells(Array.from({ length: columnCount }, () => ''), 'td')}</tr>`]),
+    '</tbody></table>',
+  ].join('')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function getSelectedTableContext(root: HTMLDivElement | null) {
+  if (!root) return null
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+
+  let node = selection.anchorNode
+  if (!node) return null
+  if (node.nodeType === Node.TEXT_NODE) {
+    node = node.parentElement
+  }
+
+  if (!(node instanceof Element) || !root.contains(node)) return null
+
+  const cell = node.closest('td, th') as HTMLTableCellElement | null
+  const row = cell?.closest('tr') as HTMLTableRowElement | null
+  const table = row?.closest('table') as HTMLTableElement | null
+
+  if (!cell || !row || !table || !root.contains(table)) return null
+
+  return { cell, row, table }
+}
+
+function readFileAsArrayBuffer(
+  file: File,
+  onProgress: (progress: number) => void
+): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      const progress = Math.min(78, Math.round((event.loaded / event.total) * 78))
+      onProgress(progress)
+    }
+
+    reader.onerror = () => reject(new Error(`Unable to read ${file.name}.`))
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+const labelCls = 'mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500'
 const inputCls =
-  'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition'
+  'w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 transition placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400'
 const selectCls =
-  'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition bg-white'
+  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 transition focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400'

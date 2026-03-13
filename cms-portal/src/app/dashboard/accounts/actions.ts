@@ -196,3 +196,38 @@ export async function batchToggleAccounts(
   revalidatePath('/dashboard/accounts')
   return { success: true }
 }
+
+// ─── Get user→account access map ──────────────────────────────
+// Returns: customer_id → array of usernames with explicit access
+export async function getAccountUserAccess(): Promise<Record<string, string[]>> {
+  const user = await getSession()
+  if (!user) return {}
+  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) return {}
+
+  const supabase = createServerClient()
+  const { data } = await supabase
+    .from('users')
+    .select('username, allowed_accounts, role')
+    .order('username')
+
+  if (!data) return {}
+
+  const map: Record<string, string[]> = {}
+  for (const row of data as Array<{ username: string; allowed_accounts: string | null; role: string }>) {
+    // Admins/SMs have global access — skip (shown separately in UI)
+    if (row.role === 'Admin' || row.role === 'Super Manager') continue
+
+    const accounts = (row.allowed_accounts ?? '')
+      .split(',')
+      .map(a => a.trim())
+      .filter(Boolean)
+    if (accounts.includes('*') || accounts.includes('All')) continue
+
+    for (const acct of accounts) {
+      if (!map[acct]) map[acct] = []
+      map[acct].push(row.username)
+    }
+  }
+  return map
+}
+
