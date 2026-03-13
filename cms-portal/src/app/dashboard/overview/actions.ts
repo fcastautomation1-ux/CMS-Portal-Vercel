@@ -109,15 +109,10 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     enabled: allCampaigns.filter(c => c.enabled).length,
   }
 
-  const usersData = await Promise.all(
-    ((usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>).map(async (userRow) => ({
-      ...userRow,
-      avatar_data: await resolveStorageUrl(supabase, userRow.avatar_data),
-    }))
-  )
+  const usersData = ((usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>)
   const byRole: Record<string, number> = {}
   usersData.forEach(u => { byRole[u.role] = (byRole[u.role] || 0) + 1 })
-  const avatarMap = Object.fromEntries(usersData.map(u => [u.username, u.avatar_data ?? null]))
+  const avatarPathMap = Object.fromEntries(usersData.map(u => [u.username, u.avatar_data ?? null]))
 
   const todos = (todosRes.data ?? []) as Array<{
     id: string; title: string; username: string; assigned_to: string | null
@@ -166,10 +161,23 @@ export async function getOverviewStats(): Promise<OverviewStats> {
       completed: s.completed,
       total: s.total,
       completion: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
-      avatarData: avatarMap[username] ?? null,
+      avatarData: null,
     }))
     .sort((a, b) => b.completed - a.completed)
     .slice(0, 8)
+
+  const visibleAvatarUsers = new Set<string>(topPerformers.map((entry) => entry.username))
+  usersData.slice(0, 24).forEach((entry) => visibleAvatarUsers.add(entry.username))
+  const resolvedAvatarEntries = await Promise.all(
+    Array.from(visibleAvatarUsers).map(async (username) => [
+      username,
+      await resolveStorageUrl(supabase, avatarPathMap[username] ?? null),
+    ] as const)
+  )
+  const avatarMap = Object.fromEntries(resolvedAvatarEntries)
+  topPerformers.forEach((entry) => {
+    entry.avatarData = avatarMap[entry.username] ?? null
+  })
 
   const tasksByStatus = [
     { label: 'Completed', value: completed, color: '#10B981' },
@@ -207,7 +215,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     tasksByDept,
     recentTasks,
     taskRecords: todos,
-    userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: u.avatar_data ?? null })),
+    userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: avatarMap[u.username] ?? null })),
   }
 }
 

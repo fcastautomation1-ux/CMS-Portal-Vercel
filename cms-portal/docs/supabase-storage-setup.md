@@ -132,3 +132,18 @@ If you want to fully replace old Drive usage, next good steps are:
 
 - Existing task attachments stored in the old bucket/path will stay there until you migrate them.
 - New uploads will use the new structured storage path.
+
+## Performance
+
+For better portal speed, also run this SQL in Supabase:
+
+```sql
+-- file: docs/supabase-performance-indexes.sql
+```
+
+It adds indexes used by:
+
+- task list loading
+- task shares and attachments
+- notification counts and lists
+- user lookups used in dashboard/task screens

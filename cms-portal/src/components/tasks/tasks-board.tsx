@@ -27,12 +27,12 @@ import {
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
-import type { Todo, TodoStats, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
+import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
 import {
   getTodos,
-  getTodoStats,
+  computeTodoStatsFromTodos,
   deleteTodoAction,
   archiveTodoAction,
 } from '@/app/dashboard/tasks/actions'
@@ -67,10 +67,9 @@ interface TasksBoardProps {
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
   initialTasks: Todo[]
-  initialStats: TodoStats
 }
 
-export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks, initialStats }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole = 'User', currentUserDept, currentUserTeamMembers = [], initialTasks }: TasksBoardProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
@@ -107,18 +106,8 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
     refetchOnWindowFocus: false,
   })
 
-  const statsQuery = useQuery({
-    queryKey: queryKeys.taskStats(currentUsername),
-    queryFn: () => getTodoStats().catch(() => initialStats),
-    initialData: initialStats,
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  })
-
   const tasks = tasksQuery.data ?? initialTasks
-  const stats = statsQuery.data ?? initialStats
+  const stats = useMemo(() => computeTodoStatsFromTodos(tasks), [tasks])
 
   // Role flags — mirror old portal role checks (must be before any useMemo that depends on them)
   const isAdminOrSM = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
@@ -257,15 +246,11 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [ft, fs] = await Promise.all([
-      getTodos().catch(() => [] as Todo[]),
-      getTodoStats().catch(() => initialStats),
-    ])
+    const ft = await getTodos().catch(() => [] as Todo[])
     queryClient.setQueryData(queryKeys.tasks(currentUsername), ft)
-    queryClient.setQueryData(queryKeys.taskStats(currentUsername), fs)
     setLoading(false)
     setSelected(new Set())
-  }, [currentUsername, initialStats, queryClient])
+  }, [currentUsername, queryClient])
 
   useEffect(() => {
     const scheduleRefresh = () => {

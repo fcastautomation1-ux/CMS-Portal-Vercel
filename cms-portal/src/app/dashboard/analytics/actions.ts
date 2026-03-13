@@ -98,20 +98,24 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     if (t.assigned_to === user.username) assignedToMe++
   }
 
-  const resolvedUsers = await Promise.all(
-    ((usersData ?? []) as Array<{ username: string; avatar_data: string | null }>).map(async (userRow) => ({
-      ...userRow,
-      avatar_data: await resolveStorageUrl(supabase, userRow.avatar_data),
-    }))
-  )
-  const avatarMap = Object.fromEntries(
-    resolvedUsers.map(u => [u.username, u.avatar_data ?? null])
-  )
-
   const topUsers = Object.entries(userMap)
-    .map(([username, stats]) => ({ username, ...stats, avatarData: avatarMap[username] ?? null }))
+    .map(([username, stats]) => ({ username, ...stats, avatarData: null as string | null }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 10)
+
+  const avatarPathMap = Object.fromEntries(
+    ((usersData ?? []) as Array<{ username: string; avatar_data: string | null }>).map((entry) => [entry.username, entry.avatar_data ?? null])
+  )
+  const resolvedTopUserAvatars = await Promise.all(
+    topUsers.map(async (entry) => [
+      entry.username,
+      await resolveStorageUrl(supabase, avatarPathMap[entry.username] ?? null),
+    ] as const)
+  )
+  const avatarMap = Object.fromEntries(resolvedTopUserAvatars)
+  topUsers.forEach((entry) => {
+    entry.avatarData = avatarMap[entry.username] ?? null
+  })
 
   return {
     totalTasks: tasks.length,

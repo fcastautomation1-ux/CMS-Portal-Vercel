@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { getTodos, getTodoStats } from './actions'
+import { getTodos } from './actions'
 import { TasksBoard } from '@/components/tasks/tasks-board'
 import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -12,18 +12,9 @@ export const metadata = {
 }
 
 export default async function TasksPage() {
-  const [user, tasks, stats] = await Promise.all([
+  const [user, tasks] = await Promise.all([
     getSession(),
     getTodos().catch(() => []),
-    getTodoStats().catch(() => ({
-      total: 0,
-      completed: 0,
-      pending: 0,
-      overdue: 0,
-      highPriority: 0,
-      dueToday: 0,
-      shared: 0,
-    })),
   ])
   if (!user) redirect('/login')
 
@@ -43,7 +34,6 @@ export default async function TasksPage() {
             currentUserDept={user.department}
             currentUserTeamMembers={user.teamMembers}
             initialTasks={tasks}
-            initialStats={stats}
           />
         </Suspense>
       </div>

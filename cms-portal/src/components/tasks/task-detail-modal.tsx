@@ -873,7 +873,6 @@ export function TaskDetailModal({
               </div>
             )}
           </div>
-        )}
 
         {/* ────── SHARE TAB ────── */}
         <div className={cn('space-y-5', activeTab === 'share' ? 'block' : 'hidden')}>
@@ -931,7 +930,6 @@ export function TaskDetailModal({
               <p className="text-sm text-slate-400 italic">Not shared with anyone yet.</p>
             )}
           </div>
-        )}
       </div>
     </ModalShell>
   )

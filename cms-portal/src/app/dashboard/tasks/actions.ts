@@ -271,6 +271,10 @@ export async function getTodoStats(): Promise<TodoStats> {
   const user = await getSession()
   if (!user) return { total: 0, completed: 0, pending: 0, overdue: 0, highPriority: 0, dueToday: 0, shared: 0 }
   const todos = await getTodos()
+  return computeTodoStatsFromTodos(todos)
+}
+
+export function computeTodoStatsFromTodos(todos: Todo[]): TodoStats {
   return {
     total: todos.length,
     completed: todos.filter((t) => t.completed).length,
@@ -1250,20 +1254,40 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   if (!user) return null
 
   const supabase = createServerClient()
-  const [taskRes, sharesRes, attachmentsRes, usersRes] = await Promise.all([
+  const [taskRes, sharesRes, attachmentsRes] = await Promise.all([
     supabase.from('todos').select('*').eq('id', todoId).single(),
     supabase.from('todo_shares').select('*').eq('todo_id', todoId),
     supabase.from('todo_attachments').select('*').eq('todo_id', todoId).order('created_at', { ascending: false }),
-    supabase.from('users').select('username,department,avatar_data'),
   ])
 
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
+  const participantUsernames = new Set<string>()
+  if (task.username) participantUsernames.add(task.username)
+  if (task.assigned_to) participantUsernames.add(task.assigned_to)
+  if (task.manager_id) {
+    String(task.manager_id)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => participantUsernames.add(value))
+  }
+  task.multi_assignment?.assignees?.forEach((assignee) => {
+    if (assignee.username) participantUsernames.add(assignee.username)
+  })
+  ;(sharesRes.data || []).forEach((share: Record<string, unknown>) => {
+    if (share.shared_with) participantUsernames.add(String(share.shared_with))
+  })
+
+  const { data: usersData } = participantUsernames.size > 0
+    ? await supabase.from('users').select('username,department,avatar_data').in('username', Array.from(participantUsernames))
+    : { data: [] as Array<{ username: string; department: string | null; avatar_data: string | null }> }
+
   const userDeptMap: Record<string, string> = {}
   const participantAvatars: Record<string, string | null> = {}
   const resolvedUsers = await Promise.all(
-    ((usersRes.data || []) as Array<{ username: string; department: string | null; avatar_data: string | null }>).map(async (row) => ({
+    ((usersData || []) as Array<{ username: string; department: string | null; avatar_data: string | null }>).map(async (row) => ({
       ...row,
       avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
     }))

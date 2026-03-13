@@ -12,6 +12,8 @@ interface SignedUrlCapableStorageClient {
   }
 }
 
+const signedUrlCache = new Map<string, Promise<string | null>>()
+
 function sanitizeSegment(value: string) {
   return value
     .trim()
@@ -49,11 +51,19 @@ export async function resolveStorageUrl(
   if (!pathOrUrl) return null
   if (!isStoragePath(pathOrUrl)) return pathOrUrl
 
-  const { data } = await supabase.storage
+  const cacheKey = `${expiresIn}:${pathOrUrl}`
+  const cached = signedUrlCache.get(cacheKey)
+  if (cached) return cached
+
+  const pending = supabase.storage
     .from(CMS_STORAGE_BUCKET)
     .createSignedUrl(pathOrUrl, expiresIn)
+    .then(({ data }) => data?.signedUrl ?? null)
+    .catch(() => null)
 
-  return data?.signedUrl ?? null
+  signedUrlCache.set(cacheKey, pending)
+
+  return pending
 }
 
 export function buildTaskAttachmentPath(input: {
