@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
+import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
@@ -181,7 +182,9 @@ export function TaskCard({
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment')
   const unread = comments.filter((h: HistoryEntry) => Array.isArray(h.unread_by) && h.unread_by.includes(currentUsername))
-  const playPkg = task.package_name && task.package_name !== 'Others' ? task.package_name : null
+  const appNames = splitTaskMeta(task.app_name)
+  const packageNames = splitTaskMeta(task.package_name)
+  const playPkg = packageNames.find((value) => value !== 'Others') ?? null
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
 
@@ -207,7 +210,7 @@ export function TaskCard({
           <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
-        {task.app_name && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{task.app_name}</p>}
+        {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
         <p className={cn('text-sm font-semibold leading-snug', isCompleted ? 'line-through text-slate-400' : 'text-slate-800')}>
           {task.title}
         </p>
@@ -240,11 +243,11 @@ export function TaskCard({
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
-            {task.app_name && (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
-                {task.app_name}
+            {appNames.map((appName) => (
+              <span key={appName} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
+                {appName}
               </span>
-            )}
+            ))}
             {task.kpi_type && (
               <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-600">
                 {task.kpi_type}

@@ -27,6 +27,7 @@ import {
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { splitTaskMeta } from '@/lib/task-metadata'
 import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
@@ -334,8 +335,8 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
       const q = search.toLowerCase()
       list = list.filter((t) =>
         t.title.toLowerCase().includes(q) ||
-        t.package_name?.toLowerCase().includes(q) ||
-        t.app_name?.toLowerCase().includes(q) ||
+        splitTaskMeta(t.package_name).some((value) => value.toLowerCase().includes(q)) ||
+        splitTaskMeta(t.app_name).some((value) => value.toLowerCase().includes(q)) ||
         t.assigned_to?.toLowerCase().includes(q) ||
         t.username.toLowerCase().includes(q)
       )
@@ -483,8 +484,8 @@ export function TasksBoard({ currentUsername, currentUserRole = 'User', currentU
   }
 
   const exportCSV = () => {
-    const rows = filteredTasks.map((t: Todo) => [t.title, t.task_status, t.priority, t.assigned_to ?? '', t.due_date ?? '', t.package_name ?? '', t.kpi_type ?? ''])
-    const csv = [['Title', 'Status', 'Priority', 'Assigned To', 'Due Date', 'Package', 'KPI Type'], ...rows]
+    const rows = filteredTasks.map((t: Todo) => [t.title, t.task_status, t.priority, t.assigned_to ?? '', t.due_date ?? '', t.app_name ?? '', t.package_name ?? '', t.kpi_type ?? ''])
+    const csv = [['Title', 'Status', 'Priority', 'Assigned To', 'Due Date', 'Apps', 'Packages', 'KPI Type'], ...rows]
       .map((r: string[]) => r.map((c: string) => `"${c}"`).join(','))
       .join('\n')
     const a = Object.assign(document.createElement('a'), {

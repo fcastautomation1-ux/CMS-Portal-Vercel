@@ -34,6 +34,7 @@ import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { splitTaskMeta } from '@/lib/task-metadata'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
@@ -242,6 +243,8 @@ export function TaskDetailPage({
   })
 
   const details = detailsQuery.data ?? initialDetails
+  const appNames = splitTaskMeta(details.app_name)
+  const packageNames = splitTaskMeta(details.package_name)
 
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
@@ -461,7 +464,7 @@ export function TaskDetailPage({
                     Due {formatPakistanDate(t.due_date)}
                   </span>
                 )}
-                {t.app_name && <span className="flex items-center gap-1.5 font-medium text-blue-600"><Tag size={14} /> {t.app_name}</span>}
+                {appNames.length > 0 && <span className="flex items-center gap-1.5 font-medium text-blue-600"><Tag size={14} /> {appNames.join(', ')}</span>}
               </div>
             </div>
 
@@ -559,7 +562,8 @@ export function TaskDetailPage({
                       <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
                       <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date" value={t.due_date ? formatPakistanDate(t.due_date) : '-'} accent={!isCompleted && t.due_date && new Date(t.due_date) < new Date() ? 'red' : undefined} />
                       <MetaCard icon={<Target size={13} className="text-pink-500" />} label="KPI Type" value={t.kpi_type ?? '-'} />
-                      <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Package" value={t.package_name ?? '-'} />
+                      <MetaCard icon={<Tag size={13} className="text-blue-500" />} label="Apps" value={appNames.join(', ') || '-'} />
+                      <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Packages" value={packageNames.join(', ') || '-'} />
                       {t.queue_status === 'queued' && t.queue_department && <MetaCard icon={<Flag size={13} className="text-green-500" />} label="Queue" value={t.queue_department} accent="green" />}
                     </div>
 

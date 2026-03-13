@@ -31,6 +31,7 @@ import { cn } from '@/lib/cn'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { splitTaskMeta } from '@/lib/task-metadata'
 import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
@@ -239,6 +240,8 @@ export function TaskDetailModal({
   })
 
   const details = detailsQuery.data ?? null
+  const appNames = splitTaskMeta(details?.app_name)
+  const packageNames = splitTaskMeta(details?.package_name)
 
   useEffect(() => {
     setLoading(detailsQuery.isLoading && !detailsQuery.data)
@@ -492,10 +495,10 @@ export function TaskDetailModal({
                   </span>
                 </>
               )}
-              {t.app_name && (
+              {appNames.length > 0 && (
                 <>
                   <span className="text-slate-300">·</span>
-                  <span className="flex items-center gap-1 text-blue-600 font-medium"><Tag size={11} /> {t.app_name}</span>
+                  <span className="flex items-center gap-1 text-blue-600 font-medium"><Tag size={11} /> {appNames.join(', ')}</span>
                 </>
               )}
             </div>
@@ -581,7 +584,8 @@ export function TaskDetailModal({
               {t.due_date && <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date"
                 value={formatPakistanDate(t.due_date)} accent={!isCompleted && new Date(t.due_date) < new Date() ? 'red' : undefined} />}
               {t.kpi_type && <MetaCard icon={<Target size={13} className="text-pink-500" />} label="KPI Type" value={t.kpi_type} />}
-              {t.package_name && <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Package" value={t.package_name} />}
+              {appNames.length > 0 && <MetaCard icon={<Tag size={13} className="text-blue-500" />} label="Apps" value={appNames.join(', ')} />}
+              {packageNames.length > 0 && <MetaCard icon={<Link2 size={13} className="text-cyan-500" />} label="Packages" value={packageNames.join(', ')} />}
               {t.queue_status === 'queued' && t.queue_department && (
                 <MetaCard icon={<Flag size={13} className="text-green-500" />} label="Queue" value={t.queue_department} accent="green" />
               )}

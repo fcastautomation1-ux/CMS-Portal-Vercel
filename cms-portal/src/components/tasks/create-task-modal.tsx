@@ -24,6 +24,7 @@ import { isPastPakistanDate, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { joinTaskMeta, splitTaskMeta } from '@/lib/task-metadata'
 import type { MultiAssignmentEntry, Todo } from '@/types'
 import { KPI_TYPES } from '@/types'
 import {
@@ -57,8 +58,8 @@ type PendingAttachment = {
 }
 
 type DraftPayload = {
-  appName: string
-  packageName: string
+  appNames: string[]
+  packageNames: string[]
   kpiType: string
   title: string
   description: string
@@ -99,8 +100,12 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const importFileInputRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
 
-  const [appName, setAppName] = useState(initialDraft?.appName ?? editTask?.app_name ?? '')
-  const [packageName, setPackageName] = useState(initialDraft?.packageName ?? editTask?.package_name ?? '')
+  const [appNames, setAppNames] = useState<string[]>(
+    initialDraft?.appNames ?? splitTaskMeta(editTask?.app_name)
+  )
+  const [packageNames, setPackageNames] = useState<string[]>(
+    initialDraft?.packageNames ?? splitTaskMeta(editTask?.package_name)
+  )
   const [kpiType, setKpiType] = useState(initialDraft?.kpiType ?? editTask?.kpi_type ?? '')
   const [title, setTitle] = useState(initialDraft?.title ?? editTask?.title ?? '')
   const [description, setDescription] = useState(
@@ -174,9 +179,9 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   }, [editTask, initialDraft?.description, initialDraft?.ourGoal])
 
   useEffect(() => {
-    const snapshot: DraftPayload = {
-      appName,
-      packageName,
+      const snapshot: DraftPayload = {
+      appNames,
+      packageNames,
       kpiType,
       title,
       description,
@@ -191,7 +196,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     }
     window.localStorage.setItem(draftKey, JSON.stringify(snapshot))
   }, [
-    appName,
+    appNames,
     assignedManager,
     deptRoutingDept,
     description,
@@ -200,7 +205,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     kpiType,
     multiAssignees,
     notes,
-    packageName,
+    packageNames,
     priority,
     routing,
     title,
@@ -220,13 +225,15 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   }, [packages])
 
   const filteredPackagesByApp = useMemo(() => {
-    const list = appName ? packages.filter((item) => item.app_name === appName) : packages
+    const list = appNames.length
+      ? packages.filter((item) => item.app_name && appNames.includes(item.app_name))
+      : packages
 
-    if (appName === 'Others' && !list.some((item) => item.name === 'Others')) {
+    if (appNames.includes('Others') && !list.some((item) => item.name === 'Others')) {
       return [{ id: 'others', name: 'Others', app_name: 'Others' }, ...list]
     }
     return list
-  }, [appName, packages])
+  }, [appNames, packages])
 
   const filteredApps = useMemo(
     () => availableApps.filter((app) => app.toLowerCase().includes(appSearch.toLowerCase())),
@@ -264,34 +271,38 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     }
   }
 
-  const selectApp = (nextApp: string) => {
-    setAppName(nextApp)
+  const toggleApp = (nextApp: string) => {
     setAppSearch('')
-    setPackageSearch('')
-
-    if (nextApp === 'Others') {
-      setPackageName('Others')
-      return
-    }
-
-    const appPackages = packages.filter((item) => item.app_name === nextApp)
-    if (appPackages.length > 0) {
-      setPackageName(appPackages[0].name)
-      return
-    }
-
-    setPackageName('')
+    setAppNames((current) => {
+      const exists = current.includes(nextApp)
+      const next = exists ? current.filter((item) => item !== nextApp) : [...current, nextApp]
+      if (!next.includes('Others')) {
+        setPackageNames((selectedPackages) =>
+          selectedPackages.filter((pkgName) => {
+            if (pkgName === 'Others') return false
+            const pkg = packages.find((item) => item.name === pkgName)
+            return pkg?.app_name ? next.includes(pkg.app_name) : false
+          })
+        )
+      }
+      return next
+    })
   }
 
-  const selectPackage = (nextPackage: string) => {
-    setPackageName(nextPackage)
+  const togglePackage = (nextPackage: string) => {
     setPackageSearch('')
+    setPackageNames((current) => {
+      const exists = current.includes(nextPackage)
+      return exists ? current.filter((item) => item !== nextPackage) : [...current, nextPackage]
+    })
     if (nextPackage === 'Others') {
-      setAppName('Others')
+      setAppNames((current) => (current.includes('Others') ? current : [...current, 'Others']))
       return
     }
     const pkg = packages.find((item) => item.name === nextPackage)
-    if (pkg?.app_name) setAppName(pkg.app_name)
+    if (pkg?.app_name) {
+      setAppNames((current) => (current.includes(pkg.app_name as string) ? current : [...current, pkg.app_name as string]))
+    }
   }
 
   const toggleMultiAssignee = (user: User) => {
@@ -571,7 +582,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     if (!kpiType) return 'Please select a KPI type.'
     if (!title.trim()) return 'Please enter a task title.'
     if (title.trim().length < 3) return 'Title must be at least 3 characters.'
-    if (!packageName) return 'Please select a package.'
+    if (packageNames.length === 0) return 'Please select at least one package.'
     if (routing !== 'self' && routing !== 'multi' && !dueDate) {
       return 'Please set a due date for this task.'
     }
@@ -615,8 +626,8 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     startTransition(async () => {
       const result = await saveTodoAction({
         id: editTask?.id,
-        app_name: appName,
-        package_name: packageName || 'Others',
+        app_name: joinTaskMeta(appNames) ?? 'Others',
+        package_name: joinTaskMeta(packageNames) ?? 'Others',
         kpi_type: kpiType,
         title: title.trim().slice(0, 30),
         description: descriptionHtml || undefined,
@@ -706,24 +717,24 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="App Name">
-                  <SearchableDropdown
-                    value={appName}
+                  <MultiSearchableDropdown
+                    values={appNames}
                     searchValue={appSearch}
                     onSearchChange={setAppSearch}
-                    onSelect={selectApp}
+                    onToggle={toggleApp}
                     options={filteredApps.map((app) => ({ value: app, label: app }))}
-                    placeholder="Select App"
+                    placeholder="Select apps"
                     searchPlaceholder="Search app name..."
                   />
                 </Field>
                 <Field label="Package Name" required>
-                  <SearchableDropdown
-                    value={packageName}
+                  <MultiSearchableDropdown
+                    values={packageNames}
                     searchValue={packageSearch}
                     onSearchChange={setPackageSearch}
-                    onSelect={selectPackage}
+                    onToggle={togglePackage}
                     options={filteredPackages.map((pkg) => ({ value: pkg.name, label: pkg.name }))}
-                    placeholder="Select Package"
+                    placeholder="Select packages"
                     searchPlaceholder="Search package name..."
                   />
                 </Field>
@@ -1268,21 +1279,21 @@ function ToolbarAction({
   )
 }
 
-function SearchableDropdown({
-  value,
+function MultiSearchableDropdown({
+  values,
   options,
   placeholder,
   searchValue,
   onSearchChange,
-  onSelect,
+  onToggle,
   searchPlaceholder,
 }: {
-  value: string
+  values: string[]
   options: Array<{ value: string; label: string }>
   placeholder: string
   searchValue: string
   onSearchChange: (value: string) => void
-  onSelect: (value: string) => void
+  onToggle: (value: string) => void
   searchPlaceholder: string
 }) {
   const [open, setOpen] = useState(false)
@@ -1298,7 +1309,9 @@ function SearchableDropdown({
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [])
 
-  const selected = options.find((option) => option.value === value)
+  const selectedLabels = values
+    .map((value) => options.find((option) => option.value === value)?.label ?? value)
+    .filter(Boolean)
 
   return (
     <div ref={rootRef} className="relative">
@@ -1307,13 +1320,19 @@ function SearchableDropdown({
         onClick={() => setOpen((current) => !current)}
         className={cn(
           inputCls,
-          'flex items-center justify-between bg-white text-left',
+          'flex min-h-[44px] items-center justify-between gap-3 bg-white text-left',
           open && 'border-blue-400 ring-1 ring-blue-400'
         )}
       >
-        <span className={cn('truncate', selected ? 'text-slate-800' : 'text-slate-400')}>
-          {selected?.label || placeholder}
-        </span>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {selectedLabels.length > 0 ? selectedLabels.map((label) => (
+            <span key={label} className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+              <span className="truncate">{label}</span>
+            </span>
+          )) : (
+            <span className="truncate text-slate-400">{placeholder}</span>
+          )}
+        </div>
         <ChevronDown size={16} className={cn('shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -1339,17 +1358,17 @@ function SearchableDropdown({
                   key={option.value}
                   type="button"
                   onClick={() => {
-                    onSelect(option.value)
-                    setOpen(false)
+                    onToggle(option.value)
                   }}
                   className={cn(
-                    'w-full rounded-lg px-3 py-2 text-left text-sm transition',
-                    option.value === value
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition',
+                    values.includes(option.value)
                       ? 'bg-blue-50 font-medium text-blue-700'
                       : 'text-slate-700 hover:bg-slate-50'
                   )}
                 >
-                  {option.label}
+                  <span>{option.label}</span>
+                  {values.includes(option.value) ? <span className="text-xs font-semibold">Selected</span> : null}
                 </button>
               ))
             )}
