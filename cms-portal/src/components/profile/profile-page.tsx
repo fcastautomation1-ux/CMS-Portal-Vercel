@@ -10,6 +10,7 @@ import Link from 'next/link'
 import type { SessionUser } from '@/types'
 import type { Department } from '@/types'
 import { updateProfile, changePassword, createAvatarUploadUrlAction } from '@/app/dashboard/profile/actions'
+import type { PortalBranding } from '@/lib/portal-branding'
 
 const ROLE_GRADIENTS: Record<string, string> = {
   Admin:           'linear-gradient(135deg, #8B5CF6, #7C3AED)',
@@ -32,6 +33,7 @@ interface Props {
   user: SessionUser
   profile: ProfileData
   departments: Department[]
+  branding: PortalBranding
 }
 
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
@@ -143,9 +145,10 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' }
   )
 }
 
-export function ProfilePage({ user, profile, departments }: Props) {
+export function ProfilePage({ user, profile, departments, branding }: Props) {
   const gradient = ROLE_GRADIENTS[user.role] ?? ROLE_GRADIENTS.User
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const canManageBranding = user.role === 'Admin' || user.role === 'Super Manager'
 
   // Personal info state
   const [fullName, setFullName] = useState(profile.full_name ?? '')
@@ -513,6 +516,35 @@ export function ProfilePage({ user, profile, departments }: Props) {
             </div>
           )}
         </div>
+
+        {/* ── Portal Branding Shortcut (Admin) ── */}
+        {canManageBranding && (
+          <Section title="Portal Branding" subtitle="Update logo, portal name, and tagline.">
+            <div className="flex flex-wrap items-center gap-4">
+              <div
+                className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center"
+                style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)' }}
+              >
+                {branding.logo_url ? (
+                  <Image src={branding.logo_url} alt={branding.portal_name} width={56} height={56} className="w-full h-full object-cover" unoptimized />
+                ) : (
+                  <Shield size={18} style={{ color: 'var(--color-text-muted)' }} />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{branding.portal_name}</p>
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{branding.portal_tagline}</p>
+              </div>
+              <Link
+                href="/dashboard/settings"
+                className="h-9 px-4 rounded-xl text-sm font-semibold text-white inline-flex items-center"
+                style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}
+              >
+                Open Branding Settings
+              </Link>
+            </div>
+          </Section>
+        )}
 
       </div>
     </div>
