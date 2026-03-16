@@ -1,11 +1,15 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Search, Users2, Building2 } from 'lucide-react'
+import { Search, Users2, Building2, ChevronDown, UsersRound, CheckSquare, List, CircleCheck, Circle, AlertCircle } from 'lucide-react'
+import { cn } from '@/lib/cn'
+import type { SessionUser } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
 
-interface Props { members: TeamMember[] }
+interface Props {
+  members: TeamMember[]
+  user?: SessionUser
+}
 
 const ROLE_GRADIENTS: Record<string, string> = {
   Admin: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
@@ -33,26 +37,47 @@ export function TeamPage({ members }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
+  const [teamOpen, setTeamOpen] = useState(true)
+  const [taskOpen, setTaskOpen] = useState(true)
+  const [scope, setScope] = useState<TeamScope>('users')
 
-  const searchParams = useSearchParams()
-  const scope = (searchParams.get('scope') as TeamScope | null) ?? 'users'
+  const departments = useMemo(
+    () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),
+    [members]
+  )
+  const roles = useMemo(() => [...new Set(members.map((member) => member.role))].sort(), [members])
 
-  const departments = useMemo(() => [...new Set(members.map(m => m.department).filter(Boolean) as string[])].sort(), [members])
-  const roles = useMemo(() => [...new Set(members.map(m => m.role))].sort(), [members])
+  const counts = useMemo(
+    () => ({
+      users: members.length,
+      tasks_all: members.reduce((sum, member) => sum + member.taskStats.total, 0),
+      tasks_completed: members.reduce((sum, member) => sum + member.taskStats.completed, 0),
+      tasks_pending: members.reduce((sum, member) => sum + member.taskStats.pending, 0),
+      tasks_overdue: members.reduce((sum, member) => sum + member.taskStats.overdue, 0),
+    }),
+    [members]
+  )
 
   const filtered = useMemo(() => {
     let list = members
-    if (deptFilter) list = list.filter(m => m.department === deptFilter)
-    if (roleFilter) list = list.filter(m => m.role === roleFilter)
+
+    if (deptFilter) list = list.filter((member) => member.department === deptFilter)
+    if (roleFilter) list = list.filter((member) => member.role === roleFilter)
+
     if (search) {
       const q = search.toLowerCase()
-      list = list.filter(m => m.username.toLowerCase().includes(q) || m.email.toLowerCase().includes(q))
+      list = list.filter(
+        (member) =>
+          member.username.toLowerCase().includes(q) ||
+          member.email.toLowerCase().includes(q)
+      )
     }
 
-    if (scope === 'tasks_all') return list.filter(m => m.taskStats.total > 0)
-    if (scope === 'tasks_completed') return list.filter(m => m.taskStats.completed > 0)
-    if (scope === 'tasks_pending') return list.filter(m => m.taskStats.pending > 0)
-    if (scope === 'tasks_overdue') return list.filter(m => m.taskStats.overdue > 0)
+    if (scope === 'tasks_all') return list.filter((member) => member.taskStats.total > 0)
+    if (scope === 'tasks_completed') return list.filter((member) => member.taskStats.completed > 0)
+    if (scope === 'tasks_pending') return list.filter((member) => member.taskStats.pending > 0)
+    if (scope === 'tasks_overdue') return list.filter((member) => member.taskStats.overdue > 0)
+
     return list
   }, [members, search, deptFilter, roleFilter, scope])
 
@@ -64,177 +89,134 @@ export function TeamPage({ members }: Props) {
     return 'User'
   }, [scope])
 
+  const navTaskLinks = [
+    { id: 'tasks_all' as const, label: 'All task', icon: <List size={14} />, count: counts.tasks_all, badge: 'bg-blue-500/15 text-blue-700' },
+    { id: 'tasks_completed' as const, label: 'Completed', icon: <CircleCheck size={14} />, count: counts.tasks_completed, badge: 'bg-green-600/15 text-green-700' },
+    { id: 'tasks_pending' as const, label: 'Pending', icon: <Circle size={14} />, count: counts.tasks_pending, badge: 'bg-amber-500/15 text-amber-700' },
+    { id: 'tasks_overdue' as const, label: 'Overdue', icon: <AlertCircle size={14} />, count: counts.tasks_overdue, badge: 'bg-rose-500/15 text-rose-700' },
+  ]
+
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Team</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            {scopeLabel}: {filtered.length} of {members.length} members
-          </p>
-        </div>
-      </div>
+    <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+      <aside className="rounded-2xl border border-[var(--color-border)] bg-white p-2 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
+        <button
+          type="button"
+          onClick={() => setTeamOpen((current) => !current)}
+          className="flex w-full items-center justify-between rounded-xl bg-[#1f1f1f] px-3 py-3 text-left text-sm font-semibold text-white"
+        >
+          <span className="flex items-center gap-2">
+            <UsersRound size={16} />
+            My Team
+          </span>
+          <ChevronDown size={14} className={cn('transition-transform', teamOpen && 'rotate-180')} />
+        </button>
 
-      <div className="card p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-45">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
-            <input
-              type="text"
-              placeholder="Search members..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
-              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-            />
-          </div>
-          <select
-            value={deptFilter}
-            onChange={e => setDeptFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-35"
-            style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-          >
-            <option value="">All Departments</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select
-            value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-32"
-            style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-          >
-            <option value="">All Roles</option>
-            {roles.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-      </div>
+        {teamOpen && (
+          <div className="mt-2 pl-3">
+            <button
+              type="button"
+              onClick={() => setScope('users')}
+              className={cn(
+                'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition',
+                scope === 'users' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <Users2 size={14} />
+                User
+              </span>
+              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{counts.users}</span>
+            </button>
 
-      {filtered.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Users2 size={40} className="mx-auto mb-3" style={{ color: 'var(--slate-300)' }} />
-          <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>No team members found</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map(m => {
-            const gradient = ROLE_GRADIENTS[m.role] ?? ROLE_GRADIENTS.User
-            const roleBadge = ROLE_COLORS[m.role] ?? ROLE_COLORS.User
-            const completion = m.taskStats.total > 0
-              ? Math.round((m.taskStats.completed / m.taskStats.total) * 100)
-              : 0
-            const completionColor = completion >= 80 ? '#10B981' : completion >= 50 ? '#F59E0B' : '#EF4444'
-
-            return (
-              <div
-                key={m.username}
-                className="rounded-2xl p-6 text-center transition-all duration-300 animate-fade-in"
-                style={{
-                  background: 'var(--color-surface)',
-                  border: '1px solid var(--color-border)',
-                  boxShadow: '0 8px 20px rgba(15,23,42,0.06)',
-                }}
+            <div className="mt-2 border-l border-slate-200 pl-2">
+              <button
+                type="button"
+                onClick={() => setTaskOpen((current) => !current)}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
               >
-                <div
-                  className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center text-lg font-bold text-white"
-                  style={{ background: gradient }}
-                >
-                  {m.avatar_data ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover rounded-full" />
-                  ) : (
-                    getInitials(m.username)
-                  )}
+                <span className="flex items-center gap-2">
+                  <CheckSquare size={14} />
+                  Task
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{counts.tasks_all}</span>
+                  <ChevronDown size={14} className={cn('transition-transform', taskOpen && 'rotate-180')} />
                 </div>
+              </button>
 
-                <h3 className="font-bold text-sm mb-0.5 truncate" style={{ color: 'var(--color-text)' }}>
-                  {m.username}
-                </h3>
-                <p className="text-xs mb-2 truncate" style={{ color: 'var(--color-text-muted)' }}>
-                  {m.email}
-                </p>
+              {taskOpen && (
+                <ul className="mt-1 space-y-1 border-l border-slate-200 pl-3">
+                  {navTaskLinks.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => setScope(item.id)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition',
+                          scope === item.id ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          {item.icon}
+                          {item.label}
+                        </span>
+                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', item.badge)}>
+                          {item.count}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </aside>
 
-                <div className="mb-3">
-                  <div className="flex items-center justify-center gap-1 mb-1">
-                    <Building2 size={11} style={{ color: roleBadge.color }} />
-                    <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                      {m.department || 'No dept'}
-                    </span>
-                  </div>
-                  <span
-                    className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full"
-                    style={{ background: roleBadge.bg, color: roleBadge.color }}
-                  >
-                    {m.role}
-                  </span>
-                </div>
-
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
-                      Task completion
-                    </span>
-                    <span className="text-[11px] font-bold" style={{ color: completionColor }}>
-                      {completion}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${completion}%`, background: completionColor }}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  <StatPill label="Done" value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
-                  <StatPill label="Open" value={m.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
-                  <StatPill label="Overdue" value={m.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
-                </div>
-
-                <div className="flex items-center justify-center gap-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-                  <span>
-                    {m.last_login
-                      ? `Last seen ${new Date(m.last_login).toLocaleDateString('en', { month: 'short', day: 'numeric' })}`
-                      : 'No activity yet'}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
+      <div>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold sm:text-2xl" style={{ color: 'var(--color-text)' }}>Team</h1>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+              {scopeLabel}: {filtered.length} of {members.length} members
+            </p>
+          </div>
         </div>
-      )}
-    </div>
-  )
-}
+
+        <div className="card mb-6 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-45">
+            <div className="relative min-w-45 flex-1">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
               <input
                 type="text"
                 placeholder="Search members..."
                 value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-10 w-full rounded-lg pl-9 pr-3 text-sm outline-none"
                 style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
               />
             </div>
             <select
               value={deptFilter}
-              onChange={e => setDeptFilter(e.target.value)}
-              className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-35"
+              onChange={(event) => setDeptFilter(event.target.value)}
+              className="h-10 min-w-35 flex-1 rounded-lg px-3 text-sm outline-none"
               style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             >
               <option value="">All Departments</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              {departments.map((department) => (
+                <option key={department} value={department}>{department}</option>
+              ))}
             </select>
             <select
               value={roleFilter}
-              onChange={e => setRoleFilter(e.target.value)}
-              className="h-10 px-3 rounded-lg text-sm outline-none flex-1 min-w-32"
+              onChange={(event) => setRoleFilter(event.target.value)}
+              className="h-10 min-w-32 flex-1 rounded-lg px-3 text-sm outline-none"
               style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             >
               <option value="">All Roles</option>
-              {roles.map(r => <option key={r} value={r}>{r}</option>)}
+              {roles.map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -245,19 +227,19 @@ export function TeamPage({ members }: Props) {
             <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>No team members found</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filtered.map(m => {
-              const gradient = ROLE_GRADIENTS[m.role] ?? ROLE_GRADIENTS.User
-              const roleBadge = ROLE_COLORS[m.role] ?? ROLE_COLORS.User
-              const completion = m.taskStats.total > 0
-                ? Math.round((m.taskStats.completed / m.taskStats.total) * 100)
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filtered.map((member) => {
+              const gradient = ROLE_GRADIENTS[member.role] ?? ROLE_GRADIENTS.User
+              const roleBadge = ROLE_COLORS[member.role] ?? ROLE_COLORS.User
+              const completion = member.taskStats.total > 0
+                ? Math.round((member.taskStats.completed / member.taskStats.total) * 100)
                 : 0
               const completionColor = completion >= 80 ? '#10B981' : completion >= 50 ? '#F59E0B' : '#EF4444'
 
               return (
                 <div
-                  key={m.username}
-                  className="rounded-2xl p-6 text-center transition-all duration-300 animate-fade-in"
+                  key={member.username}
+                  className="animate-fade-in rounded-2xl p-6 text-center transition-all duration-300"
                   style={{
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',
@@ -265,41 +247,41 @@ export function TeamPage({ members }: Props) {
                   }}
                 >
                   <div
-                    className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center text-lg font-bold text-white"
+                    className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold text-white"
                     style={{ background: gradient }}
                   >
-                    {m.avatar_data ? (
+                    {member.avatar_data ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.avatar_data} alt={m.username} className="w-full h-full object-cover rounded-full" />
+                      <img src={member.avatar_data} alt={member.username} className="h-full w-full rounded-full object-cover" />
                     ) : (
-                      getInitials(m.username)
+                      getInitials(member.username)
                     )}
                   </div>
 
-                  <h3 className="font-bold text-sm mb-0.5 truncate" style={{ color: 'var(--color-text)' }}>
-                    {m.username}
+                  <h3 className="mb-0.5 truncate text-sm font-bold" style={{ color: 'var(--color-text)' }}>
+                    {member.username}
                   </h3>
-                  <p className="text-xs mb-2 truncate" style={{ color: 'var(--color-text-muted)' }}>
-                    {m.email}
+                  <p className="mb-2 truncate text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    {member.email}
                   </p>
 
                   <div className="mb-3">
-                    <div className="flex items-center justify-center gap-1 mb-1">
+                    <div className="mb-1 flex items-center justify-center gap-1">
                       <Building2 size={11} style={{ color: roleBadge.color }} />
                       <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                        {m.department || 'No dept'}
+                        {member.department || 'No dept'}
                       </span>
                     </div>
                     <span
-                      className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                      className="inline-block rounded-full px-2.5 py-1 text-[10px] font-semibold"
                       style={{ background: roleBadge.bg, color: roleBadge.color }}
                     >
-                      {m.role}
+                      {member.role}
                     </span>
                   </div>
 
                   <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="mb-1 flex items-center justify-between">
                       <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
                         Task completion
                       </span>
@@ -307,7 +289,7 @@ export function TeamPage({ members }: Props) {
                         {completion}%
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                    <div className="h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--slate-100)' }}>
                       <div
                         className="h-full rounded-full transition-all duration-700"
                         style={{ width: `${completion}%`, background: completionColor }}
@@ -315,16 +297,16 @@ export function TeamPage({ members }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    <StatPill label="Done" value={m.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
-                    <StatPill label="Open" value={m.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
-                    <StatPill label="Overdue" value={m.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
+                  <div className="mb-3 grid grid-cols-3 gap-2">
+                    <StatPill label="Done" value={member.taskStats.completed} color="#10B981" bg="rgba(16,185,129,0.1)" />
+                    <StatPill label="Open" value={member.taskStats.pending} color="#2B7FFF" bg="rgba(43,127,255,0.1)" />
+                    <StatPill label="Overdue" value={member.taskStats.overdue} color="#EF4444" bg="rgba(239,68,68,0.1)" />
                   </div>
 
                   <div className="flex items-center justify-center gap-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
                     <span>
-                      {m.last_login
-                        ? `Last seen ${new Date(m.last_login).toLocaleDateString('en', { month: 'short', day: 'numeric' })}`
+                      {member.last_login
+                        ? `Last seen ${new Date(member.last_login).toLocaleDateString('en', { month: 'short', day: 'numeric' })}`
                         : 'No activity yet'}
                     </span>
                   </div>
@@ -332,13 +314,17 @@ export function TeamPage({ members }: Props) {
               )
             })}
           </div>
-        )}\n      </div>\n    </div>\n  )\n}
+        )}
+      </div>
+    </div>
+  )
+}
 
 function StatPill({ label, value, color, bg }: { label: string; value: number; color: string; bg: string }) {
   return (
-    <div className="rounded-lg py-2 px-1.5 text-center" style={{ background: bg }}>
+    <div className="rounded-lg px-1.5 py-2 text-center" style={{ background: bg }}>
       <p className="text-xs font-bold" style={{ color }}>{value}</p>
-      <p className="text-[8px] font-semibold mt-1" style={{ color }}>{label}</p>
+      <p className="mt-1 text-[8px] font-semibold" style={{ color }}>{label}</p>
     </div>
   )
 }
