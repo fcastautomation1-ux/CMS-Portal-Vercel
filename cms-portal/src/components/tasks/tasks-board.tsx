@@ -419,9 +419,9 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   })
 
   return (
-    <div className="-mt-2 flex h-full flex-col px-3 pb-4 sm:px-4">
-      <div className="mb-4 overflow-x-auto pb-1">
-        <div className="grid min-w-[760px] grid-cols-4 gap-3">
+    <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
+      <div className="mb-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
           { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
