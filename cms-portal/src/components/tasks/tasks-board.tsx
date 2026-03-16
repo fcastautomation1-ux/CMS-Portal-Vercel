@@ -58,9 +58,10 @@ interface TasksBoardProps {
   currentUserTeamMembers?: string[]
   initialTasks: Todo[]
   initialScope?: QuickFilter
+  initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialScope = 'my_all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialScope = 'my_all', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
@@ -72,7 +73,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'position' | 'due_date' | 'priority' | 'created_at' | 'title'>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus)
 
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -204,8 +205,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   const stats = useMemo(() => computeTodoStatsFromTodos(scopedTasksForKpis), [scopedTasksForKpis])
 
   const scopeLabel = useMemo(() => {
-    if (quickFilter === 'created_by_me') return 'Task Created By Me'
-    if (quickFilter === 'assigned_to_me') return 'Assigned To Me'
+    if (quickFilter === 'created_by_me') return 'My Assign Task'
+    if (quickFilter === 'assigned_to_me') return 'Assign To Me'
     return 'My Tasks'
   }, [quickFilter])
 

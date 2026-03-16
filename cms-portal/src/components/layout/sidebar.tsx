@@ -159,6 +159,10 @@ export function Sidebar({
     automation: true,
   })
   const [tasksOpen, setTasksOpen] = useState(true)
+  const [taskGroupsOpen, setTaskGroupsOpen] = useState<Record<string, boolean>>({
+    my_assign_task: true,
+    assign_to_me: true,
+  })
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(user.username),
@@ -169,73 +173,6 @@ export function Sidebar({
     refetchOnWindowFocus: false,
   })
   const sidebarTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
-
-  const taskScopeCounts = useMemo(() => {
-    const userLower = user.username.toLowerCase()
-    const isAssignedToUser = (task: typeof sidebarTasks[number]) => {
-      if ((task.assigned_to || '').toLowerCase() === userLower) return true
-      const assignees = task.multi_assignment?.assignees ?? []
-      return assignees.some((a) =>
-        (a.username || '').toLowerCase() === userLower ||
-        (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
-      )
-    }
-
-    const myTasks = sidebarTasks.filter((t) => {
-      if (t.archived) return false
-      if (isAssignedToUser(t)) return true
-      if ((t.completed_by || '').toLowerCase() === userLower) return true
-      if (t.username.toLowerCase() === userLower) return true
-      return Boolean(t.is_department_queue)
-    }).length
-
-    const createdByMe = sidebarTasks.filter((t) => !t.archived && t.username.toLowerCase() === userLower).length
-
-    const assignedToMe = sidebarTasks.filter((t) => !t.archived && isAssignedToUser(t)).length
-
-    const myPending = sidebarTasks.filter((t) => {
-      if (t.completed || t.archived) return false
-      if (isAssignedToUser(t)) return true
-      if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
-      const ma = t.multi_assignment
-      if (ma?.enabled && Array.isArray(ma.assignees)) {
-        const mine = ma.assignees.find((a) => (a.username || '').toLowerCase() === userLower)
-        if (mine && mine.status !== 'accepted' && mine.status !== 'completed') return true
-      }
-      return Boolean(t.is_department_queue)
-    }).length
-
-    const assignedByMe = sidebarTasks.filter((t) => {
-      if (t.completed || t.archived) return false
-      if (t.username.toLowerCase() !== userLower) return false
-      if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return true
-      const ma = t.multi_assignment
-      if (ma?.enabled && Array.isArray(ma.assignees)) {
-        return ma.assignees.some((a) => (a.username || '').toLowerCase() !== userLower)
-      }
-      return false
-    }).length
-
-    const myApproval = sidebarTasks.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower).length
-    const otherApproval = sidebarTasks.filter((t) => {
-      if (t.archived || t.approval_status !== 'pending_approval') return false
-      if (t.username.toLowerCase() === userLower) return false
-      if ((t.completed_by || '').toLowerCase() === userLower) return true
-      if ((t.assigned_to || '').toLowerCase() === userLower) return true
-      const ma = t.multi_assignment
-      return Boolean(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.some((a) => (a.username || '').toLowerCase() === userLower))
-    }).length
-
-    return {
-      my_all: myTasks,
-      created_by_me: createdByMe,
-      assigned_to_me: assignedToMe,
-      my_pending: myPending,
-      assigned_by_me: assignedByMe,
-      my_approval: myApproval,
-      other_approval: otherApproval,
-    }
-  }, [sidebarTasks, user.username])
 
   const visibleSections = useMemo(
     () =>
@@ -268,14 +205,53 @@ export function Sidebar({
 
   const isTaskScopeActive = pathname === '/dashboard/tasks'
   const activeTaskScope = searchParams.get('scope') ?? 'my_all'
-  const taskLinks = [
-    { label: 'My Tasks', scope: 'my_all', count: taskScopeCounts.my_all },
-    { label: 'Created By Me', scope: 'created_by_me', count: taskScopeCounts.created_by_me },
-    { label: 'Assigned To Me', scope: 'assigned_to_me', count: taskScopeCounts.assigned_to_me },
-    { label: 'My Pending', scope: 'my_pending', count: taskScopeCounts.my_pending },
-    { label: 'Assigned By Me', scope: 'assigned_by_me', count: taskScopeCounts.assigned_by_me },
-    { label: 'My Approval', scope: 'my_approval', count: taskScopeCounts.my_approval },
-    { label: 'Other Approval', scope: 'other_approval', count: taskScopeCounts.other_approval },
+  const activeTaskStatus = searchParams.get('status') ?? 'all'
+  const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue', active: boolean) => {
+    if (active) {
+      if (tone === 'completed') return 'bg-green-100 text-green-700'
+      if (tone === 'pending') return 'bg-amber-100 text-amber-700'
+      if (tone === 'overdue') return 'bg-rose-100 text-rose-700'
+      return 'bg-blue-100 text-blue-700'
+    }
+    if (tone === 'completed') return 'bg-green-600/15 text-green-700'
+    if (tone === 'pending') return 'bg-amber-500/15 text-amber-700'
+    if (tone === 'overdue') return 'bg-rose-500/15 text-rose-700'
+    return 'bg-blue-500/15 text-blue-700'
+  }
+  const createdByMeTasks = sidebarTasks.filter((t) => !t.archived && t.username.toLowerCase() === user.username.toLowerCase())
+  const assignedToMeTasks = sidebarTasks.filter((t) => {
+    if (t.archived) return false
+    const userLower = user.username.toLowerCase()
+    if ((t.username || '').toLowerCase() === userLower) return false
+    if ((t.assigned_to || '').toLowerCase() === userLower) return true
+    const assignees = t.multi_assignment?.assignees ?? []
+    return assignees.some((a) =>
+      (a.username || '').toLowerCase() === userLower ||
+      (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
+    )
+  })
+  const buildStatusCounts = (tasks: typeof sidebarTasks) => {
+    const now = new Date()
+    return {
+      all: tasks.length,
+      completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+      pending: tasks.filter((task) => !task.completed && task.task_status !== 'done' && !(task.due_date && new Date(task.due_date) < now)).length,
+      overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length,
+    }
+  }
+  const taskGroups = [
+    {
+      id: 'my_assign_task',
+      label: 'My assign task',
+      scope: 'created_by_me',
+      counts: buildStatusCounts(createdByMeTasks),
+    },
+    {
+      id: 'assign_to_me',
+      label: 'Assign to me',
+      scope: 'assigned_to_me',
+      counts: buildStatusCounts(assignedToMeTasks),
+    },
   ] as const
 
   return (
@@ -399,34 +375,71 @@ export function Sidebar({
                               </button>
 
                               {tasksOpen && (
-                                <ul className="mt-1 space-y-1 pl-6">
-                                  {taskLinks.map((taskLink) => {
-                                    const isSubActive = pathname === '/dashboard/tasks' && activeTaskScope === taskLink.scope
+                                <div className="mt-1 space-y-1 pl-4">
+                                  {taskGroups.map((group) => {
+                                    const groupOpen = taskGroupsOpen[group.id] ?? true
+                                    const groupActive = pathname === '/dashboard/tasks' && activeTaskScope === group.scope
+                                    const statusLinks = [
+                                      { label: 'All task', status: 'all', count: group.counts.all, tone: 'all' as const },
+                                      { label: 'Complete', status: 'completed', count: group.counts.completed, tone: 'completed' as const },
+                                      { label: 'Pending', status: 'pending', count: group.counts.pending, tone: 'pending' as const },
+                                      { label: 'Overdue', status: 'overdue', count: group.counts.overdue, tone: 'overdue' as const },
+                                    ]
 
                                     return (
-                                      <li key={taskLink.scope}>
-                                        <Link
-                                          href={`/dashboard/tasks?scope=${taskLink.scope}`}
-                                          onClick={onClose}
-                                          className={cn(
-                                            'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
-                                            isSubActive
-                                              ? 'bg-emerald-50 text-emerald-700'
-                                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                                          )}
+                                      <div key={group.id} className="pl-2 border-l border-slate-200">
+                                        <button
+                                          type="button"
+                                          onClick={() => setTaskGroupsOpen((current) => ({ ...current, [group.id]: !groupOpen }))}
+                                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                                         >
-                                          <span>{taskLink.label}</span>
+                                          <span className="truncate">{group.label}</span>
                                           <span className={cn(
-                                            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                                            isSubActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                            'ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                                            groupActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                                           )}>
-                                            {taskLink.count}
+                                            {group.counts.all}
                                           </span>
-                                        </Link>
-                                      </li>
+                                          <ChevronDown size={12} className={cn('shrink-0 text-slate-400 transition-transform', groupOpen && 'rotate-180')} />
+                                        </button>
+
+                                        {groupOpen && (
+                                          <ul className="mt-1 space-y-1 pl-3">
+                                            {statusLinks.map((statusLink) => {
+                                              const isSubActive =
+                                                pathname === '/dashboard/tasks' &&
+                                                activeTaskScope === group.scope &&
+                                                activeTaskStatus === statusLink.status
+
+                                              return (
+                                                <li key={`${group.id}-${statusLink.status}`}>
+                                                  <Link
+                                                    href={`/dashboard/tasks?scope=${group.scope}&status=${statusLink.status}`}
+                                                    onClick={onClose}
+                                                    className={cn(
+                                                      'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
+                                                      isSubActive
+                                                        ? 'bg-slate-100 text-slate-900'
+                                                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                                    )}
+                                                  >
+                                                    <span>{statusLink.label}</span>
+                                                    <span className={cn(
+                                                      'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                                                      statusBadgeClass(statusLink.tone, isSubActive)
+                                                    )}>
+                                                      {statusLink.count}
+                                                    </span>
+                                                  </Link>
+                                                </li>
+                                              )
+                                            })}
+                                          </ul>
+                                        )}
+                                      </div>
                                     )
                                   })}
-                                </ul>
+                                </div>
                               )}
                             </li>
                           )

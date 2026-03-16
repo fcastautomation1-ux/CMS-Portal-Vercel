@@ -14,7 +14,7 @@ export const metadata = {
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams?: { scope?: string }
+  searchParams?: { scope?: string; status?: string }
 }) {
   const [user, tasks] = await Promise.all([
     getSession(),
@@ -23,6 +23,7 @@ export default async function TasksPage({
   if (!user) redirect('/login')
 
   const scope = searchParams?.scope
+  const status = searchParams?.status
   const initialScope =
     scope === 'my_all' ||
     scope === 'created_by_me' ||
@@ -33,6 +34,13 @@ export default async function TasksPage({
     scope === 'other_approval'
       ? scope
       : 'my_all'
+  const initialStatus =
+    status === 'all' ||
+    status === 'pending' ||
+    status === 'completed' ||
+    status === 'overdue'
+      ? status
+      : 'all'
 
   return (
     <div className="flex flex-col h-full">
@@ -45,13 +53,14 @@ export default async function TasksPage({
           }
         >
           <TasksBoard
-            key={initialScope}
+            key={`${initialScope}:${initialStatus}`}
             currentUsername={user.username}
             currentUserRole={user.role}
             currentUserDept={user.department}
             currentUserTeamMembers={user.teamMembers}
             initialTasks={tasks}
             initialScope={initialScope}
+            initialStatus={initialStatus}
           />
         </Suspense>
       </div>
