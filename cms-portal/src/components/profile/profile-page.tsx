@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import {
-  User, Lock, Bell, Shield, Camera, Trash2,
+  User, Lock, Bell, Shield, Camera, Trash2, Building2,
   Eye, EyeOff, CheckCircle, ArrowLeft, Save,
 } from 'lucide-react'
 import Link from 'next/link'
