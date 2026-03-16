@@ -27,6 +27,7 @@ import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { splitTaskMeta } from '@/lib/task-metadata'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
@@ -199,9 +200,11 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     if (task.assigned_to && task.assigned_to.trim() !== '') return false
     const rawDept = currentUserDept ?? null
     if (!rawDept) return false
-    const queueDeptLower = (task.queue_department || '').toLowerCase().trim()
-    if (!queueDeptLower) return false
-    return rawDept.split(',').map((d: string) => d.trim().toLowerCase()).some((d: string) => d && d === queueDeptLower)
+    const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
+    if (!queueDeptKey) return false
+    return splitDepartmentsCsv(rawDept)
+      .map((d: string) => canonicalDepartmentKey(d))
+      .some((d: string) => !!d && d === queueDeptKey)
   }, [currentUserDept, currentUsername])
 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {

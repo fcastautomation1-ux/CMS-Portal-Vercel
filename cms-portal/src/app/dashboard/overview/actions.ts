@@ -3,6 +3,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
+import { canonicalDepartmentKey } from '@/lib/department-name'
 
 export interface OverviewStats {
   accounts: { total: number; running: number; error: number; pending: number }
@@ -91,7 +92,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     supabase.from('accounts').select('customer_id,enabled,status'),
     supabase.from('users').select('username,role,avatar_data'),
     supabase.from('todos').select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at,archived').eq('archived', false).order('created_at', { ascending: false }),
-    supabase.from('departments').select('id'),
+    supabase.from('departments').select('id,name'),
     ...CAMPAIGN_TABLES.map(t => supabase.from(t).select('customer_id,enabled', { count: 'exact', head: false })),
   ])
 
@@ -119,6 +120,12 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     completed: boolean; task_status: string; priority: string
     due_date: string | null; category: string | null; created_at: string
   }>
+
+  const canonicalToOfficial: Record<string, string> = {}
+  ;((deptsRes.data ?? []) as Array<{ id: string; name?: string | null }>).forEach((dept) => {
+    const key = canonicalDepartmentKey(dept.name || '')
+    if (key && !canonicalToOfficial[key] && dept.name) canonicalToOfficial[key] = dept.name
+  })
 
   const getTaskBucket = (task: { completed: boolean; task_status: string; due_date: string | null }) => {
     if (task.completed || task.task_status === 'done') return 'completed'
@@ -152,7 +159,11 @@ export async function getOverviewStats(): Promise<OverviewStats> {
       overdue++
     }
     if (t.due_date === today) dueToday++
-    if (t.category) deptMap[t.category] = (deptMap[t.category] || 0) + 1
+    if (t.category) {
+      const key = canonicalDepartmentKey(t.category)
+      const label = (key && canonicalToOfficial[key]) || t.category
+      deptMap[label] = (deptMap[label] || 0) + 1
+    }
   }
 
   const topPerformers = Object.entries(userMap)

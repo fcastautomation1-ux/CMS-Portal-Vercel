@@ -6,6 +6,7 @@ import { getSession } from '@/lib/auth'
 import { isPastPakistanDate } from '@/lib/pakistan-time'
 import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
+import { canonicalDepartmentKey, mapDepartmentCsvToOfficial, splitDepartmentsCsv } from '@/lib/department-name'
 import type {
   Todo,
   TodoAttachment,
@@ -102,15 +103,31 @@ export async function getTodos(): Promise<Todo[]> {
   const isAdminOrSM =
     user.role === 'Admin' || user.role === 'Super Manager'
 
-  // Fetch all users for department map
-  const { data: allUsers } = await supabase
-    .from('users')
-    .select('username,manager_id,team_members,department')
+  // Fetch users + departments for department canonical mapping
+  const [{ data: allUsers }, { data: allDepartments }] = await Promise.all([
+    supabase
+      .from('users')
+      .select('username,manager_id,team_members,department'),
+    supabase
+      .from('departments')
+      .select('name'),
+  ])
+
+  const canonicalToOfficial: Record<string, string> = {}
+  ;((allDepartments ?? []) as Array<{ name: string }>).forEach((dept) => {
+    const key = canonicalDepartmentKey(dept.name)
+    if (key && !canonicalToOfficial[key]) canonicalToOfficial[key] = dept.name
+  })
+
+  const mapSingleDepartment = (value: string | null | undefined) => {
+    const key = canonicalDepartmentKey(value)
+    return (key && canonicalToOfficial[key]) || (value ? String(value).trim() : '')
+  }
 
   const userDeptMap: Record<string, string> = {}
   ;(allUsers || []).forEach((u: Record<string, unknown>) => {
     if (u.username && u.department) {
-      userDeptMap[String(u.username).toLowerCase()] = String(u.department)
+      userDeptMap[String(u.username).toLowerCase()] = mapDepartmentCsvToOfficial(String(u.department), canonicalToOfficial)
     }
   })
 
@@ -165,9 +182,12 @@ export async function getTodos(): Promise<Todo[]> {
           .select('*')
           .eq('queue_status', 'queued')
           .or('assigned_to.is.null,assigned_to.eq.')
-          .ilike('queue_department', user.department)
       : Promise.resolve({ data: [] }),
   ])
+
+  const userDeptKeys = splitDepartmentsCsv(user.department)
+    .map((dept) => canonicalDepartmentKey(dept))
+    .filter(Boolean)
 
   // Tasks where I'm manager_id
   const { data: managedData } = await supabase
@@ -181,6 +201,8 @@ export async function getTodos(): Promise<Todo[]> {
   const addTask = (raw: Record<string, unknown>, flags: Partial<Todo> = {}) => {
     const t = normalizeTodo(raw, user.username)
     if (!taskIds.has(t.id)) {
+      t.queue_department = mapSingleDepartment(t.queue_department || null) || null
+      t.category = mapSingleDepartment(t.category || null) || t.category
       Object.assign(t, flags)
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
       t.assignee_department = userDeptMap[(t.assigned_to || '').toLowerCase()] || null
@@ -192,7 +214,13 @@ export async function getTodos(): Promise<Todo[]> {
   ;(ownedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r))
   ;(assignedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_assigned_to_me: true }))
   ;(completedByRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_completed_by_me: true }))
-  ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => addTask(r, { is_department_queue: true }))
+  ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => {
+    const queueDept = String(r.queue_department || '')
+    const queueDeptKey = canonicalDepartmentKey(queueDept)
+    if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
+      addTask(r, { is_department_queue: true })
+    }
+  })
 
   ;(managedData || []).forEach((r: Record<string, unknown>) => {
     const managers = String(r.manager_id || '').split(',').map((m) => m.trim().toLowerCase())
@@ -1517,9 +1545,9 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
     return { success: false, error: 'Task has already been claimed.' }
 
   // Check dept match
-  const taskDept = ((task.queue_department as string) || '').toLowerCase().trim()
-  const userDept = (user.department || '').toLowerCase().trim()
-  if (taskDept && userDept && taskDept !== userDept)
+  const taskDept = canonicalDepartmentKey((task.queue_department as string) || '')
+  const userDepts = splitDepartmentsCsv(user.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
+  if (taskDept && userDepts.length > 0 && !userDepts.includes(taskDept))
     return { success: false, error: 'This task is for a different department.' }
 
   const now = new Date().toISOString()

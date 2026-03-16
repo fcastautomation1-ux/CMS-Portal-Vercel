@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
   ChevronDown, ChevronUp, MessageCircle,
@@ -172,8 +173,10 @@ export function TaskCard({
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
   const showApproveBtn = isCreator && isPendingApproval
+  const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
+  const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
   const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
-    (!task.queue_department || !currentUserDept || task.queue_department.toLowerCase() === (currentUserDept ?? '').toLowerCase())
+    (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
 
