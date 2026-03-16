@@ -40,7 +40,7 @@ function getInitials(username: string) {
 export function TeamPage({ members, tasks, user }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
-  const [roleFilter, setRoleFilter] = useState('')
+  const [memberFilter, setMemberFilter] = useState('')
   const [, startTransition] = useTransition()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -51,7 +51,7 @@ export function TeamPage({ members, tasks, user }: Props) {
     () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),
     [members]
   )
-  const roles = useMemo(() => [...new Set(members.map((member) => member.role))].sort(), [members])
+  const memberOptions = useMemo(() => [...new Set(members.map((member) => member.username))].sort(), [members])
 
   const counts = useMemo(
     () => ({
@@ -68,7 +68,7 @@ export function TeamPage({ members, tasks, user }: Props) {
     let list = members
 
     if (deptFilter) list = list.filter((member) => member.department === deptFilter)
-    if (roleFilter) list = list.filter((member) => member.role === roleFilter)
+    if (memberFilter) list = list.filter((member) => member.username === memberFilter)
 
     if (search) {
       const q = search.toLowerCase()
@@ -85,7 +85,7 @@ export function TeamPage({ members, tasks, user }: Props) {
     if (scope === 'tasks_overdue') return list.filter((member) => member.taskStats.overdue > 0)
 
     return list
-  }, [members, search, deptFilter, roleFilter, scope])
+  }, [members, search, deptFilter, memberFilter, scope])
 
   const filteredTasks = useMemo(() => {
     let list = tasks
@@ -96,10 +96,16 @@ export function TeamPage({ members, tasks, user }: Props) {
       list = list.filter((task) => (task.creator_department || task.category || '').toLowerCase() === deptFilter.toLowerCase())
     }
 
-    if (roleFilter) {
+    if (memberFilter) {
+      const memberLower = memberFilter.toLowerCase()
       list = list.filter((task) => {
-        const creator = members.find((member) => member.username === task.username)
-        return creator?.role === roleFilter
+        if ((task.username || '').toLowerCase() === memberLower) return true
+        if ((task.assigned_to || '').toLowerCase() === memberLower) return true
+        const assignees = task.multi_assignment?.assignees ?? []
+        return assignees.some((entry) => {
+          if ((entry.username || '').toLowerCase() === memberLower) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === memberLower)
+        })
       })
     }
 
@@ -126,7 +132,7 @@ export function TeamPage({ members, tasks, user }: Props) {
     }
 
     return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  }, [tasks, search, deptFilter, roleFilter, scope, members])
+  }, [tasks, search, deptFilter, memberFilter, scope])
 
   const taskKpis = useMemo(() => {
     const today = new Date()
@@ -223,14 +229,14 @@ export function TeamPage({ members, tasks, user }: Props) {
               ))}
             </select>
             <select
-              value={roleFilter}
-              onChange={(event) => setRoleFilter(event.target.value)}
+              value={memberFilter}
+              onChange={(event) => setMemberFilter(event.target.value)}
               className="h-10 min-w-32 flex-1 rounded-lg px-3 text-sm outline-none"
               style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             >
-              <option value="">All Roles</option>
-              {roles.map((role) => (
-                <option key={role} value={role}>{role}</option>
+              <option value="">All Team Members</option>
+              {memberOptions.map((member) => (
+                <option key={member} value={member}>{member}</option>
               ))}
             </select>
           </div>
@@ -244,10 +250,9 @@ export function TeamPage({ members, tasks, user }: Props) {
             </div>
           ) : (
             <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
-              <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
-                  <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <div className="bg-[#f5f7fc] px-4 py-4 sm:px-5">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
                     <button
                       type="button"
                       onClick={() => startTransition(() => router.refresh())}
@@ -258,11 +263,6 @@ export function TeamPage({ members, tasks, user }: Props) {
                     </button>
                     <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
                   </div>
-                </div>
-              </div>
-
-              <div className="bg-[#f5f7fc] px-4 py-4 sm:px-5">
-                <div className="space-y-3">
                   <div className="sticky top-0 z-10 flex items-center gap-3 rounded-2xl border border-[#dfe5f1] bg-white/90 px-4 py-3 backdrop-blur">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Task</span>
                     <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Expected</span>
