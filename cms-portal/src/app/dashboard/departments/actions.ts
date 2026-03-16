@@ -47,7 +47,7 @@ export async function getDepartmentMembersWithNames(): Promise<Record<string, st
 
 export async function saveDepartment(
   dept: { id?: string; name: string }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; department?: Department }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
   if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
@@ -55,28 +55,42 @@ export async function saveDepartment(
   }
 
   const supabase = createServerClient()
+  const normalizedName = dept.name.trim()
+  if (!normalizedName) return { success: false, error: 'Department name is required.' }
 
   if (dept.id) {
     // Get old name for cascade rename
     const { data: old } = await supabase.from('departments').select('name').eq('id', dept.id).single()
-    const { error } = await supabase.from('departments').update({ name: dept.name }).eq('id', dept.id)
+    const { data, error } = await supabase
+      .from('departments')
+      .update({ name: normalizedName })
+      .eq('id', dept.id)
+      .select('*')
+      .single()
     if (error) return { success: false, error: error.message }
 
     // Cascade rename in users + todos
-    if (old && old.name !== dept.name) {
-      await supabase.from('users').update({ department: dept.name }).eq('department', old.name)
-      await supabase.from('todos').update({ queue_department: dept.name }).eq('queue_department', old.name)
+    if (old && old.name !== normalizedName) {
+      await supabase.from('users').update({ department: normalizedName }).eq('department', old.name)
+      await supabase.from('todos').update({ queue_department: normalizedName }).eq('queue_department', old.name)
     }
+
+    revalidatePath('/dashboard/departments')
+    return { success: true, department: data as Department }
   } else {
-    const { error } = await supabase.from('departments').insert({ name: dept.name })
+    const { data, error } = await supabase
+      .from('departments')
+      .insert({ name: normalizedName })
+      .select('*')
+      .single()
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Department already exists.' }
       return { success: false, error: error.message }
     }
-  }
 
-  revalidatePath('/dashboard/departments')
-  return { success: true }
+    revalidatePath('/dashboard/departments')
+    return { success: true, department: data as Department }
+  }
 }
 
 export async function deleteDepartment(

@@ -198,36 +198,38 @@ function ReportModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r: L
     setSaving(true)
     setError('')
     const res = await saveLookerReport({ title, report_url: reportUrl, allowed_users: allowedUsers })
-    if (res.success) {
-      onSaved({ id: crypto.randomUUID(), title, report_url: reportUrl, allowed_users: allowedUsers, created_by: null, sort_order: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    if (res.success && res.report) {
+      onSaved(res.report)
     } else {
-      setError(res.error || 'Failed')
+      setError(res.error || 'Failed to save report.')
     }
     setSaving(false)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:rounded-2xl rounded-t-2xl sm:max-w-md overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
-          <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Add Looker Report</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full max-w-lg rounded-3xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
+        <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <h2 className="font-bold text-3xl leading-none" style={{ color: 'var(--color-text)', letterSpacing: '-0.02em' }}>Add Looker Report</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100" aria-label="Close"><X size={20} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="px-5 py-5 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="px-6 py-6 flex flex-col gap-4">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report Title</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g. Marketing Dashboard" className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+          <div className="flex flex-col gap-2">
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report Title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g. Marketing Dashboard" className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Looker Studio URL</label>
-            <input value={reportUrl} onChange={e => setReportUrl(e.target.value)} type="url" required placeholder="https://lookerstudio.google.com/..." className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+          <div className="flex flex-col gap-2">
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Looker Studio URL</label>
+            <input value={reportUrl} onChange={e => setReportUrl(e.target.value)} type="url" required placeholder="https://lookerstudio.google.com/..." className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Access <span className="font-normal opacity-70">(comma-separated usernames, leave blank = all users)</span></label>
-            <input value={allowedUsers} onChange={e => setAllowedUsers(e.target.value)} placeholder="user1, user2  â€” or leave blank for all" className="h-9 px-3 rounded-lg text-sm outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+          <div className="flex flex-col gap-2">
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>
+              Access <span className="font-normal opacity-70">(comma-separated usernames, leave blank = all users)</span>
+            </label>
+            <input value={allowedUsers} onChange={e => setAllowedUsers(e.target.value)} placeholder="user1, user2 — or leave blank for all" className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
-          <button type="submit" disabled={saving} className="h-10 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}>
+          <button type="submit" disabled={saving} className="h-11 rounded-2xl text-lg font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}>
             {saving ? 'Adding...' : 'Add Report'}
           </button>
         </form>

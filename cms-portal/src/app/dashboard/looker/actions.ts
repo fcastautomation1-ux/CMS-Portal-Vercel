@@ -100,7 +100,7 @@ export async function getLookerReports(): Promise<LookerReport[]> {
 
 export async function saveLookerReport(
   report: { id?: string; title: string; report_url: string; allowed_users: string }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; report?: LookerReport }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
   if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
@@ -108,56 +108,83 @@ export async function saveLookerReport(
   }
 
   const supabase = createServerClient()
+  const normalizedTitle = report.title.trim()
+  const normalizedUrl = normalizeReportUrl(report.report_url)
+  const normalizedAllowedUsers = report.allowed_users
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .join(', ')
+
+  if (!normalizedTitle) return { success: false, error: 'Report title is required.' }
+  if (!normalizedUrl) return { success: false, error: 'Looker Studio URL is required.' }
 
   if (report.id) {
     const primary = await supabase
       .from('looker_reports')
       .update({
-        title: report.title,
-        report_url: report.report_url,
-        allowed_users: report.allowed_users,
+        title: normalizedTitle,
+        report_url: normalizedUrl,
+        allowed_users: normalizedAllowedUsers,
       })
       .eq('id', report.id)
+      .select('*')
+      .single()
 
     if (primary.error) {
       const fallback = await supabase
         .from('looker_reports')
         .update({
-          name: report.title,
-          url: report.report_url,
-          allowed_users: report.allowed_users,
+          name: normalizedTitle,
+          url: normalizedUrl,
+          allowed_users: normalizedAllowedUsers,
         })
         .eq('id', report.id)
+        .select('*')
+        .single()
 
       if (fallback.error) return { success: false, error: fallback.error.message }
+
+      revalidatePath('/dashboard/looker')
+      return { success: true, report: normalizeReport(fallback.data as RawLookerReport) }
     }
+
+    revalidatePath('/dashboard/looker')
+    return { success: true, report: normalizeReport(primary.data as RawLookerReport) }
   } else {
     const primary = await supabase
       .from('looker_reports')
       .insert({
-        title: report.title,
-        report_url: report.report_url,
-        allowed_users: report.allowed_users,
+        title: normalizedTitle,
+        report_url: normalizedUrl,
+        allowed_users: normalizedAllowedUsers,
         created_by: user.username,
       })
+      .select('*')
+      .single()
 
     if (primary.error) {
       const fallback = await supabase
         .from('looker_reports')
         .insert({
-          name: report.title,
-          url: report.report_url,
-          allowed_users: report.allowed_users,
+          name: normalizedTitle,
+          url: normalizedUrl,
+          allowed_users: normalizedAllowedUsers,
           created_by: user.username,
           active: true,
         })
+        .select('*')
+        .single()
 
       if (fallback.error) return { success: false, error: fallback.error.message }
-    }
-  }
 
-  revalidatePath('/dashboard/looker')
-  return { success: true }
+      revalidatePath('/dashboard/looker')
+      return { success: true, report: normalizeReport(fallback.data as RawLookerReport) }
+    }
+
+    revalidatePath('/dashboard/looker')
+    return { success: true, report: normalizeReport(primary.data as RawLookerReport) }
+  }
 }
 
 export async function deleteLookerReport(

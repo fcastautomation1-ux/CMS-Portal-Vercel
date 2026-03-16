@@ -271,35 +271,36 @@ function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClos
     e.preventDefault()
     setSaving(true); setError('')
     const res = await saveDepartment({ id: dept?.id, name })
-    if (res.success) {
-      onSaved({ id: dept?.id || crypto.randomUUID(), name, created_at: dept?.created_at || new Date().toISOString() }, !isEdit)
-    } else setError(res.error || 'Failed')
+    if (res.success && res.department) {
+      onSaved(res.department, !isEdit)
+    } else setError(res.error || 'Failed to save department.')
     setSaving(false)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
-          <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>{isEdit ? 'Edit Department' : 'Add Department'}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="w-full max-w-md rounded-3xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
+        <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <h2 className="font-bold text-3xl leading-none" style={{ color: 'var(--color-text)', letterSpacing: '-0.02em' }}>{isEdit ? 'Edit Department' : 'Add Department'}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100" aria-label="Close"><X size={20} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="px-5 py-5 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="px-6 py-6 flex flex-col gap-5">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Department Name</label>
+          <div className="flex flex-col gap-2">
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Department Name</label>
             <input
               value={name}
               onChange={e => setName(e.target.value)}
               required
-              className="h-9 px-3 rounded-lg text-sm outline-none"
+              placeholder="Department Name"
+              className="h-11 px-4 rounded-2xl text-base outline-none"
               style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             />
           </div>
           <button
             type="submit"
             disabled={saving}
-            className="h-10 rounded-lg text-sm font-semibold text-white"
+            className="h-11 rounded-2xl text-lg font-semibold text-white"
             style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}
           >
             {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
