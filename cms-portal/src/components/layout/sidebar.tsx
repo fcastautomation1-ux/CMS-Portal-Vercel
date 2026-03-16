@@ -327,19 +327,25 @@ export function Sidebar({
 
   useEffect(() => {
     let mounted = true
-    fetch('/api/public-branding', { cache: 'no-store' })
-      .then((res) => res.json())
-      .then((data) => {
-        if (!mounted) return
-        setBranding({
-          portal_name: data?.portal_name || 'CMS Portal',
-          portal_tagline: data?.portal_tagline || 'Operations Hub',
-          logo_url: data?.logo_url || null,
+    const loadBranding = () => {
+      fetch('/api/public-branding', { cache: 'no-store' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (!mounted) return
+          setBranding({
+            portal_name: data?.portal_name || 'CMS Portal',
+            portal_tagline: data?.portal_tagline || 'Operations Hub',
+            logo_url: data?.logo_url || null,
+          })
         })
-      })
-      .catch(() => {})
+        .catch(() => {})
+    }
+
+    loadBranding()
+    window.addEventListener('portal-branding-updated', loadBranding)
     return () => {
       mounted = false
+      window.removeEventListener('portal-branding-updated', loadBranding)
     }
   }, [])
 

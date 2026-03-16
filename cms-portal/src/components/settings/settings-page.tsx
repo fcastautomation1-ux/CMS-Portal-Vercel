@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import {
   Mail, Server, Lock, Eye, EyeOff, Save, TestTube2,
   CheckCircle, XCircle, Info, Shield, Upload,
@@ -58,6 +59,7 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' |
 }
 
 export function SettingsPage({ initialSmtp, initialBranding }: Props) {
+  const router = useRouter()
   const empty: Omit<SmtpConfig, 'id' | 'updated_at'> = {
     host: '',
     port: 587,
@@ -166,7 +168,11 @@ export function SettingsPage({ initialSmtp, initialBranding }: Props) {
       logo_path: logoPath,
     })
     setBrandingSaving(false)
-    if (res.success) showToast('Portal branding saved successfully.', 'success')
+    if (res.success) {
+      showToast('Portal branding saved successfully.', 'success')
+      window.dispatchEvent(new Event('portal-branding-updated'))
+      router.refresh()
+    }
     else showToast(res.error ?? 'Failed to save branding.', 'error')
   }
 
