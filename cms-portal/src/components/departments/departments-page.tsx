@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import Link from 'next/link'
 import { Building2, Plus, Pencil, Trash2, X, Users, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck } from 'lucide-react'
 import { saveDepartment, deleteDepartment } from '@/app/dashboard/departments/actions'
 import type { Department, SessionUser } from '@/types'
@@ -137,7 +138,6 @@ function MemberAvatars({ names, themeColor }: { names: string[]; themeColor: str
 export function DepartmentsPage({ departments: initial, memberNames, user }: Props) {
   const canEdit = ['Admin', 'Super Manager'].includes(user.role)
   const [departments, setDepartments] = useState(initial)
-  const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Department | null>(null)
 
   const normalizeDepartment = (value: string) => value.trim().toLowerCase()
@@ -166,13 +166,13 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>{departments.length} departments</p>
         </div>
         {canEdit && (
-          <button
-            onClick={() => { setEditing(null); setModalOpen(true) }}
+          <Link
+            href="/dashboard/departments/new"
             className="h-10 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2 btn-motion"
             style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)', boxShadow: '0 2px 8px rgba(43,127,255,0.3)' }}
           >
             <Plus size={16} /> Add Department
-          </button>
+          </Link>
         )}
       </div>
 
@@ -205,7 +205,7 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
                     {canEdit && (
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => { setEditing(dept); setModalOpen(true) }}
+                          onClick={() => setEditing(dept)}
                           className="p-1.5 rounded-lg transition-colors"
                           style={{ color: 'var(--color-text-muted)' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--blue-50)'; (e.currentTarget as HTMLElement).style.color = '#2563EB' }}
@@ -246,14 +246,13 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
         </div>
       )}
 
-      {modalOpen && (
+      {editing && (
         <DeptModal
           dept={editing}
-          onClose={() => { setModalOpen(false); setEditing(null) }}
-          onSaved={(d, isNew) => {
-            if (isNew) setDepartments(prev => [...prev, d])
-            else setDepartments(prev => prev.map(x => x.id === d.id ? d : x))
-            setModalOpen(false); setEditing(null)
+          onClose={() => setEditing(null)}
+          onSaved={(d) => {
+            setDepartments(prev => prev.map(x => x.id === d.id ? d : x))
+            setEditing(null)
           }}
         />
       )}
@@ -261,7 +260,7 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   )
 }
 
-function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClose: () => void; onSaved: (d: Department, isNew: boolean) => void }) {
+function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClose: () => void; onSaved: (d: Department) => void }) {
   const isEdit = !!dept
   const [name, setName] = useState(dept?.name || '')
   const [description, setDescription] = useState(dept?.description || '')
@@ -273,7 +272,7 @@ function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClos
     setSaving(true); setError('')
     const res = await saveDepartment({ id: dept?.id, name, description })
     if (res.success && res.department) {
-      onSaved(res.department, !isEdit)
+      onSaved(res.department)
     } else setError(res.error || 'Failed to save department.')
     setSaving(false)
   }
