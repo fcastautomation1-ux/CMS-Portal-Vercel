@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Search, Plus, Trash2, Pencil, X, UserPlus } from 'lucide-react'
 import { createUser, updateUser, deleteUser, type UserFormOptions } from '@/app/dashboard/users/actions'
 import type { User, SessionUser, UserRole, ModuleAccess } from '@/types'
@@ -74,7 +75,6 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
   }, [users, search, roleFilter, deptFilter])
 
   function openEdit(u: User) { setEditing(u); setModalOpen(true) }
-  function openCreate() { setEditing(null); setModalOpen(true) }
 
   async function handleDelete() {
     if (!deleting) return
@@ -93,13 +93,13 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
           <p className="mt-1 text-sm" style={{ color: 'var(--slate-500)' }}>{users.length} users total</p>
         </div>
         {canEdit && (
-          <button
-            onClick={openCreate}
+          <Link
+            href="/dashboard/users/new"
             className="btn-motion flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white"
             style={{ background: 'var(--blue-600)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}
           >
             <Plus size={16} /> Add User
-          </button>
+          </Link>
         )}
       </div>
 
@@ -171,7 +171,7 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
         </div>
       </div>
 
-      {modalOpen && (
+      {modalOpen && editing && (
         <UserModal
           user={editing}
           departments={departments}
