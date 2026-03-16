@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, UserPlus } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Search, UserPlus } from 'lucide-react'
 import { createUser, type UserFormOptions } from '@/app/dashboard/users/actions'
 import type { ModuleAccess, SessionUser, UserRole } from '@/types'
 
@@ -107,20 +107,20 @@ export function NewUserPage({ departments, options }: Props) {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2 sm:p-6">
+        <form onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2 sm:p-6">
           {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600 sm:col-span-2">{error}</div>}
 
           <section className="space-y-4">
             <Field label="Username">
-              <input value={username} onChange={e => setUsername(e.target.value)} required placeholder="e.g. john.doe" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
+              <input name="new_user_username" autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} required placeholder="e.g. john.doe" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
             </Field>
 
             <Field label="Registered Email(s)">
-              <input value={email} onChange={e => setEmail(e.target.value)} required placeholder="e.g. user1@gmail.com, user2@company.com" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
+              <input name="new_user_email" autoComplete="off" value={email} onChange={e => setEmail(e.target.value)} required placeholder="e.g. user1@gmail.com, user2@company.com" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
             </Field>
 
             <Field label="Password">
-              <input value={password} onChange={e => setPassword(e.target.value)} type="password" required placeholder="Enter password" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
+              <input name="new_user_password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} type="password" required placeholder="Enter password" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none" />
             </Field>
 
             <Field label="Role">
@@ -182,6 +182,7 @@ export function NewUserPage({ departments, options }: Props) {
               onToggle={(value) => toggleValue(selectedAccounts, value, setSelectedAccounts)}
               onSelectAll={() => setSelectedAccounts(options.accounts.map(a => a.customer_id))}
               onClearAll={() => setSelectedAccounts([])}
+              defaultOpen={false}
             />
 
             <MultiCheck
@@ -192,6 +193,7 @@ export function NewUserPage({ departments, options }: Props) {
               onToggle={(value) => toggleValue(selectedReports, value, setSelectedReports)}
               onSelectAll={() => setSelectedReports(options.lookerReports.map(r => r.id))}
               onClearAll={() => setSelectedReports([])}
+              defaultOpen={false}
             />
 
             <ModuleAccessEditor moduleAccess={moduleAccess} setModuleAccess={setModuleAccess} />
@@ -233,6 +235,7 @@ function MultiCheck({
   onToggle,
   onSelectAll,
   onClearAll,
+  defaultOpen = true,
 }: {
   title: string
   helper?: string
@@ -241,28 +244,62 @@ function MultiCheck({
   onToggle: (value: string) => void
   onSelectAll?: () => void
   onClearAll?: () => void
+  defaultOpen?: boolean
 }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(defaultOpen)
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return options
+    return options.filter((option) => option.label.toLowerCase().includes(query) || option.value.toLowerCase().includes(query))
+  }, [options, search])
+
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
         <label className="text-xs font-semibold text-slate-500">{title}</label>
-        {options.length > 0 && (
-          <div className="flex items-center gap-3 text-[11px] font-semibold">
-            {onSelectAll && <button type="button" onClick={onSelectAll} className="text-blue-600">Select All</button>}
-            {onClearAll && <button type="button" onClick={onClearAll} className="text-slate-500">Deselect All</button>}
+        <button
+          type="button"
+          onClick={() => setOpen(current => !current)}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600"
+        >
+          <span>{selected.length > 0 ? `${selected.length} selected` : 'Select options'}</span>
+          <ChevronDown size={14} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 rounded-xl border border-slate-200 bg-white p-2">
+          <div className="mb-2 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={`Search ${title.toLowerCase()}...`}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none"
+              />
+            </div>
+            {options.length > 0 && (
+              <div className="flex items-center gap-3 text-[11px] font-semibold">
+                {onSelectAll && <button type="button" onClick={onSelectAll} className="text-blue-600">Select All</button>}
+                {onClearAll && <button type="button" onClick={onClearAll} className="text-slate-500">Deselect All</button>}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <div className="mt-1 max-h-44 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
-        {options.length === 0 ? (
-          <p className="text-xs text-slate-400">No options</p>
-        ) : options.map(option => (
-          <label key={option.value} className="flex items-center gap-2 px-1.5 py-1.5 text-sm text-slate-700">
-            <input type="checkbox" checked={selected.includes(option.value)} onChange={() => onToggle(option.value)} />
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </div>
+
+          <div className="max-h-44 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <p className="px-1.5 py-2 text-xs text-slate-400">No options</p>
+            ) : filteredOptions.map(option => (
+              <label key={option.value} className="flex items-center gap-2 px-1.5 py-1.5 text-sm text-slate-700">
+                <input type="checkbox" checked={selected.includes(option.value)} onChange={() => onToggle(option.value)} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {helper && <p className="mt-1 text-xs text-slate-400">{helper}</p>}
     </div>
   )
