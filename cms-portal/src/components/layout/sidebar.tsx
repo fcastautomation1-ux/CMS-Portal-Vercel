@@ -378,7 +378,6 @@ export function Sidebar({
                                 <div className="mt-1 space-y-1 pl-4">
                                   {taskGroups.map((group) => {
                                     const groupOpen = taskGroupsOpen[group.id] ?? true
-                                    const groupActive = pathname === '/dashboard/tasks' && activeTaskScope === group.scope
                                     const statusLinks = [
                                       { label: 'All task', status: 'all', count: group.counts.all, tone: 'all' as const },
                                       { label: 'Complete', status: 'completed', count: group.counts.completed, tone: 'completed' as const },
@@ -388,20 +387,22 @@ export function Sidebar({
 
                                     return (
                                       <div key={group.id} className="pl-2 border-l border-slate-200">
-                                        <button
-                                          type="button"
-                                          onClick={() => setTaskGroupsOpen((current) => ({ ...current, [group.id]: !groupOpen }))}
-                                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                                        >
-                                          <span className="truncate">{group.label}</span>
-                                          <span className={cn(
-                                            'ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                                            groupActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                                          )}>
-                                            {group.counts.all}
-                                          </span>
-                                          <ChevronDown size={12} className={cn('shrink-0 text-slate-400 transition-transform', groupOpen && 'rotate-180')} />
-                                        </button>
+                                        <div className="flex items-center rounded-lg transition hover:bg-slate-50">
+                                          <Link
+                                            href={`/dashboard/tasks?scope=${group.scope}&status=all`}
+                                            onClick={onClose}
+                                            className="flex flex-1 items-center gap-2 px-2 py-1.5 text-sm font-semibold text-slate-700"
+                                          >
+                                            <span className="truncate">{group.label}</span>
+                                          </Link>
+                                          <button
+                                            type="button"
+                                            onClick={() => setTaskGroupsOpen((current) => ({ ...current, [group.id]: !groupOpen }))}
+                                            className="px-2 py-1.5"
+                                          >
+                                            <ChevronDown size={12} className={cn('shrink-0 text-slate-400 transition-transform', groupOpen && 'rotate-180')} />
+                                          </button>
+                                        </div>
 
                                         {groupOpen && (
                                           <ul className="mt-1 space-y-1 pl-3">
