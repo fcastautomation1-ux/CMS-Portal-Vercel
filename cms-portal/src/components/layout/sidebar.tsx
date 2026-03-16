@@ -31,6 +31,12 @@ import {
   Mail,
 } from 'lucide-react'
 
+interface PublicBranding {
+  portal_name: string
+  portal_tagline: string
+  logo_url: string | null
+}
+
 interface NavItem {
   label: string
   href: string
@@ -166,6 +172,11 @@ export function Sidebar({
   })
   const [teamOpen, setTeamOpen] = useState(true)
   const [teamTaskOpen, setTeamTaskOpen] = useState(true)
+  const [branding, setBranding] = useState<PublicBranding>({
+    portal_name: 'CMS Portal',
+    portal_tagline: 'Operations Hub',
+    logo_url: null,
+  })
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(user.username),
@@ -314,6 +325,24 @@ export function Sidebar({
     })
   }, [router, teamPrefetchUrls])
 
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/public-branding', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!mounted) return
+        setBranding({
+          portal_name: data?.portal_name || 'CMS Portal',
+          portal_tagline: data?.portal_tagline || 'Operations Hub',
+          logo_url: data?.logo_url || null,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   return (
     <aside
       className={cn(
@@ -329,17 +358,21 @@ export function Sidebar({
         style={{ borderBottom: '1px solid var(--color-border)', padding: collapsed ? '0 14px' : '0 20px' }}
       >
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
           style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--violet-600))' }}
         >
-          <ShieldCheck size={15} className="text-white" />
+          {branding.logo_url ? (
+            <img src={branding.logo_url} alt={branding.portal_name} className="w-full h-full object-cover" />
+          ) : (
+            <ShieldCheck size={15} className="text-white" />
+          )}
         </div>
         {!collapsed && (
           <div className="ml-3 min-w-0">
             <div className="font-bold text-sm leading-tight truncate" style={{ color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
-              CMS Portal
+              {branding.portal_name}
             </div>
-            <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Operations Hub</div>
+            <div className="text-[11px] font-medium truncate" style={{ color: 'var(--color-text-muted)' }}>{branding.portal_tagline}</div>
           </div>
         )}
       </div>

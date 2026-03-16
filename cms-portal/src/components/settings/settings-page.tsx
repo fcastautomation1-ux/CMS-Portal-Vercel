@@ -1,15 +1,18 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import {
   Mail, Server, Lock, Eye, EyeOff, Save, TestTube2,
-  CheckCircle, XCircle, Info, Shield,
+  CheckCircle, XCircle, Info, Shield, Upload,
 } from 'lucide-react'
-import { saveSmtpConfig, testSmtpConnection } from '@/app/dashboard/settings/actions'
+import { createPortalLogoUploadUrlAction, savePortalBranding, saveSmtpConfig, testSmtpConnection } from '@/app/dashboard/settings/actions'
 import type { SmtpConfig } from '@/app/dashboard/settings/actions'
+import type { PortalBranding } from '@/lib/portal-branding'
 
 interface Props {
   initialSmtp: SmtpConfig | null
+  initialBranding: PortalBranding
 }
 
 function Field({
@@ -54,7 +57,7 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' |
   )
 }
 
-export function SettingsPage({ initialSmtp }: Props) {
+export function SettingsPage({ initialSmtp, initialBranding }: Props) {
   const empty: Omit<SmtpConfig, 'id' | 'updated_at'> = {
     host: '',
     port: 587,
@@ -84,6 +87,12 @@ export function SettingsPage({ initialSmtp }: Props) {
   const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [brandingSaving, setBrandingSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [portalName, setPortalName] = useState(initialBranding.portal_name)
+  const [portalTagline, setPortalTagline] = useState(initialBranding.portal_tagline)
+  const [logoPath, setLogoPath] = useState<string | null>(initialBranding.logo_path)
+  const [logoPreview, setLogoPreview] = useState<string | null>(initialBranding.logo_url)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
 
   function set<K extends keyof typeof cfg>(key: K, value: (typeof cfg)[K]) {
@@ -114,6 +123,53 @@ export function SettingsPage({ initialSmtp }: Props) {
     showToast(res.message, res.success ? 'info' : 'error')
   }
 
+  async function handleLogoUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setLogoUploading(true)
+    const prep = await createPortalLogoUploadUrlAction({
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+    })
+
+    if (!prep.success || !prep.signedUrl || !prep.storagePath) {
+      setLogoUploading(false)
+      showToast(prep.error ?? 'Failed to prepare logo upload.', 'error')
+      return
+    }
+
+    const uploadRes = await fetch(prep.signedUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+
+    if (!uploadRes.ok) {
+      setLogoUploading(false)
+      showToast('Failed to upload logo file.', 'error')
+      return
+    }
+
+    setLogoPath(prep.storagePath)
+    setLogoPreview(URL.createObjectURL(file))
+    setLogoUploading(false)
+    showToast('Logo uploaded. Click Save Branding to apply.', 'info')
+  }
+
+  async function handleSaveBranding() {
+    setBrandingSaving(true)
+    const res = await savePortalBranding({
+      portal_name: portalName,
+      portal_tagline: portalTagline,
+      logo_path: logoPath,
+    })
+    setBrandingSaving(false)
+    if (res.success) showToast('Portal branding saved successfully.', 'success')
+    else showToast(res.error ?? 'Failed to save branding.', 'error')
+  }
+
   const inputClass = 'h-10 w-full px-3 rounded-lg text-sm outline-none'
   const inputStyle = { border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }
   return (
@@ -126,6 +182,95 @@ export function SettingsPage({ initialSmtp }: Props) {
         <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
           Configure external services and integrations
         </p>
+      </div>
+
+      {/* ── Portal Branding Card ─────────────────────────────── */}
+      <div
+        className="rounded-2xl overflow-hidden mb-6"
+        style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
+      >
+        <div
+          className="flex items-center gap-3 px-6 py-4"
+          style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
+        >
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(16,185,129,0.1)' }}
+          >
+            <Shield size={17} style={{ color: '#10B981' }} />
+          </div>
+          <div>
+            <h2 className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>
+              Portal Branding
+            </h2>
+            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Update portal name and logo (shown in sidebar and login screen)
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <Field label="Portal Name">
+            <input
+              type="text"
+              value={portalName}
+              onChange={(e) => setPortalName(e.target.value)}
+              placeholder="CMS Portal"
+              className={inputClass}
+              style={inputStyle}
+            />
+          </Field>
+
+          <Field label="Portal Tagline">
+            <input
+              type="text"
+              value={portalTagline}
+              onChange={(e) => setPortalTagline(e.target.value)}
+              placeholder="Operations Hub"
+              className={inputClass}
+              style={inputStyle}
+            />
+          </Field>
+
+          <div className="sm:col-span-2">
+            <Field label="Portal Logo" hint="PNG/JPG/SVG under 2MB">
+              <div className="flex flex-wrap items-center gap-4">
+                <div
+                  className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center"
+                  style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)' }}
+                >
+                  {logoPreview ? (
+                    <Image src={logoPreview} alt="Portal logo" width={56} height={56} className="w-full h-full object-cover" unoptimized />
+                  ) : (
+                    <Shield size={18} style={{ color: 'var(--color-text-muted)' }} />
+                  )}
+                </div>
+
+                <label
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold cursor-pointer"
+                  style={{ border: '1.5px solid var(--color-border)', color: 'var(--color-text)', background: 'var(--color-surface)' }}
+                >
+                  <Upload size={14} />
+                  {logoUploading ? 'Uploading...' : 'Upload Logo'}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} disabled={logoUploading} />
+                </label>
+              </div>
+            </Field>
+          </div>
+        </div>
+
+        <div className="px-6 py-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+          <button
+            type="button"
+            onClick={handleSaveBranding}
+            disabled={brandingSaving || logoUploading}
+            className="flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-60"
+            style={{ background: '#10B981', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
+          >
+            <Save size={14} />
+            {brandingSaving ? 'Saving...' : 'Save Branding'}
+          </button>
+        </div>
       </div>
 
       {/* ── SMTP Card ─────────────────────────────────────────── */}

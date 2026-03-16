@@ -101,3 +101,12 @@ export function buildAccountFilePath(input: {
   const safeName = sanitizeFileName(input.fileName)
   return `users/${owner}/accounts/${account}/files/${year}/${month}/${crypto.randomUUID()}-${safeName}`
 }
+
+export function buildPortalLogoPath(input: {
+  fileName: string
+  now?: Date
+}) {
+  const { year, month } = yearMonthParts(input.now)
+  const safeName = sanitizeFileName(input.fileName)
+  return `users/system/branding/logo/${year}/${month}/${crypto.randomUUID()}-${safeName}`
+}

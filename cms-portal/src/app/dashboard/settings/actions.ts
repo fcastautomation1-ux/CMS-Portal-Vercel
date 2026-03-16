@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { buildPortalLogoPath, CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { getPortalBranding as getPortalBrandingFromLib, type PortalBranding } from '@/lib/portal-branding'
 
 export interface SmtpConfig {
   id?: string
@@ -132,4 +134,104 @@ export async function testSmtpConnection(
     success: true,
     message: `Configuration looks valid. To fully test delivery, save and send a test email from your server using these settings: ${cfg.host}:${cfg.port} (${cfg.encryption.toUpperCase()}).`,
   }
+}
+
+// ── Portal Branding ─────────────────────────────────────────
+export async function getPortalBranding(): Promise<PortalBranding> {
+  return getPortalBrandingFromLib()
+}
+
+export async function createPortalLogoUploadUrlAction(input: {
+  fileName: string
+  fileSize: number
+  mimeType?: string
+}): Promise<{ success: boolean; error?: string; signedUrl?: string; storagePath?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated' }
+  if (user.role !== 'Admin' && user.role !== 'Super Manager') {
+    return { success: false, error: 'Permission denied.' }
+  }
+
+  if (!input.fileName.trim()) return { success: false, error: 'File name is required' }
+  if (input.fileSize <= 0) return { success: false, error: 'Invalid file size' }
+  if (input.fileSize > 2 * 1024 * 1024) return { success: false, error: 'Logo must be under 2MB' }
+  if (input.mimeType && !input.mimeType.startsWith('image/')) {
+    return { success: false, error: 'Only image files are allowed' }
+  }
+
+  const supabase = createServerClient()
+  const storagePath = buildPortalLogoPath({ fileName: input.fileName })
+
+  const { data, error } = await supabase.storage
+    .from(CMS_STORAGE_BUCKET)
+    .createSignedUploadUrl(storagePath)
+
+  if (error || !data?.signedUrl) {
+    return { success: false, error: error?.message || 'Failed to prepare logo upload' }
+  }
+
+  return {
+    success: true,
+    signedUrl: data.signedUrl,
+    storagePath,
+  }
+}
+
+export async function savePortalBranding(input: {
+  portal_name: string
+  portal_tagline: string
+  logo_path?: string | null
+}): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (user.role !== 'Admin' && user.role !== 'Super Manager') {
+    return { success: false, error: 'Permission denied.' }
+  }
+
+  const portalName = input.portal_name.trim()
+  const portalTagline = input.portal_tagline.trim()
+
+  if (!portalName) return { success: false, error: 'Portal name is required.' }
+
+  const supabase = createServerClient()
+  const payload = {
+    portal_name: portalName,
+    portal_tagline: portalTagline,
+    logo_path: input.logo_path ?? null,
+    updated_at: new Date().toISOString(),
+    updated_by: user.username,
+  }
+
+  const { data: existing } = await supabase
+    .from('portal_settings')
+    .select('id')
+    .limit(1)
+    .maybeSingle()
+
+  let error
+  if (existing?.id) {
+    ;({ error } = await supabase
+      .from('portal_settings')
+      .update(payload)
+      .eq('id', existing.id))
+  } else {
+    ;({ error } = await supabase
+      .from('portal_settings')
+      .insert(payload))
+  }
+
+  if (error) {
+    if (error.message.includes('does not exist') || error.code === '42P01') {
+      return {
+        success: false,
+        error: 'The portal_settings table does not exist. Create it in Supabase with: id uuid default gen_random_uuid() primary key, portal_name text, portal_tagline text, logo_path text, updated_at timestamptz, updated_by text.',
+      }
+    }
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/dashboard/settings')
+  revalidatePath('/dashboard')
+  revalidatePath('/login')
+  return { success: true }
 }

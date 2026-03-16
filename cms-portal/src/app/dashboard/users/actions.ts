@@ -193,7 +193,7 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
 
   const supabase = createServerClient()
   const [accountsPrimary, lookerPrimaryBySort, managersRes, usersRes] = await Promise.all([
-    supabase.from('accounts').select('customer_id,account_name').order('customer_id'),
+    supabase.from('accounts').select('customer_id,account_name,drive_code_comments').order('customer_id'),
     supabase.from('looker_reports').select('id,title,name').order('sort_order'),
     supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
     supabase.from('users').select('username,role,department').order('username'),
@@ -214,6 +214,9 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
   const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{
     customer_id?: string | null
     account_name?: string | null
+    account_title?: string | null
+    account?: string | null
+    drive_code_comments?: string | null
     name?: string | null
     id?: string | null
   }>)
@@ -222,9 +225,16 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
     .map((a) => {
       const customerId = String(a.customer_id ?? a.id ?? '').trim()
       if (!customerId) return null
+      const maybeName = [
+        a.account_name,
+        a.account_title,
+        a.account,
+        a.name,
+        a.drive_code_comments,
+      ].find(v => typeof v === 'string' && v.trim().length > 0) ?? null
       return {
         customer_id: customerId,
-        account_name: a.account_name ?? a.name ?? null,
+        account_name: maybeName,
       }
     })
     .filter((a): a is { customer_id: string; account_name: string | null } => Boolean(a))

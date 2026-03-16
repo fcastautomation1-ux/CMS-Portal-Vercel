@@ -8,6 +8,12 @@ import { Eye, EyeOff } from 'lucide-react'
 
 const initialState = null
 
+interface PublicBranding {
+  portal_name: string
+  portal_tagline: string
+  logo_url: string | null
+}
+
 function SubmitButton({ keepLoading = false }: { keepLoading?: boolean }) {
   const { pending } = useFormStatus()
   const isLoading = pending || keepLoading
@@ -124,6 +130,11 @@ function CmsIllustration() {
 export default function LoginPage() {
   const [state, formAction] = useFormState(loginAction, initialState)
   const [showPassword, setShowPassword] = useState(false)
+  const [branding, setBranding] = useState<PublicBranding>({
+    portal_name: 'CMS Portal',
+    portal_tagline: 'Operations Hub',
+    logo_url: null,
+  })
   const usernameRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -139,6 +150,25 @@ export default function LoginPage() {
     }
   }, [state, router])
 
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/public-branding', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!mounted) return
+        setBranding({
+          portal_name: data?.portal_name || 'CMS Portal',
+          portal_tagline: data?.portal_tagline || 'Operations Hub',
+          logo_url: data?.logo_url || null,
+        })
+      })
+      .catch(() => {})
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6" style={{ background: '#EAEAEA' }}>
       <div
@@ -150,14 +180,21 @@ export default function LoginPage() {
           {/* Logo */}
           <div className="flex items-center gap-2.5 mb-10">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#7C3AED' }}>
-              <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
-                <rect x="2" y="2" width="5" height="5" rx="1.2"/>
-                <rect x="9" y="2" width="5" height="5" rx="1.2"/>
-                <rect x="2" y="9" width="5" height="5" rx="1.2"/>
-                <rect x="9" y="9" width="5" height="5" rx="1.2"/>
-              </svg>
+              {branding.logo_url ? (
+                <img src={branding.logo_url} alt={branding.portal_name} className="w-full h-full rounded-lg object-cover" />
+              ) : (
+                <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
+                  <rect x="2" y="2" width="5" height="5" rx="1.2"/>
+                  <rect x="9" y="2" width="5" height="5" rx="1.2"/>
+                  <rect x="2" y="9" width="5" height="5" rx="1.2"/>
+                  <rect x="9" y="9" width="5" height="5" rx="1.2"/>
+                </svg>
+              )}
             </div>
-            <span className="font-bold text-lg tracking-tight" style={{ color: '#0F172A' }}>CMS Portal</span>
+            <div>
+              <span className="font-bold text-lg tracking-tight block" style={{ color: '#0F172A' }}>{branding.portal_name}</span>
+              <span className="text-xs" style={{ color: '#64748B' }}>{branding.portal_tagline}</span>
+            </div>
           </div>
 
           {/* Heading */}
