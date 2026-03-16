@@ -1,13 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Search, Users2, Building2 } from 'lucide-react'
+import { useMemo, useState, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { SessionUser } from '@/types'
+import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
+import { cn } from '@/lib/cn'
+import { TaskCard } from '@/components/tasks/task-card'
 
 interface Props {
   members: TeamMember[]
+  tasks: Todo[]
   user?: SessionUser
 }
 
@@ -33,12 +37,15 @@ function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
 }
 
-export function TeamPage({ members }: Props) {
+export function TeamPage({ members, tasks, user }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
+  const [, startTransition] = useTransition()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const scope = (searchParams.get('scope') as TeamScope | null) ?? 'users'
+  const isTaskScope = scope !== 'users'
 
   const departments = useMemo(
     () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),
@@ -80,6 +87,61 @@ export function TeamPage({ members }: Props) {
     return list
   }, [members, search, deptFilter, roleFilter, scope])
 
+  const filteredTasks = useMemo(() => {
+    let list = tasks
+    const searchQuery = search.trim().toLowerCase()
+    const today = new Date()
+
+    if (deptFilter) {
+      list = list.filter((task) => (task.creator_department || task.category || '').toLowerCase() === deptFilter.toLowerCase())
+    }
+
+    if (roleFilter) {
+      list = list.filter((task) => {
+        const creator = members.find((member) => member.username === task.username)
+        return creator?.role === roleFilter
+      })
+    }
+
+    if (searchQuery) {
+      list = list.filter((task) =>
+        task.title.toLowerCase().includes(searchQuery) ||
+        (task.username || '').toLowerCase().includes(searchQuery) ||
+        (task.assigned_to || '').toLowerCase().includes(searchQuery) ||
+        (task.app_name || '').toLowerCase().includes(searchQuery) ||
+        (task.package_name || '').toLowerCase().includes(searchQuery)
+      )
+    }
+
+    if (scope === 'tasks_completed') {
+      list = list.filter((task) => task.completed || task.task_status === 'done')
+    } else if (scope === 'tasks_pending') {
+      list = list.filter((task) => {
+        if (task.completed || task.task_status === 'done') return false
+        if (task.due_date && new Date(task.due_date) < today) return false
+        return true
+      })
+    } else if (scope === 'tasks_overdue') {
+      list = list.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today)
+    }
+
+    return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  }, [tasks, search, deptFilter, roleFilter, scope, members])
+
+  const taskKpis = useMemo(() => {
+    const today = new Date()
+    return {
+      total: tasks.length,
+      completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+      pending: tasks.filter((task) => {
+        if (task.completed || task.task_status === 'done') return false
+        if (task.due_date && new Date(task.due_date) < today) return false
+        return true
+      }).length,
+      overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today).length,
+    }
+  }, [tasks])
+
   const scopeLabel = useMemo(() => {
     if (scope === 'tasks_all') return 'Task'
     if (scope === 'tasks_completed') return 'Completed Task'
@@ -95,10 +157,46 @@ export function TeamPage({ members }: Props) {
           <div>
             <h1 className="text-xl font-bold sm:text-2xl" style={{ color: 'var(--color-text)' }}>Team</h1>
             <p className="mt-1 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-              {scopeLabel}: {filtered.length} of {counts.users} members
+              {isTaskScope ? `${scopeLabel}: ${filteredTasks.length} tasks` : `${scopeLabel}: ${filtered.length} of ${counts.users} members`}
             </p>
           </div>
         </div>
+
+        {isTaskScope && (
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { key: 'tasks_all', label: 'Total Task', value: taskKpis.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]' },
+              { key: 'tasks_completed', label: 'Completed Task', value: taskKpis.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
+              { key: 'tasks_pending', label: 'Pending', value: taskKpis.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
+              { key: 'tasks_overdue', label: 'Overdue', value: taskKpis.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
+            ].map((item) => {
+              const Icon = item.icon
+              const isActive = scope === item.key
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => router.replace(`/dashboard/team?scope=${item.key}`, { scroll: false })}
+                  className={cn(
+                    'rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
+                    isActive && 'border-[#3559d8] bg-[#f8fbff] shadow-[inset_0_0_0_1px_rgba(53,89,216,0.24),0_12px_24px_rgba(15,23,42,0.08)]'
+                  )}
+                  style={{ borderColor: isActive ? '#3559d8' : 'var(--color-border)' }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', item.bg, item.border)}>
+                      <Icon size={18} className={item.tone} />
+                    </div>
+                    <div className="text-right">
+                      <div className={cn('text-[28px] font-extrabold leading-none', item.tone)}>{item.value}</div>
+                      <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.label}</div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div className="card mb-6 p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -138,7 +236,56 @@ export function TeamPage({ members }: Props) {
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {isTaskScope ? (
+          filteredTasks.length === 0 ? (
+            <div className="card p-12 text-center">
+              <ListTodo size={40} className="mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>No team tasks found</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
+              <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
+                  <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <button
+                      type="button"
+                      onClick={() => startTransition(() => router.refresh())}
+                      className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
+                    >
+                      <RefreshCw size={13} />
+                      Refresh
+                    </button>
+                    <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-[#f5f7fc] px-4 py-4 sm:px-5">
+                <div className="space-y-3">
+                  <div className="sticky top-0 z-10 flex items-center gap-3 rounded-2xl border border-[#dfe5f1] bg-white/90 px-4 py-3 backdrop-blur">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Task</span>
+                    <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Expected</span>
+                  </div>
+
+                  {filteredTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      currentUsername={user?.username ?? ''}
+                      currentUserDept={user?.department ?? null}
+                      onEdit={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
+                      onViewDetail={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
+                      onShare={() => undefined}
+                      onDecline={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
+                      onRefresh={() => router.refresh()}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )
+        ) : filtered.length === 0 ? (
           <div className="card p-12 text-center">
             <Users2 size={40} className="mx-auto mb-3" style={{ color: 'var(--slate-300)' }} />
             <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>No team members found</p>
