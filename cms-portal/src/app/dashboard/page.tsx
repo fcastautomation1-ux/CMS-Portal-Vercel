@@ -2,6 +2,8 @@ import { getSession } from '@/lib/auth'
 import { OverviewPage } from '@/components/dashboard/overview-page'
 import { getOverviewStats, getManagerOverview, getUserPersonalStats } from './overview/actions'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const user = await getSession()
   if (!user) {

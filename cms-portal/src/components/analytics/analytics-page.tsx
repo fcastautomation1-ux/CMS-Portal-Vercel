@@ -134,6 +134,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
   const {
     totalTasks, assignedToMe, completed, inProgress, pending,
     overdue, dueToday, statusBreakdown, priorityBreakdown, topUsers, allTasks,
+    departmentBreakdown,
   } = analytics
 
   const [activeKpi, setActiveKpi] = useState<string | null>(null)
@@ -180,6 +181,13 @@ export function AnalyticsPage({ analytics, user }: Props) {
   const topUsersData = topUsers
     .map(userItem => ({ label: userItem.username, value: userItem.total }))
     .slice(0, 8)
+
+  const deptData = useMemo(() => {
+    return Object.entries(departmentBreakdown || {})
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8)
+  }, [departmentBreakdown])
 
   const kpiBreakdown = useMemo(() => {
     const map: Record<string, number> = {}
@@ -431,6 +439,32 @@ export function AnalyticsPage({ analytics, user }: Props) {
 
       {/* Additional insights row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+        {/* Tasks by Department */}
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Tasks by Department</h2>
+          {deptData.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--slate-400)' }}>No department data</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {deptData.map(({ label, value }) => {
+                const total = Object.values(departmentBreakdown || {}).reduce((s: number, v) => s + v, 0)
+                const pct = total > 0 ? (value / total) * 100 : 0
+                return (
+                  <div key={label}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium truncate max-w-[70%]" style={{ color: 'var(--slate-600)' }}>{label}</span>
+                      <span className="text-xs font-bold" style={{ color: 'var(--slate-900)' }}>{value}</span>
+                    </div>
+                    <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(pct, 2)}%`, background: 'linear-gradient(135deg, #2B7FFF, #1d4ed8)' }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         {/* KPI Breakdown */}
         <div className="card p-5">
           <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--slate-700)' }}>Tasks by KPI Type</h2>

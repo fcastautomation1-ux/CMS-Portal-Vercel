@@ -3,6 +3,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
+import { canonicalDepartmentKey } from '@/lib/department-name'
 
 export interface AnalyticsTask {
   id: string
@@ -44,7 +45,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   if (user.role !== 'Admin' && user.role !== 'Super Manager') return empty
 
   const supabase = createServerClient()
-  const [{ data: todos }, { data: usersData }] = await Promise.all([
+  const [{ data: todos }, { data: usersData }, { data: deptsData }] = await Promise.all([
     supabase
       .from('todos')
       .select('id, title, username, assigned_to, completed, task_status, priority, kpi_type, due_date, category, archived, created_at')
@@ -52,7 +53,22 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     supabase
       .from('users')
       .select('username, avatar_data'),
+    supabase
+      .from('departments')
+      .select('name'),
   ])
+
+  // Build canonical→official name map so old category labels merge with renamed departments
+  const canonicalToOfficial: Record<string, string> = {}
+  ;((deptsData ?? []) as Array<{ name: string }>).forEach((dept) => {
+    const key = canonicalDepartmentKey(dept.name)
+    if (key && !canonicalToOfficial[key]) canonicalToOfficial[key] = dept.name
+  })
+  const canonicalizeCategory = (cat: string | null): string | null => {
+    if (!cat) return null
+    const key = canonicalDepartmentKey(cat)
+    return (key && canonicalToOfficial[key]) || cat
+  }
 
   if (!todos) return empty
 
@@ -79,7 +95,8 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   for (const t of tasks) {
     statusBreakdown[t.task_status] = (statusBreakdown[t.task_status] || 0) + 1
     priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1
-    if (t.category) departmentBreakdown[t.category] = (departmentBreakdown[t.category] || 0) + 1
+    const canonCat = canonicalizeCategory(t.category)
+    if (canonCat) departmentBreakdown[canonCat] = (departmentBreakdown[canonCat] || 0) + 1
 
     const owner = t.assigned_to || t.username
     if (!userMap[owner]) userMap[owner] = { total: 0, completed: 0 }
@@ -139,7 +156,7 @@ export async function getAnalytics(): Promise<AnalyticsData> {
       priority: t.priority,
       kpi_type: t.kpi_type,
       due_date: t.due_date,
-      category: t.category,
+      category: canonicalizeCategory(t.category),
       created_at: t.created_at,
     })),
   }

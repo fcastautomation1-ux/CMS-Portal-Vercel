@@ -98,7 +98,11 @@ export async function createUser(
   })
 
   if (error) {
-    if (error.code === '23505') return { success: false, error: 'Username already exists.' }
+    if (error.code === '23505') {
+      const msg = (error.message || '').toLowerCase()
+      if (msg.includes('email')) return { success: false, error: 'A user with this email already exists.' }
+      return { success: false, error: 'Username already exists. Choose a different username.' }
+    }
     return { success: false, error: error.message }
   }
   revalidatePath('/dashboard/users')

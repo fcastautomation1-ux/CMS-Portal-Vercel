@@ -3,12 +3,11 @@
 import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import {
-  User, Building2, Lock, Bell, Shield, Camera, Trash2,
+  User, Lock, Bell, Shield, Camera, Trash2,
   Eye, EyeOff, CheckCircle, ArrowLeft, Save,
 } from 'lucide-react'
 import Link from 'next/link'
 import type { SessionUser } from '@/types'
-import type { Department } from '@/types'
 import { updateProfile, changePassword, createAvatarUploadUrlAction } from '@/app/dashboard/profile/actions'
 import type { PortalBranding } from '@/lib/portal-branding'
 
@@ -32,7 +31,6 @@ interface ProfileData {
 interface Props {
   user: SessionUser
   profile: ProfileData
-  departments: Department[]
   branding: PortalBranding
 }
 
@@ -145,7 +143,7 @@ function Toast({ message, type }: { message: string; type: 'success' | 'error' }
   )
 }
 
-export function ProfilePage({ user, profile, departments, branding }: Props) {
+export function ProfilePage({ user, profile, branding }: Props) {
   const gradient = ROLE_GRADIENTS[user.role] ?? ROLE_GRADIENTS.User
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canManageBranding = user.role === 'Admin' || user.role === 'Super Manager'
@@ -153,7 +151,6 @@ export function ProfilePage({ user, profile, departments, branding }: Props) {
   // Personal info state
   const [fullName, setFullName] = useState(profile.full_name ?? '')
   const [email, setEmail] = useState(profile.email)
-  const [department, setDepartment] = useState(profile.department ?? '')
   const [avatarData, setAvatarData] = useState<string | null>(profile.avatar_data)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url)
   const [avatarUploading, setAvatarUploading] = useState(false)
@@ -228,7 +225,7 @@ export function ProfilePage({ user, profile, departments, branding }: Props) {
     e.preventDefault()
     if (!email.includes('@')) { showToast('Enter a valid email address', 'error'); return }
     setSavingInfo(true)
-    const res = await updateProfile({ email, full_name: fullName, department: department || null, avatar_data: avatarData })
+    const res = await updateProfile({ email, full_name: fullName, avatar_data: avatarData })
     setSavingInfo(false)
     if (res.success) showToast('Profile updated successfully', 'success')
     else showToast(res.error ?? 'Failed to update profile', 'error')
@@ -349,25 +346,6 @@ export function ProfilePage({ user, profile, departments, branding }: Props) {
                 onChange={setEmail}
                 placeholder="you@example.com"
               />
-            </div>
-
-            {/* Department */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>Department</label>
-              <div className="relative">
-                <select
-                  value={department}
-                  onChange={e => setDepartment(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl text-sm outline-none appearance-none"
-                  style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-                >
-                  <option value="">No department</option>
-                  {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Building2 size={13} style={{ color: 'var(--color-text-muted)' }} />
-                </div>
-              </div>
             </div>
 
             <div className="flex justify-end">
