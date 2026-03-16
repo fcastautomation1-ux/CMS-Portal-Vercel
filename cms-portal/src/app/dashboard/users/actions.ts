@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { buildLegacyPasswordFields } from '@/lib/password'
 import { resolveStorageUrl } from '@/lib/storage'
 import type { ModuleAccess, User } from '@/types'
 
@@ -84,7 +85,7 @@ export async function createUser(
     email: userData.email.trim(),
     role: userData.role,
     department: userData.department || null,
-    password: userData.password,
+    ...buildLegacyPasswordFields(userData.password),
     allowed_accounts: userData.allowed_accounts || '',
     allowed_campaigns: userData.allowed_campaigns || '',
     allowed_drive_folders: userData.allowed_drive_folders || '',
@@ -151,7 +152,7 @@ export async function updateUser(
     module_access: userData.module_access || null,
     email_notifications_enabled: userData.email_notifications_enabled,
   }
-  if (userData.password) update.password = userData.password
+  if (userData.password) Object.assign(update, buildLegacyPasswordFields(userData.password))
 
   const { error } = await supabase.from('users').update(update).eq('username', username)
   if (error) return { success: false, error: error.message }

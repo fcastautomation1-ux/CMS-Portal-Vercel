@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession, createSession, getCookieName } from '@/lib/auth'
+import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
 import { buildUserAvatarPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 
 export async function saveThemePreference(
@@ -164,13 +165,17 @@ export async function changePassword(data: {
   const supabase = createServerClient()
   const { data: userData } = await supabase
     .from('users')
-    .select('password')
+    .select('password,password_hash,password_salt')
     .eq('username', user.username)
     .single()
 
   if (!userData) return { success: false, error: 'User not found' }
-  const u = userData as { password: string | null }
-  if (u.password !== data.currentPassword) {
+  const passwordCheck = verifyPasswordRecord(data.currentPassword, userData as {
+    password: string | null
+    password_hash: string | null
+    password_salt: string | null
+  })
+  if (!passwordCheck.valid) {
     return { success: false, error: 'Current password is incorrect' }
   }
   if (data.newPassword.length < 8) {
@@ -178,7 +183,7 @@ export async function changePassword(data: {
   }
   const { error } = await supabase
     .from('users')
-    .update({ password: data.newPassword, updated_at: new Date().toISOString() })
+    .update({ ...buildLegacyPasswordFields(data.newPassword), updated_at: new Date().toISOString() })
     .eq('username', user.username)
   if (error) return { success: false, error: error.message }
   return { success: true }
