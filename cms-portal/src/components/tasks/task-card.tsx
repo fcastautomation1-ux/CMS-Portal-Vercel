@@ -177,7 +177,7 @@ export function TaskCard({
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showClaimBtn || showMaStartBtn || showMaSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment')
@@ -277,23 +277,10 @@ export function TaskCard({
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2.5">
-            {task.assigned_to && (
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
-                  {task.assigned_to.charAt(0).toUpperCase()}
-                </span>
-                {task.assigned_to}
-              </span>
-            )}
             {task.username && (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
                 <User size={11} className="shrink-0" />
                 by <span className="font-semibold text-slate-600">{task.username}</span>
-              </span>
-            )}
-            {task.category && (
-              <span className="rounded-full bg-[#eef3ff] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a7de8]">
-                {task.category}
               </span>
             )}
             {task.approval_status === 'pending_approval' && (
@@ -445,6 +432,14 @@ export function TaskCard({
             )}
             {completionTime && (
               <Badge label={`Time ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
+            )}
+            {showClaimBtn && (
+              <button
+                onClick={() => doAction(() => claimQueuedTaskAction(task.id))}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-violet-700"
+              >
+                Pick Task
+              </button>
             )}
             {playPkg && (
               <a
