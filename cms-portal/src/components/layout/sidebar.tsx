@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { logoutAction } from '@/app/login/actions'
 import type { SessionUser } from '@/types'
@@ -230,7 +230,7 @@ export function Sidebar({
       (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
     )
   })
-  const buildStatusCounts = (tasks: typeof sidebarTasks) => {
+  const buildStatusCounts = useCallback((tasks: typeof sidebarTasks) => {
     const now = new Date()
     return {
       all: tasks.length,
@@ -238,21 +238,40 @@ export function Sidebar({
       pending: tasks.filter((task) => !task.completed && task.task_status !== 'done' && !(task.due_date && new Date(task.due_date) < now)).length,
       overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length,
     }
-  }
-  const taskGroups = [
-    {
-      id: 'my_assign_task',
-      label: 'My assign task',
-      scope: 'created_by_me',
-      counts: buildStatusCounts(createdByMeTasks),
-    },
-    {
-      id: 'assign_to_me',
-      label: 'Assign to me',
-      scope: 'assigned_to_me',
-      counts: buildStatusCounts(assignedToMeTasks),
-    },
-  ] as const
+  }, [])
+  const taskGroups = useMemo(
+    () => ([
+      {
+        id: 'my_assign_task',
+        label: 'My assign task',
+        scope: 'created_by_me',
+        counts: buildStatusCounts(createdByMeTasks),
+      },
+      {
+        id: 'assign_to_me',
+        label: 'Assign to me',
+        scope: 'assigned_to_me',
+        counts: buildStatusCounts(assignedToMeTasks),
+      },
+    ] as const),
+    [buildStatusCounts, createdByMeTasks, assignedToMeTasks]
+  )
+  const taskPrefetchUrls = useMemo(
+    () =>
+      taskGroups.flatMap((group) => ([
+        `/dashboard/tasks?scope=${group.scope}&status=all`,
+        `/dashboard/tasks?scope=${group.scope}&status=completed`,
+        `/dashboard/tasks?scope=${group.scope}&status=pending`,
+        `/dashboard/tasks?scope=${group.scope}&status=overdue`,
+      ])),
+    [taskGroups]
+  )
+
+  useEffect(() => {
+    taskPrefetchUrls.forEach((href) => {
+      router.prefetch(href)
+    })
+  }, [router, taskPrefetchUrls])
 
   return (
     <aside
@@ -391,6 +410,8 @@ export function Sidebar({
                                           <Link
                                             href={`/dashboard/tasks?scope=${group.scope}&status=all`}
                                             onClick={onClose}
+                                            prefetch
+                                            scroll={false}
                                             className="flex flex-1 items-center gap-2 px-2 py-1.5 text-sm font-semibold text-slate-700"
                                           >
                                             <span className="truncate">{group.label}</span>
@@ -417,6 +438,8 @@ export function Sidebar({
                                                   <Link
                                                     href={`/dashboard/tasks?scope=${group.scope}&status=${statusLink.status}`}
                                                     onClick={onClose}
+                                                    prefetch
+                                                    scroll={false}
                                                     className={cn(
                                                       'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
                                                       isSubActive
