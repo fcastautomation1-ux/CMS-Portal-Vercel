@@ -14,6 +14,50 @@ export interface TeamMember {
   taskStats: { total: number; completed: number; pending: number; overdue: number }
 }
 
+export async function getTeamStats(): Promise<{
+  users: number
+  tasks_all: number
+  tasks_completed: number
+  tasks_pending: number
+  tasks_overdue: number
+}> {
+  const empty = { users: 0, tasks_all: 0, tasks_completed: 0, tasks_pending: 0, tasks_overdue: 0 }
+  const user = await getSession()
+  if (!user) return empty
+
+  const supabase = createServerClient()
+
+  let memberUsernames: string[] = []
+  if (user.role === 'Admin' || user.role === 'Super Manager') {
+    const { data } = await supabase.from('users').select('username')
+    memberUsernames = (data ?? []).map(u => (u as { username: string }).username)
+  } else {
+    const set = new Set<string>()
+    const { data: managed } = await supabase.from('users').select('username').eq('manager_id', user.username)
+    if (managed) managed.forEach(u => set.add((u as { username: string }).username))
+    if (user.teamMembers) user.teamMembers.forEach(m => { if (m) set.add(m) })
+    memberUsernames = Array.from(set)
+  }
+
+  if (memberUsernames.length === 0) return { ...empty, users: 0 }
+
+  const { data: todos } = await supabase
+    .from('todos')
+    .select('username, completed, due_date, archived')
+    .eq('archived', false)
+    .in('username', memberUsernames)
+
+  const now = new Date().toISOString().split('T')[0]
+  const tasks = (todos ?? []) as Array<{ username: string; completed: boolean; due_date: string | null; archived: boolean }>
+  return {
+    users: memberUsernames.length,
+    tasks_all: tasks.length,
+    tasks_completed: tasks.filter(t => t.completed).length,
+    tasks_pending: tasks.filter(t => !t.completed).length,
+    tasks_overdue: tasks.filter(t => !t.completed && !!t.due_date && t.due_date < now).length,
+  }
+}
+
 export async function getTeamMembers(): Promise<TeamMember[]> {
   const user = await getSession()
   if (!user) return []

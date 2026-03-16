@@ -4,4 +4,5 @@ export const queryKeys = {
   tasks: (username: string) => ['tasks', username] as const,
   taskStats: (username: string) => ['tasks', username, 'stats'] as const,
   taskDetail: (taskId: string) => ['tasks', taskId, 'detail'] as const,
+  teamStats: (username: string) => ['team', username, 'stats'] as const,
 }

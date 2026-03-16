@@ -9,6 +9,7 @@ import type { SessionUser } from '@/types'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getTodos } from '@/app/dashboard/tasks/actions'
+import { getTeamStats } from '@/app/dashboard/team/actions'
 import {
   LayoutGrid,
   TrendingUp,
@@ -163,6 +164,8 @@ export function Sidebar({
     my_assign_task: true,
     assign_to_me: true,
   })
+  const [teamOpen, setTeamOpen] = useState(true)
+  const [teamTaskOpen, setTeamTaskOpen] = useState(true)
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(user.username),
@@ -173,6 +176,16 @@ export function Sidebar({
     refetchOnWindowFocus: false,
   })
   const sidebarTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
+
+  const teamStatsQuery = useQuery({
+    queryKey: queryKeys.teamStats(user.username),
+    queryFn: () => getTeamStats().catch(() => null),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+  const teamStats = teamStatsQuery.data ?? null
 
   const visibleSections = useMemo(
     () =>
@@ -210,6 +223,14 @@ export function Sidebar({
   const isTaskScopeActive = pathname === '/dashboard/tasks'
   const activeTaskScope = searchParams.get('scope') ?? 'my_all'
   const activeTaskStatus = searchParams.get('status') ?? 'all'
+  const isTeamActive = pathname === '/dashboard/team' || pathname.startsWith('/dashboard/team/')
+  const activeTeamScope = isTeamActive ? (searchParams.get('scope') ?? 'users') : 'users'
+  const teamTaskLinks = [
+    { label: 'All task', scope: 'tasks_all', badge: 'bg-blue-500/15 text-blue-700' },
+    { label: 'Completed', scope: 'tasks_completed', badge: 'bg-green-600/15 text-green-700' },
+    { label: 'Pending', scope: 'tasks_pending', badge: 'bg-amber-500/15 text-amber-700' },
+    { label: 'Overdue', scope: 'tasks_overdue', badge: 'bg-rose-500/15 text-rose-700' },
+  ]
   const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue', active: boolean) => {
     if (active) {
       if (tone === 'completed') return 'bg-green-100 text-green-700'
@@ -369,6 +390,110 @@ export function Sidebar({
                         const isActive = item.href === '/dashboard'
                           ? (pathname === '/dashboard' || pathname === '/dashboard/')
                           : (pathname === item.href || pathname.startsWith(item.href + '/'))
+
+                        if (item.href === '/dashboard/team') {
+                          return (
+                            <li key={item.href} className="overflow-hidden rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => setTeamOpen((current) => !current)}
+                                className={cn(
+                                  'group relative flex w-full items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-all duration-150',
+                                  isTeamActive && 'text-white'
+                                )}
+                                style={isTeamActive ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
+                              >
+                                {!isTeamActive && (
+                                  <span
+                                    className="absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
+                                    style={{ background: `${item.color}12` }}
+                                  />
+                                )}
+                                <span className="relative z-10 shrink-0" style={{ color: isTeamActive ? 'white' : item.color }}>
+                                  {item.icon}
+                                </span>
+                                <span className="relative z-10 flex-1 truncate text-left" style={{ color: isTeamActive ? 'white' : 'var(--color-text)' }}>
+                                  {item.label}
+                                </span>
+                                <ChevronDown size={12} className={cn('relative z-10 shrink-0 transition-transform', teamOpen && 'rotate-180', isTeamActive ? 'text-white/80' : 'text-slate-400')} />
+                              </button>
+
+                              {teamOpen && (
+                                <div className="mt-1 space-y-1 pl-4">
+                                  <div className="pl-2 border-l border-slate-200 space-y-0.5">
+                                    {/* User link */}
+                                    <Link
+                                      href="/dashboard/team?scope=users"
+                                      onClick={onClose}
+                                      className={cn(
+                                        'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                                        isTeamActive && activeTeamScope === 'users'
+                                          ? 'bg-slate-100 text-slate-900'
+                                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                      )}
+                                    >
+                                      <span>Users</span>
+                                      {teamStats && (
+                                        <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                                          {teamStats.users}
+                                        </span>
+                                      )}
+                                    </Link>
+
+                                    {/* Task collapsible */}
+                                    <div className="border-l border-slate-200 pl-2">
+                                      <div className="flex items-center rounded-lg transition hover:bg-slate-50">
+                                        <Link
+                                          href="/dashboard/team?scope=tasks_all"
+                                          onClick={onClose}
+                                          className="flex flex-1 items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate-700"
+                                        >
+                                          <span>Tasks</span>
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => setTeamTaskOpen((current) => !current)}
+                                          className="px-2 py-1.5"
+                                        >
+                                          <ChevronDown size={12} className={cn('shrink-0 text-slate-400 transition-transform', teamTaskOpen && 'rotate-180')} />
+                                        </button>
+                                      </div>
+
+                                      {teamTaskOpen && (
+                                        <ul className="mt-0.5 space-y-0.5 pl-2">
+                                          {teamTaskLinks.map((link) => {
+                                            const isSubActive = isTeamActive && activeTeamScope === link.scope
+                                            return (
+                                              <li key={link.scope}>
+                                                <Link
+                                                  href={`/dashboard/team?scope=${link.scope}`}
+                                                  onClick={onClose}
+                                                  className={cn(
+                                                    'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                                                    isSubActive
+                                                      ? 'bg-slate-100 text-slate-900'
+                                                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                                  )}
+                                                >
+                                                  <span>{link.label}</span>
+                                                  {teamStats && (
+                                                    <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', link.badge)}>
+                                                      {teamStats[link.scope as keyof typeof teamStats]}
+                                                    </span>
+                                                  )}
+                                                </Link>
+                                              </li>
+                                            )
+                                          })}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          )
+                        }
 
                         if (item.href === '/dashboard/tasks') {
                           return (
