@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown } from 'lucide-react'
 import { saveLookerReport } from '@/app/dashboard/looker/actions'
 
 interface Props {
@@ -11,18 +11,30 @@ interface Props {
 }
 
 export function NewLookerReportPage({ users }: Props) {
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const [title, setTitle] = useState('')
   const [reportUrl, setReportUrl] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+  const [dropdownOpen, setDropdownOpen] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const selectedUsersCsv = selectedUsers.join(', ')
 
-  function handleUsersChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const values = Array.from(e.target.selectedOptions).map(option => option.value)
-    setSelectedUsers(values)
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function onClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [dropdownOpen])
+
+  function toggleUser(username: string) {
+    setSelectedUsers(prev => prev.includes(username) ? prev.filter(u => u !== username) : [...prev, username])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -99,19 +111,62 @@ export function NewLookerReportPage({ users }: Props) {
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold" style={{ color: 'var(--color-text-muted)' }}>Shared With (Optional)</label>
-          <select
-            multiple
-            value={selectedUsers}
-            onChange={handleUsersChange}
-            className="min-h-44 px-3 py-2 rounded-xl text-sm outline-none"
-            style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-          >
-            {users.map((username) => (
-              <option key={username} value={username}>{username}</option>
-            ))}
-          </select>
+          <div ref={dropdownRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setDropdownOpen(prev => !prev)}
+              className="w-full h-11 px-4 rounded-xl text-sm outline-none flex items-center justify-between"
+              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+            >
+              <span className="truncate text-left" style={{ color: selectedUsers.length ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                {selectedUsers.length ? `${selectedUsers.length} user${selectedUsers.length !== 1 ? 's' : ''} selected` : 'Select users (leave empty = everyone)'}
+              </span>
+              <ChevronDown size={16} />
+            </button>
+
+            {dropdownOpen && (
+              <div
+                className="absolute z-20 mt-2 w-full rounded-xl overflow-hidden"
+                style={{ border: '1px solid var(--color-border)', background: 'var(--color-card)', boxShadow: '0 10px 24px rgba(0,0,0,0.12)' }}
+              >
+                <div className="max-h-60 overflow-auto">
+                  {users.length === 0 ? (
+                    <div className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-muted)' }}>No users found</div>
+                  ) : (
+                    users.map((username) => {
+                      const selected = selectedUsers.includes(username)
+                      return (
+                        <button
+                          key={username}
+                          type="button"
+                          onClick={() => toggleUser(username)}
+                          className="w-full px-4 py-2.5 text-sm flex items-center justify-between hover:bg-slate-50"
+                          style={{ color: 'var(--color-text)' }}
+                        >
+                          <span>{username}</span>
+                          {selected ? <Check size={14} style={{ color: '#059669' }} /> : null}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+                {selectedUsers.length > 0 && (
+                  <div className="px-3 py-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUsers([])}
+                      className="text-xs font-semibold"
+                      style={{ color: '#2563EB' }}
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Use Ctrl/⌘ + click to select multiple users. Leave empty to share with everyone.
+            Select from dropdown. Leave empty to share with everyone.
           </p>
           <input
             value={selectedUsersCsv}
