@@ -17,6 +17,16 @@ function verifyHashedPassword(password: string, storedHash: string, storedSalt: 
   }
 }
 
+function normalizeRole(role: unknown): UserRole {
+  const value = String(role ?? '').trim().toLowerCase()
+
+  if (value === 'admin') return 'Admin'
+  if (value === 'super manager' || value === 'super_manager' || value === 'supermanager') return 'Super Manager'
+  if (value === 'manager') return 'Manager'
+  if (value === 'supervisor') return 'Supervisor'
+  return 'User'
+}
+
 type LoginResult =
   | { success: true }
   | { success: false; error: string }
@@ -71,7 +81,7 @@ export async function loginAction(
   supabase
     .from('users')
     .update({ last_login: new Date().toISOString() })
-    .eq('username', username)
+    .eq('username', user.username)
     .then(() => {})
 
   // Parse CSV allow-lists
@@ -80,7 +90,7 @@ export async function loginAction(
 
   const sessionUser: SessionUser = {
     username: user.username,
-    role: user.role as UserRole,
+    role: normalizeRole(user.role),
     department: user.department ?? null,
     email: user.email,
     avatarData: user.avatar_data ?? null,
