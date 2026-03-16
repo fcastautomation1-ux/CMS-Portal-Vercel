@@ -192,23 +192,67 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
   }
 
   const supabase = createServerClient()
-  const [accountsRes, lookerResBySort, managersRes, usersRes] = await Promise.all([
+  const [accountsPrimary, lookerPrimaryBySort, managersRes, usersRes] = await Promise.all([
     supabase.from('accounts').select('customer_id,account_name').order('customer_id'),
     supabase.from('looker_reports').select('id,title,name').order('sort_order'),
     supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
     supabase.from('users').select('username,role,department').order('username'),
   ])
 
-  const lookerRes = lookerResBySort.error
-    ? await supabase.from('looker_reports').select('id,title,name').order('updated_at', { ascending: false })
-    : lookerResBySort
+  const accountsFallback = accountsPrimary.error
+    ? await supabase.from('accounts').select('*').order('customer_id')
+    : null
 
-  const lookerReports = ((lookerRes.data ?? []) as Array<{ id: string; title?: string | null; name?: string | null }>)
-    .map(r => ({ id: r.id, title: r.title ?? r.name ?? 'Untitled Report' }))
+  const lookerResByUpdatedAt = lookerPrimaryBySort.error
+    ? await supabase.from('looker_reports').select('id,title,name').order('updated_at', { ascending: false })
+    : lookerPrimaryBySort
+
+  const lookerFallbackAny = lookerResByUpdatedAt.error
+    ? await supabase.from('looker_reports').select('*').order('id')
+    : null
+
+  const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{
+    customer_id?: string | null
+    account_name?: string | null
+    name?: string | null
+    id?: string | null
+  }>)
+
+  const accounts = rawAccounts
+    .map((a) => {
+      const customerId = String(a.customer_id ?? a.id ?? '').trim()
+      if (!customerId) return null
+      return {
+        customer_id: customerId,
+        account_name: a.account_name ?? a.name ?? null,
+      }
+    })
+    .filter((a): a is { customer_id: string; account_name: string | null } => Boolean(a))
+
+  const uniqueAccountsMap = new Map<string, { customer_id: string; account_name: string | null }>()
+  for (const account of accounts) uniqueAccountsMap.set(account.customer_id, account)
+
+  const rawLookerReports = ((lookerResByUpdatedAt.data ?? lookerFallbackAny?.data ?? []) as Array<{
+    id?: string | null
+    title?: string | null
+    name?: string | null
+  }>)
+
+  const lookerReports = rawLookerReports
+    .map((r) => {
+      const id = String(r.id ?? r.name ?? r.title ?? '').trim()
+      const title = (r.title ?? r.name ?? '').trim() || 'Untitled Report'
+      if (!id) return null
+      return { id, title }
+    })
+    .filter((r): r is { id: string; title: string } => Boolean(r))
+
+  const uniqueLookerMap = new Map<string, { id: string; title: string }>()
+  for (const report of lookerReports) uniqueLookerMap.set(report.id, report)
 
   return {
-    accounts: (accountsRes.data as Array<{ customer_id: string; account_name: string | null }>) ?? [],
-    lookerReports,
+    accounts: Array.from(uniqueAccountsMap.values()),
+    lookerReports: Array.from(uniqueLookerMap.values()),
     managers: (managersRes.data as Array<{ username: string; role: string }>) ?? [],
     teamMembers: (usersRes.data as Array<{ username: string; role: string; department: string | null }>) ?? [],
   }

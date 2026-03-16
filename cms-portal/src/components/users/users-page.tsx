@@ -473,7 +473,7 @@ function ModuleAccessEditor({ moduleAccess, setModuleAccess }: { moduleAccess: M
   return (
     <div className="rounded-2xl p-4" style={{ border: '1px solid var(--slate-200)', background: '#fff' }}>
       <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--slate-500)' }}>Module Access</p>
-      <div className="grid grid-cols-2 gap-2 text-sm" style={{ color: 'var(--slate-700)' }}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {[
           ['googleAccount', 'Google Accounts'],
           ['users', 'Users'],
@@ -481,17 +481,47 @@ function ModuleAccessEditor({ moduleAccess, setModuleAccess }: { moduleAccess: M
           ['todos', 'Tasks'],
           ['packages', 'Packages'],
         ].map(([key, label]) => (
-          <label key={key} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={key === 'todos' ? true : Boolean((moduleAccess as Record<string, { enabled?: boolean }> | null)?.[key]?.enabled)}
-              disabled={key === 'todos'}
-              onChange={e => setEnabled(key as keyof ModuleAccess, e.target.checked)}
-            />
-            <span>{label}</span>
-          </label>
+          <ToggleRow
+            key={key}
+            label={label}
+            enabled={key === 'todos' ? true : Boolean((moduleAccess as Record<string, { enabled?: boolean }> | null)?.[key]?.enabled)}
+            disabled={key === 'todos'}
+            onChange={(enabled) => setEnabled(key as keyof ModuleAccess, enabled)}
+          />
         ))}
       </div>
+    </div>
+  )
+}
+
+function ToggleRow({
+  label,
+  enabled,
+  disabled,
+  onChange,
+}: {
+  label: string
+  enabled: boolean
+  disabled?: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ border: '1px solid var(--slate-200)', background: '#fff' }}>
+      <span className="text-sm font-medium" style={{ color: 'var(--slate-700)' }}>{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        disabled={disabled}
+        onClick={() => onChange(!enabled)}
+        className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ background: enabled ? '#2563EB' : '#CBD5E1' }}
+      >
+        <span
+          className="inline-block h-5 w-5 transform rounded-full bg-white transition-transform"
+          style={{ transform: enabled ? 'translateX(20px)' : 'translateX(2px)' }}
+        />
+      </button>
     </div>
   )
 }
