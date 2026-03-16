@@ -1,8 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search, Users2, Building2, ChevronDown, UsersRound, CheckSquare, List, CircleCheck, Circle, AlertCircle } from 'lucide-react'
-import { cn } from '@/lib/cn'
+import { useSearchParams } from 'next/navigation'
+import { Search, Users2, Building2 } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
 
@@ -37,9 +37,8 @@ export function TeamPage({ members }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
-  const [teamOpen, setTeamOpen] = useState(true)
-  const [taskOpen, setTaskOpen] = useState(true)
-  const [scope, setScope] = useState<TeamScope>('users')
+  const searchParams = useSearchParams()
+  const scope = (searchParams.get('scope') as TeamScope | null) ?? 'users'
 
   const departments = useMemo(
     () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),
@@ -89,96 +88,14 @@ export function TeamPage({ members }: Props) {
     return 'User'
   }, [scope])
 
-  const navTaskLinks = [
-    { id: 'tasks_all' as const, label: 'All task', icon: <List size={14} />, count: counts.tasks_all, badge: 'bg-blue-500/15 text-blue-700' },
-    { id: 'tasks_completed' as const, label: 'Completed', icon: <CircleCheck size={14} />, count: counts.tasks_completed, badge: 'bg-green-600/15 text-green-700' },
-    { id: 'tasks_pending' as const, label: 'Pending', icon: <Circle size={14} />, count: counts.tasks_pending, badge: 'bg-amber-500/15 text-amber-700' },
-    { id: 'tasks_overdue' as const, label: 'Overdue', icon: <AlertCircle size={14} />, count: counts.tasks_overdue, badge: 'bg-rose-500/15 text-rose-700' },
-  ]
-
   return (
-    <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="rounded-2xl border border-[var(--color-border)] bg-white p-2 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
-        <button
-          type="button"
-          onClick={() => setTeamOpen((current) => !current)}
-          className="flex w-full items-center justify-between rounded-xl bg-[#1f1f1f] px-3 py-3 text-left text-sm font-semibold text-white"
-        >
-          <span className="flex items-center gap-2">
-            <UsersRound size={16} />
-            My Team
-          </span>
-          <ChevronDown size={14} className={cn('transition-transform', teamOpen && 'rotate-180')} />
-        </button>
-
-        {teamOpen && (
-          <div className="mt-2 pl-3">
-            <button
-              type="button"
-              onClick={() => setScope('users')}
-              className={cn(
-                'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition',
-                scope === 'users' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <Users2 size={14} />
-                User
-              </span>
-              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{counts.users}</span>
-            </button>
-
-            <div className="mt-2 border-l border-slate-200 pl-2">
-              <button
-                type="button"
-                onClick={() => setTaskOpen((current) => !current)}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-              >
-                <span className="flex items-center gap-2">
-                  <CheckSquare size={14} />
-                  Task
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{counts.tasks_all}</span>
-                  <ChevronDown size={14} className={cn('transition-transform', taskOpen && 'rotate-180')} />
-                </div>
-              </button>
-
-              {taskOpen && (
-                <ul className="mt-1 space-y-1 border-l border-slate-200 pl-3">
-                  {navTaskLinks.map((item) => (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => setScope(item.id)}
-                        className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition',
-                          scope === item.id ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
-                        )}
-                      >
-                        <span className="flex items-center gap-2">
-                          {item.icon}
-                          {item.label}
-                        </span>
-                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', item.badge)}>
-                          {item.count}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-      </aside>
-
+    <div>
       <div>
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold sm:text-2xl" style={{ color: 'var(--color-text)' }}>Team</h1>
             <p className="mt-1 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-              {scopeLabel}: {filtered.length} of {members.length} members
+              {scopeLabel}: {filtered.length} of {counts.users} members
             </p>
           </div>
         </div>
