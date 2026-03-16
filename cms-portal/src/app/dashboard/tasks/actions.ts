@@ -1672,7 +1672,7 @@ export async function updateMaAssigneeStatusAction(
   ma.assignees[assigneeIdx] = {
     ...ma.assignees[assigneeIdx],
     status: newStatus,
-    ...(newStatus === 'completed' ? { completed_at: now, notes: notes || undefined } : { completed_at: null }),
+    ...(newStatus === 'completed' ? { completed_at: now, notes: notes || undefined } : { completed_at: undefined }),
   }
 
   touchMultiAssignmentProgress(ma)
@@ -1803,7 +1803,7 @@ export async function rejectMaAssigneeAction(
     status: 'in_progress',
     notes: reason.trim(),
     rejection_reason: reason.trim(),
-    completed_at: null,
+    completed_at: undefined,
     accepted_at: undefined,
     accepted_by: undefined,
   }
@@ -1873,7 +1873,7 @@ export async function reopenMaAssigneeAction(
     status: 'in_progress',
     notes: feedback.trim(),
     rejection_reason: feedback.trim(),
-    completed_at: null,
+    completed_at: undefined,
     accepted_at: undefined,
     accepted_by: undefined,
   }
@@ -2008,7 +2008,7 @@ export async function updateMaSubAssigneeStatusAction(
   delegatedEntries[delegated.subIndex] = {
     ...delegated.subAssignee,
     status: newStatus,
-    ...(newStatus === 'completed' ? { completed_at: now, notes: notes?.trim() || undefined } : { completed_at: null }),
+    ...(newStatus === 'completed' ? { completed_at: now, notes: notes?.trim() || undefined } : { completed_at: undefined }),
   }
   ma.assignees[delegated.assigneeIndex] = {
     ...delegated.assignee,
@@ -2145,7 +2145,7 @@ export async function rejectMaSubAssigneeAction(
     ...delegated.subAssignee,
     status: 'in_progress',
     notes: feedback.trim(),
-    completed_at: null,
+    completed_at: undefined,
   }
   ma.assignees[delegated.assigneeIndex] = {
     ...delegated.assignee,
