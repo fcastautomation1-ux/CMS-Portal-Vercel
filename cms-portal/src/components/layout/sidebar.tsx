@@ -202,6 +202,10 @@ export function Sidebar({
       router.refresh()
     })
   }
+  const openTaskView = (scope: string, status: 'all' | 'completed' | 'pending' | 'overdue' = 'all') => {
+    onClose?.()
+    router.push(`/dashboard/tasks?scope=${scope}&status=${status}`, { scroll: false })
+  }
 
   const isTaskScopeActive = pathname === '/dashboard/tasks'
   const activeTaskScope = searchParams.get('scope') ?? 'my_all'
@@ -407,18 +411,19 @@ export function Sidebar({
                                     return (
                                       <div key={group.id} className="pl-2 border-l border-slate-200">
                                         <div className="flex items-center rounded-lg transition hover:bg-slate-50">
-                                          <Link
-                                            href={`/dashboard/tasks?scope=${group.scope}&status=all`}
-                                            onClick={onClose}
-                                            prefetch
-                                            scroll={false}
-                                            className="flex flex-1 items-center gap-2 px-2 py-1.5 text-sm font-semibold text-slate-700"
-                                          >
-                                            <span className="truncate">{group.label}</span>
-                                          </Link>
                                           <button
                                             type="button"
-                                            onClick={() => setTaskGroupsOpen((current) => ({ ...current, [group.id]: !groupOpen }))}
+                                            onClick={() => openTaskView(group.scope, 'all')}
+                                            className="flex flex-1 cursor-pointer items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold text-slate-700"
+                                          >
+                                            <span className="truncate">{group.label}</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              setTaskGroupsOpen((current) => ({ ...current, [group.id]: !groupOpen }))
+                                            }}
                                             className="px-2 py-1.5"
                                           >
                                             <ChevronDown size={12} className={cn('shrink-0 text-slate-400 transition-transform', groupOpen && 'rotate-180')} />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { ChangeEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,6 +44,33 @@ type QuickFilter = 'my_all' | 'created_by_me' | 'assigned_to_me' | 'my_pending' 
 type StatusFilter =
   | 'all' | 'pending' | 'completed' | 'overdue'
 
+function parseQuickFilter(value: string | null): QuickFilter | null {
+  if (
+    value === 'my_all' ||
+    value === 'created_by_me' ||
+    value === 'assigned_to_me' ||
+    value === 'my_pending' ||
+    value === 'assigned_by_me' ||
+    value === 'my_approval' ||
+    value === 'other_approval'
+  ) {
+    return value
+  }
+  return null
+}
+
+function parseStatusFilter(value: string | null): StatusFilter | null {
+  if (
+    value === 'all' ||
+    value === 'pending' ||
+    value === 'completed' ||
+    value === 'overdue'
+  ) {
+    return value
+  }
+  return null
+}
+
 const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'backlog', label: 'Backlog', dot: 'bg-slate-400' },
   { key: 'todo', label: 'To Do', dot: 'bg-yellow-400' },
@@ -63,17 +90,16 @@ interface TasksBoardProps {
 
 export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialScope = 'my_all', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [, startTransition] = useTransition()
   const refreshTimerRef = useRef<number | null>(null)
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>(initialScope)
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'position' | 'due_date' | 'priority' | 'created_at' | 'title'>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus)
 
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -94,6 +120,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   const tasks = tasksQuery.data ?? initialTasks
   const effectiveUser = currentUsername
+  const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
+  const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
 
   const isTaskAssignedToUser = useCallback((task: Todo, username: string) => {
     const userLower = username.toLowerCase()
@@ -130,22 +158,26 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   }, [quickFilter, statusFilter])
 
   const applyKpiFilter = useCallback((key: string) => {
-    setStatusFilter('all')
     setSearch('')
+    let nextScope: QuickFilter = quickFilter
+    let nextStatus: StatusFilter = 'all'
+
     if (key === 'total') {
-      setQuickFilter('my_all')
+      nextScope = 'my_all'
     } else if (key === 'created') {
-      setQuickFilter('created_by_me')
+      nextScope = 'created_by_me'
     } else if (key === 'assigned') {
-      setQuickFilter('assigned_to_me')
+      nextScope = 'assigned_to_me'
     } else if (key === 'completed') {
-      setStatusFilter('completed')
+      nextStatus = 'completed'
     } else if (key === 'pending') {
-      setStatusFilter('pending')
+      nextStatus = 'pending'
     } else if (key === 'overdue') {
-      setStatusFilter('overdue')
+      nextStatus = 'overdue'
     }
-  }, [])
+
+    router.replace(`/dashboard/tasks?scope=${nextScope}&status=${nextStatus}`, { scroll: false })
+  }, [quickFilter, router])
 
   const refresh = useCallback(async () => {
     setLoading(true)
