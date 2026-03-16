@@ -15,6 +15,16 @@ export interface TeamMember {
   taskStats: { total: number; completed: number; pending: number; overdue: number }
 }
 
+type TeamTodoStatsRow = {
+  username: string | null
+  assigned_to: string | null
+  completed: boolean
+  task_status?: string | null
+  due_date: string | null
+  archived: boolean
+  multi_assignment?: unknown
+}
+
 function parseJson<T>(value: unknown, fallback: T): T {
   if (!value) return fallback
   if (typeof value === 'string') {
@@ -99,16 +109,71 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
   // Get task stats for each member
   const { data: todos } = await supabase
     .from('todos')
-    .select('username, assigned_to, completed, task_status, due_date, archived')
+    .select('username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
     .eq('archived', false)
 
   const now = new Date().toISOString().split('T')[0]
 
   return Promise.all((usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null; avatar_data: string | null }>).map(async (u) => {
-    const myTasks = (todos ?? []).filter((t: Record<string, unknown>) => t.username === u.username || t.assigned_to === u.username)
-    const completed = myTasks.filter((t: Record<string, unknown>) => t.completed).length
-    const pending = myTasks.filter((t: Record<string, unknown>) => !t.completed).length
-    const overdue = myTasks.filter((t: Record<string, unknown>) => !t.completed && t.due_date && (t.due_date as string) < now).length
+    const myTasks = ((todos ?? []) as TeamTodoStatsRow[]).filter((task) => {
+      const userLower = u.username.toLowerCase()
+      const creatorLower = (task.username || '').toLowerCase()
+
+      if ((task.assigned_to || '').toLowerCase() === userLower && creatorLower !== userLower) {
+        return true
+      }
+
+      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+      if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
+      if (creatorLower === userLower) return false
+
+      return multiAssignment.assignees.some((entry) => {
+        if ((entry.username || '').toLowerCase() === userLower) return true
+        return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower)
+      })
+    })
+
+    const completed = myTasks.filter((task) => {
+      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+      if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+        const directEntry = multiAssignment.assignees.find((entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase())
+        if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
+
+        for (const entry of multiAssignment.assignees) {
+          const delegatedEntry = Array.isArray(entry.delegated_to)
+            ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase())
+            : null
+          if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+        }
+      }
+
+      return task.completed || task.task_status === 'done'
+    }).length
+
+    const overdue = myTasks.filter((task) => {
+      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+      let isCompleted = task.completed || task.task_status === 'done'
+
+      if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+        const directEntry = multiAssignment.assignees.find((entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase())
+        if (directEntry) {
+          isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
+        } else {
+          for (const entry of multiAssignment.assignees) {
+            const delegatedEntry = Array.isArray(entry.delegated_to)
+              ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase())
+              : null
+            if (delegatedEntry) {
+              isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+              break
+            }
+          }
+        }
+      }
+
+      return !isCompleted && !!task.due_date && task.due_date < now
+    }).length
+    const pending = myTasks.length - completed - overdue
 
     return {
       ...u,

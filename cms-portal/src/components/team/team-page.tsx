@@ -263,10 +263,6 @@ export function TeamPage({ members, tasks, user }: Props) {
                     </button>
                     <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
                   </div>
-                  <div className="sticky top-0 z-10 flex items-center gap-3 rounded-2xl border border-[#dfe5f1] bg-white/90 px-4 py-3 backdrop-blur">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Task</span>
-                    <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Expected</span>
-                  </div>
 
                   {filteredTasks.map((task) => (
                     <TaskCard

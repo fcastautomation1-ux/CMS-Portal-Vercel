@@ -157,7 +157,7 @@ export function TaskCard({
   compact = false,
 }: TaskCardProps) {
   const [isPending, startTransition] = useTransition()
-  const [showMa, setShowMa] = useState(false)
+  const [showMa, setShowMa] = useState(true)
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
