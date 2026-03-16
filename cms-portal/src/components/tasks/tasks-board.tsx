@@ -15,7 +15,6 @@ import {
   Archive,
   Loader2,
   Inbox,
-  Users,
   ArrowDownUp,
   SlidersHorizontal,
   Upload,
@@ -28,7 +27,6 @@ import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { splitTaskMeta } from '@/lib/task-metadata'
-import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import { CreateTaskModal } from './create-task-modal'
@@ -139,36 +137,20 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     return isTaskAssignedToUser(task, username)
   }, [isTaskAssignedToUser])
 
-  const extStats = useMemo(() => ({
-    createdByMe: tasks.filter((t: Todo) => !t.archived && t.username.toLowerCase() === currentUsername.toLowerCase()).length,
-    assignedToMe: tasks.filter((t: Todo) =>
-      !t.archived && isTaskAssignedByOthersToUser(t, currentUsername)
-    ).length,
-  }), [tasks, currentUsername, isTaskAssignedByOthersToUser])
-
   // ── Active KPI (computed from filter state — syncs all filters) ──────────────
   const activeKpi = useMemo(() => {
-    if (quickFilter === 'my_all' && statusFilter === 'all') return 'total'
-    if (quickFilter === 'created_by_me' && statusFilter === 'all') return 'created'
-    if (quickFilter === 'assigned_to_me' && statusFilter === 'all') return 'assigned'
+    if (statusFilter === 'all') return 'total'
     if (statusFilter === 'completed') return 'completed'
     if (statusFilter === 'pending') return 'pending'
     if (statusFilter === 'overdue') return 'overdue'
     return ''
-  }, [quickFilter, statusFilter])
+  }, [statusFilter])
 
   const applyKpiFilter = useCallback((key: string) => {
     setSearch('')
-    let nextScope: QuickFilter = quickFilter
     let nextStatus: StatusFilter = 'all'
 
-    if (key === 'total') {
-      nextScope = 'my_all'
-    } else if (key === 'created') {
-      nextScope = 'created_by_me'
-    } else if (key === 'assigned') {
-      nextScope = 'assigned_to_me'
-    } else if (key === 'completed') {
+    if (key === 'completed') {
       nextStatus = 'completed'
     } else if (key === 'pending') {
       nextStatus = 'pending'
@@ -176,7 +158,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       nextStatus = 'overdue'
     }
 
-    router.replace(`/dashboard/tasks?scope=${nextScope}&status=${nextStatus}`, { scroll: false })
+    router.replace(`/dashboard/tasks?scope=${quickFilter}&status=${nextStatus}`, { scroll: false })
   }, [quickFilter, router])
 
   const refresh = useCallback(async () => {
@@ -240,7 +222,23 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     [tasks, matchesPersonalScope, quickFilter, effectiveUser]
   )
 
-  const stats = useMemo(() => computeTodoStatsFromTodos(scopedTasksForKpis), [scopedTasksForKpis])
+  const scopedKpiStats = useMemo(() => {
+    const now = new Date()
+    const completed = scopedTasksForKpis.filter((task) => task.completed || task.task_status === 'done').length
+    const overdue = scopedTasksForKpis.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length
+    const pending = scopedTasksForKpis.filter((task) => {
+      if (task.completed || task.task_status === 'done') return false
+      if (task.due_date && new Date(task.due_date) < now) return false
+      return true
+    }).length
+
+    return {
+      total: scopedTasksForKpis.length,
+      completed,
+      pending,
+      overdue,
+    }
+  }, [scopedTasksForKpis])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Assign Task'
@@ -421,15 +419,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
   })
 
   return (
-    <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
+    <div className="-mt-2 flex h-full flex-col px-3 pb-4 sm:px-4">
+      <div className="mb-4 overflow-x-auto pb-1">
+        <div className="grid min-w-[760px] grid-cols-4 gap-3">
         {[
-          { label: 'My Total Tasks', value: stats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
-          { label: 'Created By Me', value: extStats.createdByMe, icon: Plus, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]', kpiKey: 'created' },
-          { label: 'Assigned To Me', value: extStats.assignedToMe, icon: Users, tone: 'text-[#7C3AED]', bg: 'bg-[#F5F3FF]', border: 'border-[#DDD6FE]', kpiKey: 'assigned' },
-          { label: 'Completed', value: stats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
-          { label: 'Pending', value: stats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
-          { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
+          { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
+          { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
+          { label: 'Pending', value: scopedKpiStats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
+          { label: 'Overdue', value: scopedKpiStats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
         ].map((item) => {
           const Icon = item.icon
           const isActive = activeKpi === item.kpiKey
@@ -455,49 +452,17 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
             </div>
           )
         })}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 flex-1 items-center">
+          <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
+            <div className="flex min-w-0 items-center">
               <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
             </div>
 
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
-              <div className="relative w-full sm:min-w-[240px] xl:w-[260px]">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search tasks..."
-                  value={search}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                  className="w-full rounded-xl border border-[#d9e2f0] bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                />
-              </div>
-
-              <button
-                onClick={() => setShowCreate(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] sm:min-w-[124px]"
-              >
-                <Plus size={14} /> Add Task
-              </button>
-
-              <button
-                onClick={exportCSV}
-                className="inline-flex h-10 w-10 items-center justify-center self-end rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700 sm:self-auto"
-                title="Export tasks"
-              >
-                <Upload size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-b border-[#e3e9f5] bg-[#fbfcff] px-4 py-3 sm:px-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="inline-flex w-fit items-center rounded-xl border border-[#d9e2f0] bg-white p-1 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
+            <div className="inline-flex items-center rounded-xl border border-[#d9e2f0] bg-white p-1 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
               {([['list', 'List'], ['kanban', 'Kanban'], ['calendar', 'Calendar']] as [ViewMode, string][]).map(([mode, label]) => (
                 <button
                   key={mode}
@@ -512,12 +477,20 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                   {label}
                 </button>
               ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2" />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 xl:justify-end">
+            <div className="relative min-w-[240px] flex-1 xl:ml-auto xl:max-w-[260px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={search}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-[#d9e2f0] bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <button
                 onClick={refresh}
                 disabled={loading}
@@ -557,33 +530,44 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
                 </div>
               )}
 
-              <div className="ml-auto flex flex-wrap items-center gap-2 lg:ml-0">
-                <span className="font-bold uppercase tracking-[0.16em] text-[#8fa0bf]">Sort By:</span>
-                <div className="relative">
-                  <select
-                    value={`${sortBy}_${sortDir}`}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                      const [s, d] = e.target.value.split('_')
-                      setSortBy(s as typeof sortBy)
-                      setSortDir(d as typeof sortDir)
-                    }}
-                    className="appearance-none rounded-xl border border-transparent bg-transparent py-1.5 pl-2 pr-6 text-xs font-semibold text-slate-600 outline-none"
-                  >
-                    <option value="position_asc">Custom Order</option>
-                    <option value="created_at_desc">Recently Created</option>
-                    <option value="created_at_asc">Oldest</option>
-                    <option value="due_date_asc">Due Soonest</option>
-                    <option value="priority_desc">Highest Priority</option>
-                    <option value="title_asc">A-Z</option>
-                  </select>
-                  <ArrowDownUp size={12} className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-slate-400" />
-                </div>
+              <span className="font-bold uppercase tracking-[0.16em] text-[#8fa0bf]">Sort By:</span>
+              <div className="relative">
+                <select
+                  value={`${sortBy}_${sortDir}`}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    const [s, d] = e.target.value.split('_')
+                    setSortBy(s as typeof sortBy)
+                    setSortDir(d as typeof sortDir)
+                  }}
+                  className="appearance-none rounded-xl border border-transparent bg-transparent py-1.5 pl-2 pr-6 text-xs font-semibold text-slate-600 outline-none"
+                >
+                  <option value="position_asc">Custom Order</option>
+                  <option value="created_at_desc">Recently Created</option>
+                  <option value="created_at_asc">Oldest</option>
+                  <option value="due_date_asc">Due Soonest</option>
+                  <option value="priority_desc">Highest Priority</option>
+                  <option value="title_asc">A-Z</option>
+                </select>
+                <ArrowDownUp size={12} className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
-            </div>
-          </div>
 
-          <div className="mt-2 flex items-center justify-end">
-            <span className="text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
+              <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
+
+              <button
+                onClick={() => setShowCreate(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] sm:min-w-[124px]"
+              >
+                <Plus size={14} /> Add Task
+              </button>
+
+              <button
+                onClick={exportCSV}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700"
+                title="Export tasks"
+              >
+                <Upload size={14} />
+              </button>
+            </div>
           </div>
         </div>
 
