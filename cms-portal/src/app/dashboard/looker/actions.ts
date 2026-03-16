@@ -98,6 +98,26 @@ export async function getLookerReports(): Promise<LookerReport[]> {
   return reports
 }
 
+export async function getLookerAccessUsers(): Promise<string[]> {
+  const user = await getSession()
+  if (!user) return []
+
+  const supabase = createServerClient()
+  const { data, error } = await supabase
+    .from('users')
+    .select('username')
+    .order('username', { ascending: true })
+
+  if (error) {
+    console.error('getLookerAccessUsers error:', error)
+    return []
+  }
+
+  return ((data as Array<{ username: string | null }>) ?? [])
+    .map(u => (u.username ?? '').trim())
+    .filter(Boolean)
+}
+
 export async function saveLookerReport(
   report: { id?: string; title: string; report_url: string; allowed_users: string }
 ): Promise<{ success: boolean; error?: string; report?: LookerReport }> {

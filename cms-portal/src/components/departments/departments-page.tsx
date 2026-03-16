@@ -264,13 +264,14 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
 function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClose: () => void; onSaved: (d: Department, isNew: boolean) => void }) {
   const isEdit = !!dept
   const [name, setName] = useState(dept?.name || '')
+  const [description, setDescription] = useState(dept?.description || '')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true); setError('')
-    const res = await saveDepartment({ id: dept?.id, name })
+    const res = await saveDepartment({ id: dept?.id, name, description })
     if (res.success && res.department) {
       onSaved(res.department, !isEdit)
     } else setError(res.error || 'Failed to save department.')
@@ -281,30 +282,53 @@ function DeptModal({ dept, onClose, onSaved }: { dept: Department | null; onClos
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="w-full max-w-md rounded-3xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.12)' }}>
         <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
-          <h2 className="font-bold text-3xl leading-none" style={{ color: 'var(--color-text)', letterSpacing: '-0.02em' }}>{isEdit ? 'Edit Department' : 'Add Department'}</h2>
+          <h2 className="font-bold text-3xl leading-none" style={{ color: 'var(--color-text)', letterSpacing: '-0.02em' }}>{isEdit ? 'Edit Department' : 'Add New Department'}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100" aria-label="Close"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-6 flex flex-col gap-5">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
           <div className="flex flex-col gap-2">
-            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Department Name</label>
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Department Name *</label>
             <input
               value={name}
               onChange={e => setName(e.target.value)}
               required
-              placeholder="Department Name"
+              placeholder="e.g. Automation/Development"
               className="h-11 px-4 rounded-2xl text-base outline-none"
               style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
             />
           </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="h-11 rounded-2xl text-lg font-semibold text-white"
-            style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}
-          >
-            {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-          </button>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Add a description for this department..."
+              rows={3}
+              className="px-4 py-3 rounded-2xl text-base outline-none resize-none"
+              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+            />
+          </div>
+
+          <div className="pt-2 flex items-center gap-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+            <button
+              type="submit"
+              disabled={saving}
+              className="h-11 px-5 rounded-xl text-sm font-semibold text-white"
+              style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}
+            >
+              {saving ? 'Saving...' : isEdit ? 'Save Department' : 'Save Department'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-11 px-5 rounded-xl text-sm font-semibold"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', background: 'var(--color-surface)' }}
+            >
+              Cancel
+            </button>
+          </div>
         </form>
       </div>
     </div>

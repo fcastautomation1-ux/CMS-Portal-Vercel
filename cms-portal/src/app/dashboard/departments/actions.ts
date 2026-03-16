@@ -46,7 +46,7 @@ export async function getDepartmentMembersWithNames(): Promise<Record<string, st
 }
 
 export async function saveDepartment(
-  dept: { id?: string; name: string }
+  dept: { id?: string; name: string; description?: string }
 ): Promise<{ success: boolean; error?: string; department?: Department }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
@@ -56,18 +56,30 @@ export async function saveDepartment(
 
   const supabase = createServerClient()
   const normalizedName = dept.name.trim()
+  const normalizedDescription = dept.description?.trim() || null
   if (!normalizedName) return { success: false, error: 'Department name is required.' }
 
   if (dept.id) {
     // Get old name for cascade rename
     const { data: old } = await supabase.from('departments').select('name').eq('id', dept.id).single()
-    const { data, error } = await supabase
+    const primary = await supabase
       .from('departments')
-      .update({ name: normalizedName })
+      .update({ name: normalizedName, description: normalizedDescription })
       .eq('id', dept.id)
       .select('*')
       .single()
-    if (error) return { success: false, error: error.message }
+
+    const fallback = primary.error
+      ? await supabase
+        .from('departments')
+        .update({ name: normalizedName })
+        .eq('id', dept.id)
+        .select('*')
+        .single()
+      : null
+
+    if (primary.error && fallback?.error) return { success: false, error: fallback.error.message }
+    const data = (primary.data ?? fallback?.data) as Department
 
     // Cascade rename in users + todos
     if (old && old.name !== normalizedName) {
@@ -78,15 +90,27 @@ export async function saveDepartment(
     revalidatePath('/dashboard/departments')
     return { success: true, department: data as Department }
   } else {
-    const { data, error } = await supabase
+    const primary = await supabase
       .from('departments')
-      .insert({ name: normalizedName })
+      .insert({ name: normalizedName, description: normalizedDescription })
       .select('*')
       .single()
+
+    const fallback = primary.error
+      ? await supabase
+        .from('departments')
+        .insert({ name: normalizedName })
+        .select('*')
+        .single()
+      : null
+
+    const error = primary.error ?? fallback?.error
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Department already exists.' }
       return { success: false, error: error.message }
     }
+
+    const data = (primary.data ?? fallback?.data) as Department
 
     revalidatePath('/dashboard/departments')
     return { success: true, department: data as Department }

@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { ExternalLink, Plus, Trash2, BarChart3, X, Search, Link as LinkIcon, Users, Calendar } from 'lucide-react'
+import { ExternalLink, Plus, Trash2, BarChart3, X, Search, Link as LinkIcon, Users, Calendar, ChevronDown, Check } from 'lucide-react'
 import { saveLookerReport, deleteLookerReport } from '@/app/dashboard/looker/actions'
 import type { LookerReport, SessionUser } from '@/types'
 
-interface Props { reports: LookerReport[]; user: SessionUser }
+interface Props { reports: LookerReport[]; user: SessionUser; users: string[] }
 
 const CARD_GRADIENTS = [
   { from: '#2B7FFF', to: '#1A6AE4', light: 'rgba(43,127,255,0.1)' },
@@ -18,7 +18,7 @@ const CARD_GRADIENTS = [
   { from: '#F59E0B', to: '#D97706', light: 'rgba(245,158,11,0.1)' },
 ]
 
-export function LookerPage({ reports: initial, user }: Props) {
+export function LookerPage({ reports: initial, user, users }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const [reports, setReports] = useState(initial)
   const [modalOpen, setModalOpen] = useState(false)
@@ -178,6 +178,7 @@ export function LookerPage({ reports: initial, user }: Props) {
 
       {modalOpen && (
         <ReportModal
+          users={users}
           onClose={() => setModalOpen(false)}
           onSaved={r => { setReports(prev => [...prev, r]); setModalOpen(false) }}
         />
@@ -186,18 +187,25 @@ export function LookerPage({ reports: initial, user }: Props) {
   )
 }
 
-function ReportModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r: LookerReport) => void }) {
+function ReportModal({ users, onClose, onSaved }: { users: string[]; onClose: () => void; onSaved: (r: LookerReport) => void }) {
   const [title, setTitle] = useState('')
   const [reportUrl, setReportUrl] = useState('')
-  const [allowedUsers, setAllowedUsers] = useState('')
+  const [allowedUsers, setAllowedUsers] = useState<string[]>([])
+  const [usersDropdownOpen, setUsersDropdownOpen] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const allowedUsersCsv = allowedUsers.join(', ')
+
+  function toggleAllowedUser(username: string) {
+    setAllowedUsers(prev => prev.includes(username) ? prev.filter(u => u !== username) : [...prev, username])
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const res = await saveLookerReport({ title, report_url: reportUrl, allowed_users: allowedUsers })
+    const res = await saveLookerReport({ title, report_url: reportUrl, allowed_users: allowedUsersCsv })
     if (res.success && res.report) {
       onSaved(res.report)
     } else {
@@ -216,22 +224,91 @@ function ReportModal({ onClose, onSaved }: { onClose: () => void; onSaved: (r: L
         <form onSubmit={handleSubmit} className="px-6 py-6 flex flex-col gap-4">
           {error && <div className="text-sm p-3 rounded-lg" style={{ background: '#FEF2F2', color: '#DC2626' }}>{error}</div>}
           <div className="flex flex-col gap-2">
-            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report Title</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g. Marketing Dashboard" className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report Name</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g. Monthly Performance" className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Looker Studio URL</label>
-            <input value={reportUrl} onChange={e => setReportUrl(e.target.value)} type="url" required placeholder="https://lookerstudio.google.com/..." className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+            <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>Report URL / Embed Code</label>
+            <textarea value={reportUrl} onChange={e => setReportUrl(e.target.value)} required placeholder="Paste the Looker Studio URL or Embed Code here..." rows={3} className="px-4 py-3 rounded-2xl text-base outline-none resize-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Works with direct links (lookerstudio.google.com/reporting/...) or Embed Code (&lt;iframe...&gt;).</p>
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-base font-semibold" style={{ color: 'var(--color-text-muted)' }}>
-              Access <span className="font-normal opacity-70">(comma-separated usernames, leave blank = all users)</span>
+              Shared With (Optional)
             </label>
-            <input value={allowedUsers} onChange={e => setAllowedUsers(e.target.value)} placeholder="user1, user2 — or leave blank for all" className="h-11 px-4 rounded-2xl text-base outline-none" style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }} />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setUsersDropdownOpen(prev => !prev)}
+                className="w-full h-11 px-4 rounded-2xl text-base outline-none flex items-center justify-between"
+                style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+              >
+                <span className="truncate text-left" style={{ color: allowedUsers.length ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                  {allowedUsers.length ? allowedUsersCsv : 'Select users (leave empty = everyone)'}
+                </span>
+                <ChevronDown size={16} />
+              </button>
+
+              {usersDropdownOpen && (
+                <div className="absolute z-20 mt-2 w-full rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-border)', background: 'var(--color-card)', boxShadow: '0 10px 24px rgba(0,0,0,0.12)' }}>
+                  <div className="max-h-56 overflow-auto">
+                    {users.length === 0 ? (
+                      <div className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-muted)' }}>No users found</div>
+                    ) : (
+                      users.map((username) => {
+                        const selected = allowedUsers.includes(username)
+                        return (
+                          <button
+                            key={username}
+                            type="button"
+                            onClick={() => toggleAllowedUser(username)}
+                            className="w-full px-4 py-2.5 text-sm flex items-center justify-between hover:bg-slate-50"
+                            style={{ color: 'var(--color-text)' }}
+                          >
+                            <span>{username}</span>
+                            {selected ? <Check size={14} style={{ color: '#059669' }} /> : null}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                  {allowedUsers.length > 0 && (
+                    <div className="px-3 py-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => setAllowedUsers([])}
+                        className="text-xs font-semibold"
+                        style={{ color: '#2563EB' }}
+                      >
+                        Clear selection
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <input
+              value={allowedUsersCsv}
+              readOnly
+              placeholder="e.g. john, management, client"
+              className="h-11 px-4 rounded-2xl text-base outline-none"
+              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+            />
+            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Comma-separated usernames/groups. Leave blank to share with EVERYONE.</p>
           </div>
-          <button type="submit" disabled={saving} className="h-11 rounded-2xl text-lg font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)' }}>
-            {saving ? 'Adding...' : 'Add Report'}
-          </button>
+          <div className="pt-2 flex items-center gap-3">
+            <button type="submit" disabled={saving} className="h-11 px-5 rounded-xl text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}>
+              {saving ? 'Saving...' : 'Save Report'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-11 px-5 rounded-xl text-sm font-semibold"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', background: 'var(--color-surface)' }}
+            >
+              Cancel
+            </button>
+          </div>
         </form>
       </div>
     </div>
