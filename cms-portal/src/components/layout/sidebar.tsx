@@ -377,7 +377,7 @@ export function Sidebar({
                                 type="button"
                                 onClick={() => setTasksOpen((current) => !current)}
                                 className={cn(
-                                  'group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
+                                  'group relative flex w-full items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-all duration-150',
                                   isTaskScopeActive && 'text-white'
                                 )}
                                 style={isTaskScopeActive ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
@@ -391,7 +391,7 @@ export function Sidebar({
                                 <span className="relative z-10 shrink-0" style={{ color: isTaskScopeActive ? 'white' : item.color }}>
                                   {item.icon}
                                 </span>
-                                <span className="relative z-10 flex-1 truncate" style={{ color: isTaskScopeActive ? 'white' : 'var(--color-text)' }}>
+                                <span className="relative z-10 flex-1 truncate text-left" style={{ color: isTaskScopeActive ? 'white' : 'var(--color-text)' }}>
                                   {item.label}
                                 </span>
                                 <ChevronDown size={12} className={cn('relative z-10 shrink-0 transition-transform', tasksOpen && 'rotate-180', isTaskScopeActive ? 'text-white/80' : 'text-slate-400')} />
@@ -494,7 +494,7 @@ export function Sidebar({
                               <span className="relative z-10 shrink-0" style={{ color: isActive ? 'white' : item.color }}>
                                 {item.icon}
                               </span>
-                              <span className="relative z-10 flex-1 truncate" style={{ color: isActive ? 'white' : 'var(--color-text)' }}>
+                              <span className="relative z-10 flex-1 truncate text-left" style={{ color: isActive ? 'white' : 'var(--color-text)' }}>
                                 {item.label}
                               </span>
                               {isActive && <ChevronRight size={12} className="relative z-10 shrink-0 opacity-60" />}

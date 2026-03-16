@@ -420,7 +420,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
-      <div className="mb-5">
+      <div className="mb-5 relative z-0">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
@@ -436,7 +436,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               onClick={() => applyKpiFilter(item.kpiKey)}
               className={cn(
                 'cursor-pointer rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
-                isActive && '-translate-y-1 shadow-[0_14px_30px_rgba(15,23,42,0.12)] ring-2 ring-[#3559d8] ring-offset-1'
+                isActive && 'border-[#3559d8] bg-[#f8fbff] shadow-[inset_0_0_0_1px_rgba(53,89,216,0.24),0_12px_24px_rgba(15,23,42,0.08)]'
               )}
               style={{ borderColor: isActive ? '#3559d8' : 'var(--color-border)' }}
             >
