@@ -46,16 +46,25 @@ import {
   addCommentAction,
   approveTodoAction,
   archiveTodoAction,
+  acceptMaAssigneeAction,
+  acceptMaSubAssigneeAction,
   createTaskAttachmentUploadUrlAction,
+  delegateMaAssigneeAction,
   declineTodoAction,
   deleteTodoAction,
   getTodoDetails,
   getUsersForAssignment,
+  rejectMaAssigneeAction,
+  rejectMaSubAssigneeAction,
+  removeMaDelegationAction,
+  reopenMaAssigneeAction,
   saveTodoAttachmentAction,
   shareTodoAction,
   startTaskAction,
   toggleTodoCompleteAction,
   unshareTodoAction,
+  updateMaAssigneeStatusAction,
+  updateMaSubAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
 
 type TabId = 'info' | 'history' | 'files' | 'share'
@@ -363,6 +372,10 @@ export function TaskDetailPage({
   const isAssignee = t.assigned_to === currentUsername
   const isPendingApproval = t.approval_status === 'pending_approval'
   const isCompleted = t.completed
+  const ma = t.multi_assignment
+  const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
+  const delegatedOwner = ma?.assignees?.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
+  const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
   const sm = STATUS_META[t.task_status] ?? STATUS_META.backlog
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
   const comments = t.history.filter((h: HistoryEntry) => h.type === 'comment')
@@ -393,6 +406,8 @@ export function TaskDetailPage({
       textarea?.setSelectionRange(nextCaret, nextCaret)
     })
   }
+
+  const ask = (message: string) => window.prompt(message)?.trim() ?? ''
 
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionSuggestions.length > 0) {
@@ -489,6 +504,53 @@ export function TaskDetailPage({
                   <PrimaryBtn icon={<CheckCheck size={14} />} label="Approve" color="green" onClick={() => doAction(() => approveTodoAction(t.id))} loading={isPending} />
                   <PrimaryBtn icon={<XCircle size={14} />} label="Decline" color="red" onClick={() => setShowDeclineInput(true)} loading={isPending} />
                 </>
+              )}
+              {myMaEntry && !isCompleted && myMaEntry.status === 'pending' && (
+                <PrimaryBtn icon={<PlayCircle size={14} />} label="MA Start" color="blue" onClick={() => doAction(() => updateMaAssigneeStatusAction(t.id, 'in_progress'))} loading={isPending} />
+              )}
+              {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (
+                <PrimaryBtn
+                  icon={<CheckCircle2 size={14} />}
+                  label="MA Submit"
+                  color="green"
+                  onClick={() => {
+                    const feedback = ask('Add feedback or summary for your submission')
+                    void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', feedback || undefined))
+                  }}
+                  loading={isPending}
+                />
+              )}
+              {myMaEntry && !isCompleted && (
+                <button
+                  onClick={() => {
+                    const username = ask('Delegate to which username?')
+                    if (!username) return
+                    const instructions = ask('Optional delegation instructions')
+                    void doAction(() => delegateMaAssigneeAction(t.id, username, instructions || undefined))
+                  }}
+                  className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                >
+                  Delegate
+                </button>
+              )}
+              {myDelegatedEntry && !isCompleted && myDelegatedEntry.status === 'pending' && (
+                <button
+                  onClick={() => void doAction(() => updateMaSubAssigneeStatusAction(t.id, delegatedOwner!.username, 'in_progress'))}
+                  className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                >
+                  Sub Start
+                </button>
+              )}
+              {myDelegatedEntry && !isCompleted && myDelegatedEntry.status === 'in_progress' && (
+                <button
+                  onClick={() => {
+                    const feedback = ask('Add feedback or summary for delegated work')
+                    void doAction(() => updateMaSubAssigneeStatusAction(t.id, delegatedOwner!.username, 'completed', feedback || undefined))
+                  }}
+                  className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100"
+                >
+                  Sub Submit
+                </button>
               )}
               {isCreator && !isCompleted && (
                 <>
@@ -598,7 +660,7 @@ export function TaskDetailPage({
 
                     {t.multi_assignment?.enabled && t.multi_assignment.assignees.length > 0 && (
                       <Section icon={<Users size={14} />} label="Multi-Assignment">
-                        <div className="grid gap-3 md:grid-cols-2">
+                        <div className="grid gap-3">
                           {t.multi_assignment.assignees.map((assignee) => {
                             const pct = t.multi_assignment?.completion_percentage ?? 0
                             const done = assignee.status === 'completed' || assignee.status === 'accepted'
@@ -620,6 +682,102 @@ export function TaskDetailPage({
                                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
                                   <div className={cn('h-full rounded-full', done ? 'bg-green-500' : 'bg-blue-500')} style={{ width: `${pct}%` }} />
                                 </div>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {isCreator && assignee.status === 'completed' && (
+                                    <>
+                                      <button onClick={() => void doAction(() => acceptMaAssigneeAction(t.id, assignee.username))} className="rounded-2xl bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-700">
+                                        Accept
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const feedback = ask(`Feedback for ${assignee.username}`)
+                                          if (!feedback) return
+                                          void doAction(() => rejectMaAssigneeAction(t.id, assignee.username, feedback))
+                                        }}
+                                        className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100"
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  {isCreator && assignee.status === 'accepted' && (
+                                    <button
+                                      onClick={() => {
+                                        const feedback = ask(`Why reopen ${assignee.username}'s work?`)
+                                        if (!feedback) return
+                                        void doAction(() => reopenMaAssigneeAction(t.id, assignee.username, feedback))
+                                      }}
+                                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                                    >
+                                      Reopen
+                                    </button>
+                                  )}
+                                </div>
+                                {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (
+                                  <div className="mt-3 space-y-2 rounded-[20px] border border-sky-100 bg-white/70 p-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">Delegated To</div>
+                                    {assignee.delegated_to.map((sub) => {
+                                      const subStatus = sub.status || 'pending'
+                                      const isDelegator = assignee.username.toLowerCase() === currentUsername.toLowerCase()
+                                      const isSubMe = (sub.username || '').toLowerCase() === currentUsername.toLowerCase()
+                                      return (
+                                        <div key={`${assignee.username}-${sub.username}`} className="rounded-2xl border border-slate-100 bg-white px-3 py-3">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="text-sm font-semibold text-slate-800">{sub.username}</span>
+                                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">{subStatus}</span>
+                                            {sub.notes && <span className="text-[11px] text-amber-700">Note: {sub.notes}</span>}
+                                          </div>
+                                          <div className="mt-2 flex flex-wrap gap-2">
+                                            {isSubMe && subStatus === 'pending' && (
+                                              <button onClick={() => void doAction(() => updateMaSubAssigneeStatusAction(t.id, assignee.username, 'in_progress'))} className="rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">
+                                                Start
+                                              </button>
+                                            )}
+                                            {isSubMe && subStatus === 'in_progress' && (
+                                              <button
+                                                onClick={() => {
+                                                  const feedback = ask(`Feedback for ${assignee.username}`)
+                                                  void doAction(() => updateMaSubAssigneeStatusAction(t.id, assignee.username, 'completed', feedback || undefined))
+                                                }}
+                                                className="rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-100"
+                                              >
+                                                Submit
+                                              </button>
+                                            )}
+                                            {isDelegator && subStatus === 'completed' && (
+                                              <>
+                                                <button onClick={() => void doAction(() => acceptMaSubAssigneeAction(t.id, assignee.username, sub.username))} className="rounded-2xl bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-700">
+                                                  Accept
+                                                </button>
+                                                <button
+                                                  onClick={() => {
+                                                    const feedback = ask(`Feedback for ${sub.username}`)
+                                                    if (!feedback) return
+                                                    void doAction(() => rejectMaSubAssigneeAction(t.id, assignee.username, sub.username, feedback))
+                                                  }}
+                                                  className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100"
+                                                >
+                                                  Reject
+                                                </button>
+                                              </>
+                                            )}
+                                            {isDelegator && (
+                                              <button
+                                                onClick={() => {
+                                                  if (!window.confirm(`Remove delegation for ${sub.username}?`)) return
+                                                  void doAction(() => removeMaDelegationAction(t.id, assignee.username, sub.username))
+                                                }}
+                                                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                              >
+                                                Remove
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             )
                           })}

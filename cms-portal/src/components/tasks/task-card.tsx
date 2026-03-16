@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import type { Todo, HistoryEntry, MultiAssignmentEntry } from '@/types'
+import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
@@ -23,6 +23,13 @@ import {
   claimQueuedTaskAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
+  rejectMaAssigneeAction,
+  reopenMaAssigneeAction,
+  delegateMaAssigneeAction,
+  updateMaSubAssigneeStatusAction,
+  acceptMaSubAssigneeAction,
+  rejectMaSubAssigneeAction,
+  removeMaDelegationAction,
 } from '@/app/dashboard/tasks/actions'
 
 interface TaskCardProps {
@@ -168,6 +175,10 @@ export function TaskCard({
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
   const myMaEntry = maEnabled ? ma.assignees.find((a) => a.username.toLowerCase() === currentUsername.toLowerCase()) : undefined
+  const delegatedEntry = maEnabled
+    ? ma.assignees.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
+    : undefined
+  const myDelegatedEntry = delegatedEntry?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
 
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
@@ -179,8 +190,11 @@ export function TaskCard({
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
+  const showMaDelegateBtn = !!myMaEntry && !isCompleted
+  const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
+  const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment')
@@ -197,6 +211,8 @@ export function TaskCard({
       if (result.success) onRefresh()
     })
   }
+
+  const ask = (message: string) => window.prompt(message)?.trim() ?? ''
 
   if (compact) {
     return (
@@ -299,7 +315,42 @@ export function TaskCard({
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue">Start Work</ActBtn>}
               {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet">Pick Task</ActBtn>}
               {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo">MA: Start</ActBtn>}
-              {showMaSubmitBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'completed'))} color="teal">MA: Submit</ActBtn>}
+              {showMaSubmitBtn && (
+                <ActBtn
+                  onClick={() => {
+                    const feedback = ask('Add feedback or summary for your submission')
+                    doAction(() => updateMaAssigneeStatusAction(task.id, 'completed', feedback || undefined))
+                  }}
+                  color="teal"
+                >
+                  MA: Submit
+                </ActBtn>
+              )}
+              {showMaDelegateBtn && (
+                <ActBtn
+                  onClick={() => {
+                    const username = ask('Delegate to which username?')
+                    if (!username) return
+                    const instructions = ask('Optional delegation instructions')
+                    doAction(() => delegateMaAssigneeAction(task.id, username, instructions || undefined))
+                  }}
+                  color="violet"
+                >
+                  Delegate
+                </ActBtn>
+              )}
+              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'))} color="indigo">Sub: Start</ActBtn>}
+              {showDelegatedSubmitBtn && (
+                <ActBtn
+                  onClick={() => {
+                    const feedback = ask('Add feedback or summary for your delegated submission')
+                    doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'completed', feedback || undefined))
+                  }}
+                  color="teal"
+                >
+                  Sub: Submit
+                </ActBtn>
+              )}
               {showCompleteBtn && <ActBtn onClick={() => doAction(() => toggleTodoCompleteAction(task.id, true))} color="green">Complete</ActBtn>}
               {showApproveBtn && (
                 <>
@@ -373,11 +424,101 @@ export function TaskCard({
                           {isCreator && assignee.status === 'completed' && (
                             <>
                               <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
-                              <button onClick={() => onDecline(task)} className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100">Reject</button>
+                              <button
+                                onClick={() => {
+                                  const feedback = ask(`Feedback for ${assignee.username}`)
+                                  if (!feedback) return
+                                  doAction(() => rejectMaAssigneeAction(task.id, assignee.username, feedback))
+                                }}
+                                className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
+                              >
+                                Reject
+                              </button>
                             </>
+                          )}
+                          {isCreator && assignee.status === 'accepted' && (
+                            <button
+                              onClick={() => {
+                                const feedback = ask(`Why reopen ${assignee.username}'s work?`)
+                                if (!feedback) return
+                                doAction(() => reopenMaAssigneeAction(task.id, assignee.username, feedback))
+                              }}
+                              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100"
+                            >
+                              Reopen
+                            </button>
                           )}
                           <button onClick={() => onViewDetail(task)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
                         </div>
+                        {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (
+                          <div className="w-full rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-3">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                              Delegated To
+                            </div>
+                            <div className="space-y-2">
+                              {assignee.delegated_to.map((sub: MultiAssignmentSubEntry) => {
+                                const subStatus = sub.status || 'pending'
+                                const isDelegator = assignee.username.toLowerCase() === currentUsername.toLowerCase()
+                                const isSubMe = (sub.username || '').toLowerCase() === currentUsername.toLowerCase()
+                                return (
+                                  <div key={`${assignee.username}-${sub.username}`} className="flex flex-wrap items-center gap-2 rounded-xl border border-white bg-white px-3 py-2">
+                                    <span className="text-xs font-semibold text-slate-700">{sub.username}</span>
+                                    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border', MA_STATUS[subStatus] ?? MA_STATUS.pending)}>
+                                      {MA_LABEL[subStatus] ?? subStatus}
+                                    </span>
+                                    {sub.notes && <span className="text-[11px] text-amber-700">Note: {sub.notes}</span>}
+                                    <div className="ml-auto flex flex-wrap gap-2">
+                                      {isSubMe && subStatus === 'pending' && (
+                                        <button onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'in_progress'))} className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700">
+                                          Start
+                                        </button>
+                                      )}
+                                      {isSubMe && subStatus === 'in_progress' && (
+                                        <button
+                                          onClick={() => {
+                                            const feedback = ask(`Feedback for ${assignee.username}`)
+                                            doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'completed', feedback || undefined))
+                                          }}
+                                          className="rounded-full bg-teal-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-teal-700"
+                                        >
+                                          Submit
+                                        </button>
+                                      )}
+                                      {isDelegator && subStatus === 'completed' && (
+                                        <>
+                                          <button onClick={() => doAction(() => acceptMaSubAssigneeAction(task.id, assignee.username, sub.username))} className="rounded-full bg-green-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-green-700">
+                                            Accept
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              const feedback = ask(`Feedback for ${sub.username}`)
+                                              if (!feedback) return
+                                              doAction(() => rejectMaSubAssigneeAction(task.id, assignee.username, sub.username, feedback))
+                                            }}
+                                            className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100"
+                                          >
+                                            Reject
+                                          </button>
+                                        </>
+                                      )}
+                                      {isDelegator && (
+                                        <button
+                                          onClick={() => {
+                                            if (!window.confirm(`Remove delegation for ${sub.username}?`)) return
+                                            doAction(() => removeMaDelegationAction(task.id, assignee.username, sub.username))
+                                          }}
+                                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                                        >
+                                          Remove
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
