@@ -67,7 +67,7 @@ import {
   updateMaSubAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
 
-type TabId = 'info' | 'history' | 'files' | 'share'
+type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 
 const STATUS_META: Record<string, { label: string; bg: string; text: string; dot: string }> = {
@@ -84,19 +84,19 @@ const PRIORITY_META: Record<string, { label: string; bg: string; text: string }>
   low: { label: 'Low', bg: 'bg-green-100', text: 'text-green-700' },
 }
 
-const EVT_META: Record<string, { label: string; iconBg: string; iconText: string }> = {
-  created: { label: 'Task Created', iconBg: 'bg-blue-100', iconText: 'text-blue-700' },
-  assigned: { label: 'Assigned', iconBg: 'bg-purple-100', iconText: 'text-purple-700' },
-  started: { label: 'In Progress', iconBg: 'bg-sky-100', iconText: 'text-sky-700' },
-  status_change: { label: 'Status Changed', iconBg: 'bg-slate-100', iconText: 'text-slate-700' },
-  completed: { label: 'Completed', iconBg: 'bg-green-100', iconText: 'text-green-700' },
-  completion_submitted: { label: 'Submitted For Approval', iconBg: 'bg-amber-100', iconText: 'text-amber-700' },
-  approved: { label: 'Approved', iconBg: 'bg-green-100', iconText: 'text-green-700' },
-  declined: { label: 'Declined', iconBg: 'bg-red-100', iconText: 'text-red-700' },
-  edit: { label: 'Task Edited', iconBg: 'bg-blue-100', iconText: 'text-blue-700' },
-  acknowledged: { label: 'Acknowledged', iconBg: 'bg-slate-100', iconText: 'text-slate-700' },
-  comment: { label: 'Comment Added', iconBg: 'bg-slate-100', iconText: 'text-slate-700' },
-  uncompleted: { label: 'Reopened', iconBg: 'bg-orange-100', iconText: 'text-orange-700' },
+const EVT_META: Record<string, { label: string; emoji: string; badgeBg: string; badgeText: string; chipBg: string; chipText: string }> = {
+  created: { label: 'Task Created', emoji: '✨', badgeBg: 'bg-blue-100', badgeText: 'text-blue-700', chipBg: 'bg-blue-50', chipText: 'text-blue-700' },
+  assigned: { label: 'Assigned', emoji: '👥', badgeBg: 'bg-violet-100', badgeText: 'text-violet-700', chipBg: 'bg-violet-50', chipText: 'text-violet-700' },
+  started: { label: 'In Progress', emoji: '🚀', badgeBg: 'bg-sky-100', badgeText: 'text-sky-700', chipBg: 'bg-sky-50', chipText: 'text-sky-700' },
+  status_change: { label: 'Status Changed', emoji: '🔄', badgeBg: 'bg-slate-100', badgeText: 'text-slate-700', chipBg: 'bg-slate-100', chipText: 'text-slate-700' },
+  completed: { label: 'Completed', emoji: '✅', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700', chipBg: 'bg-emerald-50', chipText: 'text-emerald-700' },
+  completion_submitted: { label: 'Submitted For Approval', emoji: '📨', badgeBg: 'bg-amber-100', badgeText: 'text-amber-700', chipBg: 'bg-amber-50', chipText: 'text-amber-700' },
+  approved: { label: 'Approved', emoji: '🎉', badgeBg: 'bg-green-100', badgeText: 'text-green-700', chipBg: 'bg-green-50', chipText: 'text-green-700' },
+  declined: { label: 'Declined', emoji: '⛔', badgeBg: 'bg-red-100', badgeText: 'text-red-700', chipBg: 'bg-red-50', chipText: 'text-red-700' },
+  edit: { label: 'Task Edited', emoji: '🛠️', badgeBg: 'bg-indigo-100', badgeText: 'text-indigo-700', chipBg: 'bg-indigo-50', chipText: 'text-indigo-700' },
+  acknowledged: { label: 'Acknowledged', emoji: '👋', badgeBg: 'bg-cyan-100', badgeText: 'text-cyan-700', chipBg: 'bg-cyan-50', chipText: 'text-cyan-700' },
+  comment: { label: 'Message Sent', emoji: '💬', badgeBg: 'bg-orange-100', badgeText: 'text-orange-700', chipBg: 'bg-orange-50', chipText: 'text-orange-700' },
+  uncompleted: { label: 'Reopened', emoji: '♻️', badgeBg: 'bg-orange-100', badgeText: 'text-orange-700', chipBg: 'bg-orange-50', chipText: 'text-orange-700' },
 }
 
 function fmtTs(ts: string) {
@@ -380,6 +380,8 @@ export function TaskDetailPage({
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
   const comments = t.history.filter((h: HistoryEntry) => h.type === 'comment')
   const historyEvents = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
+  const activityTimeline = [...historyEvents].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  const combinedTimeline = [...t.history].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const nextStep = nextStepLabel(t)
   const participants = getTaskParticipants(t)
   const assignedSummary = getAssignedSummary(t)
@@ -446,7 +448,105 @@ export function TaskDetailPage({
     { id: 'history' as const, label: `Activity${historyEvents.length ? ` (${historyEvents.length})` : ''}` },
     { id: 'files' as const, label: `Files${t.attachments.length ? ` (${t.attachments.length})` : ''}` },
     { id: 'share' as const, label: `Shared${t.shares.length ? ` (${t.shares.length})` : ''}` },
+    { id: 'timeline' as const, label: `Activity & Conversation${t.history.length ? ` (${t.history.length})` : ''}` },
   ]
+
+  const renderTimeline = (entries: HistoryEntry[], options?: { emptyText?: string; includeConversationHint?: boolean; showNextStep?: boolean }) => {
+    const emptyText = options?.emptyText ?? 'No activity yet.'
+
+    if (entries.length === 0 && !(options?.showNextStep && nextStep)) {
+      return (
+        <div className="py-16 text-center">
+          <Clock size={28} className="mx-auto mb-3 text-slate-200" />
+          <p className="text-sm text-slate-400">{emptyText}</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="relative pl-1">
+        <div className="absolute bottom-0 left-[21px] top-0 w-px bg-gradient-to-b from-blue-200 via-slate-200 to-transparent" />
+        {entries.map((entry, index) => {
+          const meta = EVT_META[entry.type] ?? { label: entry.type, emoji: '📝', badgeBg: 'bg-slate-100', badgeText: 'text-slate-700', chipBg: 'bg-slate-100', chipText: 'text-slate-700' }
+          const isComment = entry.type === 'comment'
+          const isLast = index === entries.length - 1 && !(options?.showNextStep && nextStep)
+
+          return (
+            <div key={`${entry.timestamp}-${index}`} className={cn('relative flex gap-4', isLast ? 'pb-0' : 'pb-5')}>
+              <div className="relative z-10 mt-0.5">
+                <UserAvatar username={entry.user} avatarUrl={t.participant_avatars?.[entry.user] ?? null} className="ring-4 ring-white shadow-sm" />
+                <span className={cn('absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-[10px] shadow-sm', meta.badgeBg, meta.badgeText)}>
+                  {meta.emoji}
+                </span>
+              </div>
+
+              <div className="min-w-0 flex-1 rounded-[26px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{entry.title ?? meta.label}</p>
+                      <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]', meta.chipBg, meta.chipText)}>
+                        {isComment ? 'Conversation' : 'Activity'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      <span className="font-semibold text-slate-700">{entry.user}</span>
+                      {' · '}
+                      {fmtTs(entry.timestamp)}
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-400">{formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })}</span>
+                </div>
+
+                {isComment ? (
+                  <div className="mt-3 rounded-[22px] border border-orange-100 bg-orange-50/70 px-4 py-3 text-sm leading-relaxed text-slate-700">
+                    {renderCommentWithMentions(entry.details)}
+                  </div>
+                ) : entry.details ? (
+                  <div className="mt-3 rounded-[22px] border border-slate-100 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
+                    {entry.details}
+                  </div>
+                ) : null}
+
+                {(entry.from && entry.to) || (entry.mention_users && entry.mention_users.length > 0) ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {entry.from && entry.to && (
+                      <>
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">{entry.from}</span>
+                        <span className="text-xs font-semibold text-slate-300">→</span>
+                        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">{entry.to}</span>
+                      </>
+                    )}
+                    {entry.mention_users?.map((username) => (
+                      <span key={`${entry.timestamp}-${username}`} className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-600">
+                        @{username}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {options?.includeConversationHint && isComment && (
+                  <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-orange-500">Task chat message</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {options?.showNextStep && nextStep && (
+          <div className="relative mt-1 flex gap-4">
+            <div className="relative z-10 mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-slate-300 bg-white text-sm shadow-sm">
+              ⏭️
+            </div>
+            <div className="min-w-0 flex-1 rounded-[24px] border border-dashed border-blue-200 bg-blue-50/60 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-700">{isPendingApproval ? 'Awaiting Approval' : t.task_status === 'in_progress' ? 'Next Step' : 'Pending Step'}</p>
+              <p className="mt-1 text-sm text-slate-500">{nextStep}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <>
@@ -787,61 +887,19 @@ export function TaskDetailPage({
                   </div>
 
                 <div className={activeTab === 'history' ? 'block' : 'hidden'}>
-                    {historyEvents.length === 0 && !nextStep ? (
-                      <div className="py-16 text-center">
-                        <Clock size={28} className="mx-auto mb-3 text-slate-200" />
-                        <p className="text-sm text-slate-400">No activity yet.</p>
+                  <div className="mb-4 rounded-[24px] border border-blue-100 bg-[linear-gradient(135deg,rgba(59,130,246,0.10),rgba(255,255,255,0.95))] px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">Activity Feed</p>
+                        <p className="mt-1 text-xs text-slate-500">Every task action in one clean audit trail with actors, timestamps, and state changes.</p>
                       </div>
-                    ) : (
-                      <div className="relative">
-                        <div className="absolute bottom-0 left-[19px] top-0 w-px bg-slate-200" />
-                        {historyEvents.map((entry, index) => {
-                          const meta = EVT_META[entry.type] ?? { label: entry.type, iconBg: 'bg-slate-100', iconText: 'text-slate-700' }
-                          const isLast = index === historyEvents.length - 1 && !nextStep
-                          return (
-                            <div key={`${entry.timestamp}-${index}`} className={cn('relative flex gap-4', isLast ? 'pb-0' : 'pb-5')}>
-                              <div className={cn('relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-white text-xs font-bold', meta.iconBg, meta.iconText)}>
-                                {entry.user.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0 flex-1 rounded-[24px] border border-slate-100 bg-white px-4 py-3 shadow-sm">
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-sm font-semibold text-slate-800">{entry.title ?? meta.label}</p>
-                                    <p className="mt-0.5 text-xs text-slate-500">
-                                      <span className="font-medium text-slate-700">{entry.user}</span>
-                                      {' · '}
-                                      {fmtTs(entry.timestamp)}
-                                    </p>
-                                  </div>
-                                  <span className="text-[11px] text-slate-400">{formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })}</span>
-                                </div>
-                                {entry.details && <p className="mt-2 border-t border-slate-100 pt-2 text-sm leading-relaxed text-slate-600">{entry.details}</p>}
-                                {entry.from && entry.to && (
-                                  <div className="mt-2 flex items-center gap-2 text-xs">
-                                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-500">{entry.from}</span>
-                                    <span className="text-slate-300">to</span>
-                                    <span className="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-600">{entry.to}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-
-                        {nextStep && (
-                          <div className="relative flex gap-4">
-                            <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-slate-300 bg-white">
-                              <div className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-                            </div>
-                            <div className="min-w-0 flex-1 rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
-                              <p className="text-sm font-semibold text-slate-500">{isPendingApproval ? 'Awaiting Approval' : t.task_status === 'in_progress' ? 'In Progress' : 'Pending'}</p>
-                              <p className="mt-1 text-sm text-slate-400">{nextStep}</p>
-                            </div>
-                          </div>
-                        )}
+                      <div className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-600 shadow-sm">
+                        {activityTimeline.length} actions
                       </div>
-                    )}
+                    </div>
                   </div>
+                  {renderTimeline(activityTimeline, { showNextStep: true })}
+                </div>
 
                 <div className={cn('space-y-4', activeTab === 'files' ? 'block' : 'hidden')}>
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
@@ -946,6 +1004,21 @@ export function TaskDetailPage({
                         ))}
                       </div>
                     )}
+                  </div>
+
+                <div className={cn('space-y-5', activeTab === 'timeline' ? 'block' : 'hidden')}>
+                    <div className="rounded-[24px] border border-orange-100 bg-[linear-gradient(135deg,rgba(249,115,22,0.10),rgba(255,255,255,0.96))] px-4 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Activity & Conversation</p>
+                          <p className="mt-1 text-xs text-slate-500">A full timeline of task actions, assignments, approvals, and chat messages in order.</p>
+                        </div>
+                        <div className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-600 shadow-sm">
+                          {combinedTimeline.length} events
+                        </div>
+                      </div>
+                    </div>
+                    {renderTimeline(combinedTimeline, { emptyText: 'No activity or conversation yet.', includeConversationHint: true, showNextStep: true })}
                   </div>
               </div>
             </section>
