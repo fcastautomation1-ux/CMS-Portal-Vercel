@@ -105,12 +105,18 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     )
   }, [])
 
+  const isTaskAssignedByOthersToUser = useCallback((task: Todo, username: string) => {
+    const userLower = username.toLowerCase()
+    if ((task.username || '').toLowerCase() === userLower) return false
+    return isTaskAssignedToUser(task, username)
+  }, [isTaskAssignedToUser])
+
   const extStats = useMemo(() => ({
     createdByMe: tasks.filter((t: Todo) => !t.archived && t.username.toLowerCase() === currentUsername.toLowerCase()).length,
     assignedToMe: tasks.filter((t: Todo) =>
-      !t.archived && isTaskAssignedToUser(t, currentUsername)
+      !t.archived && isTaskAssignedByOthersToUser(t, currentUsername)
     ).length,
-  }), [tasks, currentUsername, isTaskAssignedToUser])
+  }), [tasks, currentUsername, isTaskAssignedByOthersToUser])
 
   // ── Active KPI (computed from filter state — syncs all filters) ──────────────
   const activeKpi = useMemo(() => {
@@ -188,14 +194,14 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     const userLower = username.toLowerCase()
     if (task.archived) return false
     if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
-    if (scope === 'assigned_to_me') return isTaskAssignedToUser(task, username)
+    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username)
     return (
       task.username.toLowerCase() === userLower ||
       (task.completed_by || '').toLowerCase() === userLower ||
       isTaskAssignedToUser(task, username) ||
       isQueuedTaskForDepartmentUser(task, username)
     )
-  }, [isQueuedTaskForDepartmentUser, isTaskAssignedToUser])
+  }, [isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser])
 
   const scopedTasksForKpis = useMemo(
     () => tasks.filter((task) => matchesPersonalScope(task, quickFilter, effectiveUser)),
@@ -210,16 +216,6 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     return 'My Tasks'
   }, [quickFilter])
 
-  const scopeStatusCounts = useMemo(() => {
-    const now = new Date()
-    return {
-      all: scopedTasksForKpis.length,
-      completed: scopedTasksForKpis.filter((task) => task.completed || task.task_status === 'done').length,
-      pending: scopedTasksForKpis.filter((task) => !task.completed && task.task_status !== 'done' && !(task.due_date && new Date(task.due_date) < now)).length,
-      overdue: scopedTasksForKpis.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length,
-    }
-  }, [scopedTasksForKpis])
-
   const filteredTasks = useMemo(() => {
     const now = new Date()
     let list = [...tasks]
@@ -228,7 +224,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     if (quickFilter === 'created_by_me') {
       list = list.filter((t) => !t.archived && t.username.toLowerCase() === userLower)
     } else if (quickFilter === 'assigned_to_me') {
-      list = list.filter((t) => !t.archived && isTaskAssignedToUser(t, effectiveUser))
+      list = list.filter((t) => !t.archived && isTaskAssignedByOthersToUser(t, effectiveUser))
     } else if (quickFilter === 'my_pending') {
       list = list.filter((t) => {
         if (t.completed || t.archived) return false
@@ -334,7 +330,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedToUser])
+  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser])
 
   const bulkDelete = () => {
     startTransition(async () => {
@@ -432,21 +428,8 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
       <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <div className="grid gap-2 lg:grid-cols-[minmax(220px,260px)]">
-                <select
-                  value={quickFilter}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                    setQuickFilter(e.target.value as QuickFilter)
-                    setStatusFilter('all')
-                  }}
-                  className="w-full rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-medium text-[#3559d8] outline-none transition focus:border-[#6b7ff2] focus:ring-2 focus:ring-[#dfe6ff]"
-                >
-                  <option value="my_all">My Tasks</option>
-                  <option value="created_by_me">Task Created By Me</option>
-                  <option value="assigned_to_me">Assigned To Me</option>
-                </select>
-              </div>
+            <div className="flex min-w-0 flex-1 items-center">
+              <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
             </div>
 
             <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto">
@@ -499,29 +482,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
               ))}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {([
-                  { key: 'all', label: 'All Task', count: scopeStatusCounts.all },
-                  { key: 'completed', label: 'Complete', count: scopeStatusCounts.completed },
-                  { key: 'pending', label: 'Pending', count: scopeStatusCounts.pending },
-                  { key: 'overdue', label: 'Overdue', count: scopeStatusCounts.overdue },
-                ] as const).map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => setStatusFilter(item.key)}
-                    className={cn(
-                      'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition',
-                      statusFilter === item.key
-                        ? 'border-[#3559d8] bg-[#edf3ff] text-[#3559d8]'
-                        : 'border-[#d9e2f0] bg-white text-slate-600 hover:border-[#c4d3ef]'
-                    )}
-                  >
-                    <span>{item.label}</span>
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{item.count}</span>
-                  </button>
-                ))}
-                <span className="ml-2 text-xs font-semibold text-slate-400">{scopeLabel}</span>
-              </div>
+              <div className="flex flex-wrap items-center gap-2" />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 xl:justify-end">
