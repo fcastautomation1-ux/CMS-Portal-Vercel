@@ -5,6 +5,24 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Department } from '@/types'
 
+function replaceDepartmentInCsv(source: string, oldName: string, nextName: string) {
+  const oldKey = oldName.trim().toLowerCase()
+  if (!oldKey) return source
+
+  const values = source
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  const replaced = values.map((value) => (
+    value.toLowerCase() === oldKey ? nextName : value
+  ))
+
+  // de-duplicate while preserving order
+  const unique = Array.from(new Set(replaced))
+  return unique.join(', ')
+}
+
 export async function getDepartments(): Promise<Department[]> {
   const user = await getSession()
   if (!user) return []
@@ -25,8 +43,13 @@ export async function getDepartmentMembers(): Promise<Record<string, number>> {
   if (!data) return {}
   const counts: Record<string, number> = {}
   for (const row of data) {
-    const dept = (row as { department: string | null }).department
-    if (dept) counts[dept] = (counts[dept] || 0) + 1
+    const depts = ((row as { department: string | null }).department ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    for (const dept of depts) {
+      counts[dept] = (counts[dept] || 0) + 1
+    }
   }
   return counts
 }
@@ -37,9 +60,14 @@ export async function getDepartmentMembersWithNames(): Promise<Record<string, st
   if (!data) return {}
   const map: Record<string, string[]> = {}
   for (const row of data as Array<{ username: string; department: string | null }>) {
-    if (row.department) {
-      if (!map[row.department]) map[row.department] = []
-      map[row.department].push(row.username)
+    const depts = (row.department ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+
+    for (const dept of depts) {
+      if (!map[dept]) map[dept] = []
+      map[dept].push(row.username)
     }
   }
   return map
@@ -83,7 +111,26 @@ export async function saveDepartment(
 
     // Cascade rename in users + todos
     if (old && old.name !== normalizedName) {
-      await supabase.from('users').update({ department: normalizedName }).eq('department', old.name)
+      const { data: impactedUsers } = await supabase
+        .from('users')
+        .select('username,department')
+        .ilike('department', `%${old.name}%`)
+
+      const updates = ((impactedUsers ?? []) as Array<{ username: string; department: string | null }>)
+        .map((row) => {
+          const current = row.department ?? ''
+          const next = replaceDepartmentInCsv(current, old.name, normalizedName)
+          return { username: row.username, next }
+        })
+        .filter((row) => row.next !== ((impactedUsers ?? []) as Array<{ username: string; department: string | null }>).find(x => x.username === row.username)?.department)
+
+      for (const row of updates) {
+        await supabase
+          .from('users')
+          .update({ department: row.next || null })
+          .eq('username', row.username)
+      }
+
       await supabase.from('todos').update({ queue_department: normalizedName }).eq('queue_department', old.name)
     }
 
