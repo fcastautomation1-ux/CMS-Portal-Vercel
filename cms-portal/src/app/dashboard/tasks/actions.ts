@@ -317,7 +317,7 @@ export async function getTodos(): Promise<Todo[]> {
   const [{ data: allUsers }, { data: allDepartments }] = await Promise.all([
     supabase
       .from('users')
-      .select('username,manager_id,team_members,department'),
+      .select('username,manager_id,team_members,department,avatar_data'),
     supabase
       .from('departments')
       .select('name'),
@@ -335,9 +335,13 @@ export async function getTodos(): Promise<Todo[]> {
   }
 
   const userDeptMap: Record<string, string> = {}
+  const userAvatarMap: Record<string, string | null> = {}
   ;(allUsers || []).forEach((u: Record<string, unknown>) => {
     if (u.username && u.department) {
       userDeptMap[String(u.username).toLowerCase()] = mapDepartmentCsvToOfficial(String(u.department), canonicalToOfficial)
+    }
+    if (u.username) {
+      userAvatarMap[String(u.username)] = String(u.avatar_data || '').trim() || null
     }
   })
 
@@ -354,6 +358,13 @@ export async function getTodos(): Promise<Todo[]> {
       t.is_shared = sharedIds.has(t.id) || undefined
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
       t.assignee_department = userDeptMap[(t.assigned_to || '').toLowerCase()] || null
+      t.participant_avatars = Object.fromEntries(
+        Object.entries(userAvatarMap).filter(([username]) => {
+          const lower = username.toLowerCase()
+          return lower === String(t.username || '').toLowerCase() ||
+            lower === String(t.assigned_to || '').toLowerCase()
+        })
+      )
       return t
     })
   }
@@ -417,6 +428,20 @@ export async function getTodos(): Promise<Todo[]> {
       Object.assign(t, flags)
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
       t.assignee_department = userDeptMap[(t.assigned_to || '').toLowerCase()] || null
+      const participantUsernames = new Set<string>()
+      if (t.username) participantUsernames.add(String(t.username))
+      if (t.assigned_to) participantUsernames.add(String(t.assigned_to))
+      ;(t.assignment_chain || []).forEach((entry) => {
+        if (entry.user) participantUsernames.add(String(entry.user))
+      })
+      if (t.multi_assignment?.enabled) {
+        t.multi_assignment.assignees.forEach((entry) => {
+          if (entry.username) participantUsernames.add(String(entry.username))
+        })
+      }
+      t.participant_avatars = Object.fromEntries(
+        Array.from(participantUsernames).map((username) => [username, userAvatarMap[username] ?? null])
+      )
       allTasks.push(t)
       taskIds.add(t.id)
     }
@@ -2402,6 +2427,7 @@ export async function reassignTaskAction(
 export async function sendTaskToDepartmentQueueAction(
   todoId: string,
   department: string,
+  dueDate: string,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
@@ -2409,6 +2435,13 @@ export async function sendTaskToDepartmentQueueAction(
 
   const targetDepartment = String(department || '').trim()
   if (!targetDepartment) return { success: false, error: 'Department is required.' }
+  const targetDueDate = String(dueDate || '').trim()
+  if (!targetDueDate) return { success: false, error: 'Due date is required.' }
+
+  const parsedDueDate = new Date(targetDueDate)
+  if (Number.isNaN(parsedDueDate.getTime())) return { success: false, error: 'Invalid due date.' }
+  if (parsedDueDate.getTime() <= Date.now()) return { success: false, error: 'Due date must be in the future.' }
+  const dueIso = parsedDueDate.toISOString()
 
   const supabase = createServerClient()
   const { data: existing } = await supabase
@@ -2448,7 +2481,7 @@ export async function sendTaskToDepartmentQueueAction(
   history.push({
     type: 'assigned',
     user: user.username,
-    details: `${user.username} routed task to ${targetDepartment}${reason?.trim() ? `. Reason: ${reason.trim()}` : ''}`,
+    details: `${user.username} routed task to ${targetDepartment} with due date ${dueIso}${reason?.trim() ? `. Reason: ${reason.trim()}` : ''}`,
     timestamp: now,
     icon: '📤',
     title: 'Sent To Department Queue',
@@ -2461,6 +2494,9 @@ export async function sendTaskToDepartmentQueueAction(
     queue_status: 'queued',
     task_status: 'backlog',
     workflow_state: 'queued_for_department',
+    due_date: dueIso,
+    expected_due_date: dueIso,
+    actual_due_date: null,
     assignment_chain: JSON.stringify(assignmentChain),
     history: JSON.stringify(history),
     pending_approver: null,
@@ -2476,7 +2512,7 @@ export async function sendTaskToDepartmentQueueAction(
       userId: task.username as string,
       type: 'task_assigned',
       title: 'Task Sent To Department Queue',
-      body: `${user.username} routed "${task.title}" to ${targetDepartment}.`,
+      body: `${user.username} routed "${task.title}" to ${targetDepartment} with due date ${dueIso}.`,
       relatedId: todoId,
     })
   }
@@ -2505,6 +2541,15 @@ export async function convertTaskToMultiAssignmentAction(
 
   if (normalizedAssignees.length === 0) {
     return { success: false, error: 'Invalid assignee payload.' }
+  }
+  if (normalizedAssignees.some((entry) => !entry.actual_due_date)) {
+    return { success: false, error: 'Each assignee must have a due date.' }
+  }
+  if (normalizedAssignees.some((entry) => Number.isNaN(new Date(String(entry.actual_due_date)).getTime()))) {
+    return { success: false, error: 'One or more assignee due dates are invalid.' }
+  }
+  if (normalizedAssignees.some((entry) => new Date(String(entry.actual_due_date)).getTime() <= Date.now())) {
+    return { success: false, error: 'Assignee due dates must be in the future.' }
   }
 
   const supabase = createServerClient()

@@ -74,6 +74,7 @@ import {
 } from '@/app/dashboard/tasks/actions'
 
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
+const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 
 interface TaskDetailModalProps {
   taskId: string
@@ -286,6 +287,7 @@ export function TaskDetailModal({
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
   const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
+  const [highlightedAssignee, setHighlightedAssignee] = useState<string | null>(null)
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -305,6 +307,7 @@ export function TaskDetailModal({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
+  const assigneeRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const detailsQuery = useQuery({
     queryKey: queryKeys.taskDetail(taskId),
@@ -358,6 +361,27 @@ export function TaskDetailModal({
     })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (!details || typeof window === 'undefined') return
+    const raw = window.sessionStorage.getItem(TASK_WORKFLOW_FOCUS_KEY)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as { taskId?: string; target?: string }
+      if (parsed.taskId !== details.id || !parsed.target) return
+      if (!details.multi_assignment?.assignees?.some((entry) => entry.username === parsed.target)) return
+      setHighlightedAssignee(parsed.target)
+      window.sessionStorage.removeItem(TASK_WORKFLOW_FOCUS_KEY)
+      window.setTimeout(() => {
+        assigneeRefs.current[parsed.target!]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 150)
+      window.setTimeout(() => {
+        setHighlightedAssignee((current) => (current === parsed.target ? null : current))
+      }, 2600)
+    } catch {
+      window.sessionStorage.removeItem(TASK_WORKFLOW_FOCUS_KEY)
+    }
+  }, [details])
 
   useEffect(() => {
     if (!details) return
@@ -489,6 +513,9 @@ export function TaskDetailModal({
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const isCompleted = t.completed
   const ma = t.multi_assignment
+  const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
+  const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
+  const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
   const maProgress = (() => {
     if (!ma?.enabled || !Array.isArray(ma.assignees) || ma.assignees.length === 0) return t.completed ? 100 : 0
     if (t.completed) return 100
@@ -849,7 +876,7 @@ export function TaskDetailModal({
           {isAssignee && t.task_status === 'todo' && (
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
           )}
-          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && (
+          {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!t.assigned_to && !maEnabled && (
             <button
               onClick={() => setShowHandoffDialog(true)}
               className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
@@ -857,7 +884,7 @@ export function TaskDetailModal({
               Assign To Next
             </button>
           )}
-          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
+          {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && t.task_status !== 'backlog' && (
             <PrimaryBtn
               icon={<CheckCircle2 size={14}/>}
               label={isCreator ? 'Mark Complete' : 'Submit for Approval'}
@@ -995,7 +1022,16 @@ export function TaskDetailModal({
                     const pct = maProgress
                     const done = t.completed || a.status === 'completed' || a.status === 'accepted'
                     return (
-                      <div key={a.username} className="rounded-xl border border-cyan-100 bg-cyan-50 p-2.5">
+                      <div
+                        key={a.username}
+                        ref={(node) => {
+                          assigneeRefs.current[a.username] = node
+                        }}
+                        className={cn(
+                          'rounded-xl border border-cyan-100 bg-cyan-50 p-2.5 transition-all duration-500',
+                          highlightedAssignee === a.username && 'ring-2 ring-blue-300 shadow-[0_0_0_6px_rgba(59,130,246,0.12)]'
+                        )}
+                      >
                         <div className="flex items-center gap-3">
                         <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0',
                           done ? 'bg-green-500' : a.status === 'in_progress' ? 'bg-blue-500' : 'bg-slate-300')}>
@@ -1463,13 +1499,13 @@ export function TaskDetailModal({
         currentUsername={currentUsername}
         currentAssignee={t.assigned_to}
         onClose={() => setShowHandoffDialog(false)}
-        onAssignDepartment={(department, reason) => {
+        onAssignDepartment={(department, dueDate, reason) => {
           setShowHandoffDialog(false)
-          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, reason))
+          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, reason))
         }}
-        onAssignMulti={(usernames) => {
+        onAssignMulti={(assignees) => {
           setShowHandoffDialog(false)
-          void doAction(() => convertTaskToMultiAssignmentAction(t.id, usernames.map((username) => ({ username }))))
+          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees))
         }}
       />
       <ConfirmDialog

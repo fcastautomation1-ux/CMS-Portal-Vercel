@@ -303,6 +303,7 @@ export interface Todo {
   is_department_queue?: boolean
   creator_department?: string | null
   assignee_department?: string | null
+  participant_avatars?: Record<string, string | null>
 }
 
 export interface TodoShare {

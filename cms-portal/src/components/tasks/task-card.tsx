@@ -4,6 +4,7 @@ import { useState, useTransition, type ReactNode } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { UserAvatar } from '@/components/ui/user-avatar'
 import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
@@ -172,6 +173,145 @@ function ActBtn({ onClick, color, children }: { onClick: () => void; color: BtnC
   )
 }
 
+type WorkflowRailNode = {
+  key: string
+  label: string
+  tone: 'user' | 'department' | 'multi' | 'active'
+  avatarUrl?: string | null
+  title: string
+  subtitle?: string
+}
+
+const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
+
+function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
+  const nodes: WorkflowRailNode[] = []
+  const seen = new Set<string>()
+
+  const pushNode = (node: WorkflowRailNode) => {
+    if (seen.has(node.key)) return
+    seen.add(node.key)
+    nodes.push(node)
+  }
+
+  if (task.username) {
+    pushNode({
+      key: `creator:${task.username}`,
+      label: task.username,
+      tone: 'user',
+      avatarUrl: task.participant_avatars?.[task.username] ?? null,
+      title: `Created by ${task.username}`,
+      subtitle: 'Task creator',
+    })
+  }
+
+  ;(task.assignment_chain || []).forEach((entry, index) => {
+    if (entry.next_user) {
+      const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
+      pushNode({
+        key: `${index}:${entry.role}:${entry.next_user}`,
+        label: entry.next_user,
+        tone: isDepartmentStep ? 'department' : 'user',
+        avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[entry.next_user] ?? null),
+        title: isDepartmentStep
+          ? `${entry.user} routed to ${entry.next_user}`
+          : `${entry.user} assigned to ${entry.next_user}`,
+        subtitle: isDepartmentStep
+          ? `${entry.user} -> ${entry.next_user}`
+          : `${entry.user} -> ${entry.next_user}`,
+      })
+    }
+  })
+
+  if (task.queue_status === 'queued' && task.queue_department) {
+    pushNode({
+      key: `queue:${task.queue_department}`,
+      label: task.queue_department,
+      tone: 'department',
+      title: `Queued in ${task.queue_department}`,
+      subtitle: 'Waiting in department queue',
+    })
+  }
+
+  if (task.assigned_to) {
+    pushNode({
+      key: `assignee:${task.assigned_to}`,
+      label: task.assigned_to,
+      tone: task.task_status === 'in_progress' ? 'active' : 'user',
+      avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
+      title: `Currently assigned to ${task.assigned_to}`,
+      subtitle: task.task_status === 'in_progress' ? 'Current active owner' : 'Current assignee',
+    })
+  }
+
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    task.multi_assignment.assignees.forEach((entry) => {
+      pushNode({
+        key: `multi:${entry.username}`,
+        label: entry.username,
+        tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+        avatarUrl: task.participant_avatars?.[entry.username] ?? null,
+        title: `Multi-assigned to ${entry.username}`,
+        subtitle: `Multi-user step: ${entry.username}`,
+      })
+    })
+  }
+
+  return nodes.slice(0, 6)
+}
+
+function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
+  if (nodes.length === 0) return null
+
+  return (
+    <div className="hidden w-[72px] shrink-0 md:flex md:justify-center">
+      <div className="relative flex w-full justify-center">
+        <div className="absolute left-1/2 top-5 bottom-5 w-px -translate-x-1/2 bg-slate-200" />
+        <div className="relative z-10 flex flex-col items-center gap-3 py-3">
+          {nodes.map((node) => {
+            const ringCls =
+              node.tone === 'active'
+                ? 'ring-2 ring-blue-200'
+                : node.tone === 'department'
+                  ? 'ring-2 ring-emerald-100'
+                  : node.tone === 'multi'
+                    ? 'ring-2 ring-cyan-100'
+                    : 'ring-2 ring-white'
+
+            return (
+              <div key={node.key} className="group/rail relative flex flex-col items-center" title={node.title}>
+                <button type="button" onClick={() => onNodeClick(node)} className="flex flex-col items-center">
+                  <UserAvatar
+                    username={node.label}
+                    avatarUrl={node.avatarUrl}
+                    size="sm"
+                    className={cn(
+                      'shadow-sm transition-transform group-hover/rail:scale-105',
+                      node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
+                      node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
+                      node.tone === 'active' && 'bg-blue-100 text-blue-700',
+                      ringCls
+                    )}
+                  />
+                  <span className="mt-1 max-w-[64px] truncate text-center text-[10px] font-semibold text-slate-400">
+                    {node.label}
+                  </span>
+                </button>
+                <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
+                  <div className="text-xs font-semibold text-slate-900">{node.title}</div>
+                  {node.subtitle && (
+                    <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function TaskCard({
   task,
   currentUsername,
@@ -200,10 +340,22 @@ export function TaskCard({
 
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
+  const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
   const maDerivedProgress = maEnabled
     ? Math.round(((ma.assignees.filter((entry) => entry.status === 'accepted' || entry.status === 'completed').length) / ma.assignees.length) * 100)
     : 0
   const maProgress = isCompleted ? 100 : (ma?.completion_percentage ?? maDerivedProgress)
+  const earliestMaDue = maEnabled
+    ? ma.assignees
+        .map((entry) => entry.actual_due_date)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] ?? null
+    : null
+  const earliestMaDueOverdue =
+    !!earliestMaDue &&
+    maEnabled &&
+    ma.assignees.some((entry) => entry.actual_due_date === earliestMaDue && !['accepted', 'completed'].includes(entry.status || 'pending')) &&
+    isOverdue(earliestMaDue)
   const myMaEntry = maEnabled ? ma.assignees.find((a) => a.username.toLowerCase() === currentUsername.toLowerCase()) : undefined
   const delegatedEntry = maEnabled
     ? ma.assignees.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
@@ -212,7 +364,8 @@ export function TaskCard({
 
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
-  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
+  const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
+  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && task.task_status === 'in_progress'
   const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
@@ -221,7 +374,7 @@ export function TaskCard({
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
-  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled
+  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!task.assigned_to && !maEnabled
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
   const showMaDelegateBtn = !!myMaEntry && !isCompleted
@@ -240,12 +393,23 @@ export function TaskCard({
   const playPkg = packageNames.find((value) => value !== 'Others') ?? null
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
+  const workflowNodes = buildWorkflowRailNodes(task)
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
       const result = await fn()
       if (result.success) onRefresh()
     })
+  }
+
+  const handleWorkflowNodeClick = (node: WorkflowRailNode) => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(TASK_WORKFLOW_FOCUS_KEY, JSON.stringify({
+        taskId: task.id,
+        target: node.label,
+      }))
+    }
+    onViewDetail(task)
   }
 
   const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>) => {
@@ -359,6 +523,7 @@ export function TaskCard({
       <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
+        <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             {appNames.map((appName) => (
@@ -520,6 +685,26 @@ export function TaskCard({
                   <p className="mt-2 text-xs font-medium text-slate-600">
                     {maProgress}% complete across assigned users
                   </p>
+                  {earliestMaDue && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                        earliestMaDueOverdue
+                          ? 'border-red-200 bg-red-50 text-red-600'
+                          : 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                      )}>
+                        Earliest due {fmtShort(earliestMaDue)}
+                      </span>
+                      <span className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium',
+                        earliestMaDueOverdue
+                          ? 'border-red-200 bg-white text-red-500'
+                          : 'border-slate-200 bg-white text-slate-500'
+                      )}>
+                        {fmtTime(earliestMaDue)}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {showMa ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
               </button>
@@ -542,17 +727,26 @@ export function TaskCard({
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
                           <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
-                        </div>
-                        <div className="min-w-[94px] md:text-right">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Due</div>
-                          <div className={cn('text-xs font-semibold', assigneeOverdue ? 'text-red-500' : 'text-slate-700')}>
-                            {fmtMaDue(assigneeDueDate)}
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className={cn(
+                              'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+                              assigneeOverdue
+                                ? 'border-red-200 bg-red-50 text-red-600'
+                                : 'border-slate-200 bg-slate-50 text-slate-600'
+                            )}>
+                              Due {fmtMaDue(assigneeDueDate)}
+                            </span>
+                            {assigneeDueTime && (
+                              <span className={cn(
+                                'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                                assigneeOverdue
+                                  ? 'border-red-200 bg-red-50 text-red-500'
+                                  : 'border-slate-200 bg-white text-slate-500'
+                              )}>
+                                {assigneeDueTime}
+                              </span>
+                            )}
                           </div>
-                          {assigneeDueTime && (
-                            <div className={cn('text-[11px] font-medium', assigneeOverdue ? 'text-red-400' : 'text-slate-400')}>
-                              {assigneeDueTime}
-                            </div>
-                          )}
                         </div>
                         <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
                           {MA_LABEL[status] ?? status}
@@ -848,13 +1042,13 @@ export function TaskCard({
       currentUsername={currentUsername}
       currentAssignee={task.assigned_to}
       onClose={() => setShowHandoffDialog(false)}
-      onAssignDepartment={(department, reason) => {
+      onAssignDepartment={(department, dueDate, reason) => {
         setShowHandoffDialog(false)
-        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, reason))
+        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, reason))
       }}
-      onAssignMulti={(usernames) => {
+      onAssignMulti={(assignees) => {
         setShowHandoffDialog(false)
-        doAction(() => convertTaskToMultiAssignmentAction(task.id, usernames.map((username) => ({ username }))))
+        doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees))
       }}
     />
     <ConfirmDialog

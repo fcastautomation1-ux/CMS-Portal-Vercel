@@ -79,6 +79,7 @@ import {
 type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const MAX_PARALLEL_UPLOADS = 3
+const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
@@ -284,6 +285,7 @@ export function TaskDetailPage({
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
   const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
+  const [highlightedAssignee, setHighlightedAssignee] = useState<string | null>(null)
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
@@ -305,6 +307,7 @@ export function TaskDetailPage({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
+  const assigneeRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const detailsQuery = useQuery({
     queryKey: queryKeys.taskDetail(initialDetails.id),
@@ -366,6 +369,27 @@ export function TaskDetailPage({
     })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const raw = window.sessionStorage.getItem(TASK_WORKFLOW_FOCUS_KEY)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as { taskId?: string; target?: string }
+      if (parsed.taskId !== details.id || !parsed.target) return
+      if (!details.multi_assignment?.assignees?.some((entry) => entry.username === parsed.target)) return
+      setHighlightedAssignee(parsed.target)
+      window.sessionStorage.removeItem(TASK_WORKFLOW_FOCUS_KEY)
+      window.setTimeout(() => {
+        assigneeRefs.current[parsed.target!]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 150)
+      window.setTimeout(() => {
+        setHighlightedAssignee((current) => (current === parsed.target ? null : current))
+      }, 2600)
+    } catch {
+      window.sessionStorage.removeItem(TASK_WORKFLOW_FOCUS_KEY)
+    }
+  }, [details.id, details.multi_assignment])
 
   useEffect(() => {
     const scheduleRefresh = () => {
@@ -499,6 +523,9 @@ export function TaskDetailPage({
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const isCompleted = t.completed
   const ma = t.multi_assignment
+  const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
+  const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
+  const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
   const maProgress = t.completed
     ? 100
     : (ma?.completion_percentage ?? (
@@ -923,7 +950,7 @@ export function TaskDetailPage({
               {isAssignee && t.task_status === 'todo' && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
               )}
-              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && (
+              {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!t.assigned_to && !maEnabled && (
                 <button
                   onClick={() => setShowHandoffDialog(true)}
                   className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
@@ -931,7 +958,7 @@ export function TaskDetailPage({
                   Assign To Next
                 </button>
               )}
-              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
+              {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && t.task_status !== 'backlog' && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
                   label={isCreator ? 'Mark Complete' : 'Submit For Approval'}
@@ -1110,7 +1137,16 @@ export function TaskDetailPage({
                             const pct = maProgress
                             const done = t.completed || assignee.status === 'completed' || assignee.status === 'accepted'
                             return (
-                              <div key={assignee.username} className="rounded-[24px] border border-cyan-100 bg-cyan-50 px-4 py-3">
+                              <div
+                                key={assignee.username}
+                                ref={(node) => {
+                                  assigneeRefs.current[assignee.username] = node
+                                }}
+                                className={cn(
+                                  'rounded-[24px] border border-cyan-100 bg-cyan-50 px-4 py-3 transition-all duration-500',
+                                  highlightedAssignee === assignee.username && 'ring-2 ring-blue-300 shadow-[0_0_0_6px_rgba(59,130,246,0.12)]'
+                                )}
+                              >
                                 <div className="flex items-center gap-3">
                                   <div className={cn('flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white', done ? 'bg-green-500' : assignee.status === 'in_progress' ? 'bg-blue-500' : 'bg-slate-400')}>
                                     {assignee.username.charAt(0).toUpperCase()}
@@ -1619,13 +1655,13 @@ export function TaskDetailPage({
         currentUsername={currentUsername}
         currentAssignee={t.assigned_to}
         onClose={() => setShowHandoffDialog(false)}
-        onAssignDepartment={(department, reason) => {
+        onAssignDepartment={(department, dueDate, reason) => {
           setShowHandoffDialog(false)
-          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, reason))
+          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, reason))
         }}
-        onAssignMulti={(usernames) => {
+        onAssignMulti={(assignees) => {
           setShowHandoffDialog(false)
-          void doAction(() => convertTaskToMultiAssignmentAction(t.id, usernames.map((username) => ({ username }))))
+          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees))
         }}
       />
 

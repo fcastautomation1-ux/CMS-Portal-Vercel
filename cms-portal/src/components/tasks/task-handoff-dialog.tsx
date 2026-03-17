@@ -22,8 +22,8 @@ interface TaskHandoffDialogProps {
   currentUsername: string
   currentAssignee?: string | null
   onClose: () => void
-  onAssignDepartment: (department: string, reason?: string) => void
-  onAssignMulti: (usernames: string[]) => void
+  onAssignDepartment: (department: string, dueDate: string, reason?: string) => void
+  onAssignMulti: (assignees: Array<{ username: string; actual_due_date: string }>) => void
 }
 
 export function TaskHandoffDialog({
@@ -38,10 +38,12 @@ export function TaskHandoffDialog({
   const [departments, setDepartments] = useState<string[]>([])
   const [users, setUsers] = useState<AssignmentUser[]>([])
   const [selectedDepartment, setSelectedDepartment] = useState('')
+  const [dueDate, setDueDate] = useState('')
   const [reason, setReason] = useState('')
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+  const [userDueDates, setUserDueDates] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!open) return
@@ -59,10 +61,12 @@ export function TaskHandoffDialog({
   const resetState = () => {
     setMode('department')
     setSelectedDepartment('')
+    setDueDate('')
     setReason('')
     setSearch('')
     setDeptFilter('')
     setSelectedUsers([])
+    setUserDueDates({})
   }
 
   const handleClose = () => {
@@ -85,23 +89,46 @@ export function TaskHandoffDialog({
   }, [currentAssignee, currentUsername, deptFilter, search, users])
 
   const toggleUser = (username: string) => {
-    setSelectedUsers((current) =>
-      current.includes(username)
-        ? current.filter((item) => item !== username)
-        : [...current, username]
-    )
+    setSelectedUsers((current) => {
+      if (current.includes(username)) {
+        setUserDueDates((existing) => {
+          const next = { ...existing }
+          delete next[username]
+          return next
+        })
+        return current.filter((item) => item !== username)
+      }
+
+      setUserDueDates((existing) => ({
+        ...existing,
+        [username]: existing[username] || dueDate || '',
+      }))
+      return [...current, username]
+    })
+  }
+
+  const updateUserDueDate = (username: string, value: string) => {
+    setUserDueDates((current) => ({
+      ...current,
+      [username]: value,
+    }))
   }
 
   const submit = () => {
     if (mode === 'department') {
-      if (!selectedDepartment) return
+      if (!selectedDepartment || !dueDate) return
       resetState()
-      onAssignDepartment(selectedDepartment, reason.trim() || undefined)
+      onAssignDepartment(selectedDepartment, dueDate, reason.trim() || undefined)
       return
     }
     if (selectedUsers.length === 0) return
+    const assignees = selectedUsers.map((username) => ({
+      username,
+      actual_due_date: userDueDates[username] || '',
+    }))
+    if (assignees.some((entry) => !entry.actual_due_date)) return
     resetState()
-    onAssignMulti(selectedUsers)
+    onAssignMulti(assignees)
   }
 
   if (!open) return null
@@ -163,7 +190,7 @@ export function TaskHandoffDialog({
 
           {mode === 'department' ? (
             <div className="rounded-[24px] border border-emerald-100 bg-white px-5 py-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-              <div className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
+              <div className="grid gap-4 md:grid-cols-[1.05fr_0.95fr]">
                 <label className="block">
                   <span className="mb-2 block text-sm font-semibold text-slate-700">Department Queue</span>
                   <select
@@ -180,6 +207,16 @@ export function TaskHandoffDialog({
                   </select>
                 </label>
                 <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">Due Date</span>
+                  <input
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    type="datetime-local"
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="block md:col-span-2">
                   <span className="mb-2 block text-sm font-semibold text-slate-700">Reason (optional)</span>
                   <textarea
                     value={reason}
@@ -193,7 +230,7 @@ export function TaskHandoffDialog({
             </div>
           ) : (
             <div className="rounded-[24px] border border-cyan-100 bg-white px-5 py-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row">
+              <div className="mb-4 grid gap-3 md:grid-cols-[1fr_220px]">
                 <label className="relative block flex-1">
                   <Search size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -218,16 +255,29 @@ export function TaskHandoffDialog({
               </div>
 
               {selectedUsers.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2">
+                <div className="mb-4 space-y-3 rounded-[20px] border border-cyan-100 bg-cyan-50/50 p-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Selected Assignees</div>
                   {selectedUsers.map((username) => (
-                    <button
-                      key={username}
-                      type="button"
-                      onClick={() => toggleUser(username)}
-                      className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
-                    >
-                      {username} x
-                    </button>
+                    <div key={username} className="grid gap-3 rounded-2xl border border-cyan-100 bg-white p-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900">{username}</div>
+                        <div className="mt-1 text-xs text-slate-500">Set an individual due date for this assignee.</div>
+                      </div>
+                      <input
+                        value={userDueDates[username] || ''}
+                        onChange={(e) => updateUserDueDate(username, e.target.value)}
+                        type="datetime-local"
+                        min={new Date().toISOString().slice(0, 16)}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleUser(username)}
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -277,11 +327,11 @@ export function TaskHandoffDialog({
           <button
             type="button"
             onClick={submit}
-            disabled={mode === 'department' ? !selectedDepartment : selectedUsers.length === 0}
+            disabled={mode === 'department' ? (!selectedDepartment || !dueDate) : (selectedUsers.length === 0 || selectedUsers.some((username) => !userDueDates[username]))}
             className={cn(
               'rounded-2xl px-5 py-2.5 text-sm font-semibold text-white transition',
               mode === 'department' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700',
-              (mode === 'department' ? !selectedDepartment : selectedUsers.length === 0) && 'cursor-not-allowed opacity-50'
+              (mode === 'department' ? (!selectedDepartment || !dueDate) : (selectedUsers.length === 0 || selectedUsers.some((username) => !userDueDates[username]))) && 'cursor-not-allowed opacity-50'
             )}
           >
             {mode === 'department' ? 'Send to Department' : `Assign ${selectedUsers.length || ''}`.trim()}
