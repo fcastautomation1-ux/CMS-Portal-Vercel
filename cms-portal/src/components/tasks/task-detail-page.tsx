@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Paperclip,
   PlayCircle,
+  RotateCcw,
   Send,
   Tag,
   Target,
@@ -285,6 +286,7 @@ export function TaskDetailPage({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState<{ id: string; name: string } | null>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
+  const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ progress: number; fileName: string; currentFile: number; totalFiles: number; stage: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
@@ -889,6 +891,15 @@ export function TaskDetailPage({
                     }
                     doAction(() => toggleTodoCompleteAction(t.id, true))
                   }}
+                  loading={isPending}
+                />
+              )}
+              {isCreator && isCompleted && (
+                <PrimaryBtn
+                  icon={<RotateCcw size={14} />}
+                  label="Reopen Task"
+                  color="amber"
+                  onClick={() => setShowCreatorReopenConfirm(true)}
                   loading={isPending}
                 />
               )}
@@ -1550,6 +1561,20 @@ export function TaskDetailPage({
         }}
       />
       <ConfirmDialog
+        open={showCreatorReopenConfirm}
+        title="Reopen this task?"
+        description="Only the task creator can reopen a completed task. This will move the task back to in-progress."
+        confirmLabel={isPending ? 'Reopening...' : 'Reopen task'}
+        onCancel={() => {
+          if (isPending) return
+          setShowCreatorReopenConfirm(false)
+        }}
+        onConfirm={() => {
+          void doAction(() => toggleTodoCompleteAction(t.id, false))
+          setShowCreatorReopenConfirm(false)
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(pendingAttachmentDelete)}
         title={pendingAttachmentDelete ? `Delete "${pendingAttachmentDelete.name}"?` : 'Delete attachment?'}
         description="This file will be removed from this task."
@@ -1680,7 +1705,7 @@ function PrimaryBtn({
 }: {
   icon: ReactNode
   label: string
-  color: 'blue' | 'green' | 'red'
+  color: 'blue' | 'green' | 'red' | 'amber'
   onClick: () => void
   loading?: boolean
 }) {
@@ -1688,6 +1713,7 @@ function PrimaryBtn({
     blue: 'bg-blue-600 text-white hover:bg-blue-700',
     green: 'bg-green-600 text-white hover:bg-green-700',
     red: 'border border-red-200 bg-red-50 text-red-600 hover:bg-red-100',
+    amber: 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
   }
 
   return (

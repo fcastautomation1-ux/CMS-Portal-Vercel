@@ -179,6 +179,7 @@ export function TaskCard({
   const [showMa, setShowMa] = useState(true)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
+  const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
 
@@ -202,6 +203,7 @@ export function TaskCard({
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
+  const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isCreator && isPendingApproval
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
   const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
@@ -213,7 +215,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
@@ -432,6 +434,16 @@ export function TaskCard({
                   color="green"
                 >
                   Complete
+                </ActBtn>
+              )}
+              {showReopenBtn && (
+                <ActBtn
+                  onClick={() => {
+                    setShowCreatorReopenConfirm(true)
+                  }}
+                  color="amber"
+                >
+                  Reopen Task
                 </ActBtn>
               )}
               {showApproveBtn && (
@@ -766,6 +778,20 @@ export function TaskCard({
       onConfirm={() => {
         doAction(() => toggleTodoCompleteAction(task.id, true))
         setShowCreatorCompleteConfirm(false)
+      }}
+    />
+    <ConfirmDialog
+      open={showCreatorReopenConfirm}
+      title="Reopen this task?"
+      description="Only the task creator can reopen a completed task. This will move the task back to in-progress."
+      confirmLabel={isPending ? 'Reopening...' : 'Reopen task'}
+      onCancel={() => {
+        if (isPending) return
+        setShowCreatorReopenConfirm(false)
+      }}
+      onConfirm={() => {
+        doAction(() => toggleTodoCompleteAction(task.id, false))
+        setShowCreatorReopenConfirm(false)
       }}
     />
     </>
