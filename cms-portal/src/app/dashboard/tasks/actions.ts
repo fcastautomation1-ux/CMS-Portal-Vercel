@@ -33,8 +33,19 @@ async function resolveAttachmentUrl(
   supabase: ReturnType<typeof createServerClient>,
   row: TodoAttachment
 ): Promise<TodoAttachment> {
-  const storagePath = String(row.drive_file_id || '').trim()
-  if (!storagePath) return row
+  const rawFileUrl = String(row.file_url || '').trim()
+  const storagePath = getAttachmentStoragePath(row as unknown as Record<string, unknown>)
+
+  if (!storagePath) {
+    const legacyDriveId = String(row.drive_file_id || '').trim()
+    if (legacyDriveId && !/^https?:\/\//i.test(legacyDriveId) && !legacyDriveId.includes('/')) {
+      return {
+        ...row,
+        file_url: `https://drive.google.com/uc?id=${encodeURIComponent(legacyDriveId)}`,
+      }
+    }
+    return row
+  }
 
   const { data } = await supabase.storage
     .from(CMS_STORAGE_BUCKET)
@@ -46,6 +57,18 @@ async function resolveAttachmentUrl(
     ...row,
     file_url: data.signedUrl,
   }
+}
+
+function getAttachmentStoragePath(row: Record<string, unknown>): string {
+  const storagePath = String(row.storage_path || '').trim()
+  if (storagePath && storagePath.includes('/')) return storagePath
+
+  const driveFileId = String(row.drive_file_id || '').trim()
+  if (driveFileId && driveFileId.includes('/')) return driveFileId
+
+  const fileUrl = String(row.file_url || '').trim()
+  if (!fileUrl || /^https?:\/\//i.test(fileUrl) || !fileUrl.includes('/')) return ''
+  return fileUrl
 }
 
 function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
@@ -93,6 +116,18 @@ function extractMentionedUsernames(message: string, candidates: string[]): strin
   }
 
   return mentions
+}
+
+const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
+
+function canModifyComment(entry: HistoryEntry, username: string): boolean {
+  if (entry.type !== 'comment') return false
+  if ((entry.user || '').toLowerCase() !== username.toLowerCase()) return false
+  if (entry.is_deleted) return false
+
+  const sentAt = new Date(entry.timestamp).getTime()
+  if (Number.isNaN(sentAt)) return false
+  return Date.now() - sentAt <= COMMENT_EDIT_WINDOW_MS
 }
 
 function touchMultiAssignmentProgress(ma: MultiAssignment) {
@@ -715,6 +750,20 @@ export async function deleteTodoAction(todoId: string): Promise<{ success: boole
   if ((t.username as string) !== user.username) return { success: false, error: 'Cannot delete this task — not yours.' }
   if (t.completed === true) return { success: false, error: 'Completed tasks cannot be deleted.' }
 
+  const { data: attachments } = await supabase
+    .from('todo_attachments')
+    .select('*')
+    .eq('todo_id', todoId)
+
+  const storagePaths = ((attachments || []) as Record<string, unknown>[])
+    .map((row) => getAttachmentStoragePath(row))
+    .filter(Boolean)
+
+  if (storagePaths.length > 0) {
+    await supabase.storage.from(CMS_STORAGE_BUCKET).remove(storagePaths)
+  }
+
+  await supabase.from('todo_attachments').delete().eq('todo_id', todoId)
   await supabase.from('todos').delete().eq('id', todoId)
   await supabase.from('todo_shares').delete().eq('todo_id', todoId)
 
@@ -1110,6 +1159,124 @@ export async function addCommentAction(
   return { success: true }
 }
 
+export async function editTodoCommentAction(
+  todoId: string,
+  messageId: string,
+  message: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!message.trim()) return { success: false, error: 'Message cannot be empty.' }
+
+  const supabase = createServerClient()
+  const [existingRes, sharesRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('username,assigned_to,manager_id,history,multi_assignment')
+      .eq('id', todoId)
+      .single(),
+    supabase.from('todo_shares').select('shared_with').eq('todo_id', todoId),
+  ])
+
+  const existing = existingRes.data
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const commentIndex = history.findIndex((entry) => entry.message_id === messageId)
+  if (commentIndex === -1) return { success: false, error: 'Message not found.' }
+
+  const currentComment = history[commentIndex]
+  if (!canModifyComment(currentComment, user.username)) {
+    return { success: false, error: 'You can edit your own message only within 10 minutes.' }
+  }
+
+  const candidateMentions = new Set<string>()
+  if (task.username) candidateMentions.add(String(task.username))
+  if (task.assigned_to) candidateMentions.add(String(task.assigned_to))
+  if (task.manager_id) {
+    String(task.manager_id)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => candidateMentions.add(value))
+  }
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  multiAssignment?.assignees?.forEach((assignee) => {
+    if (assignee.username) candidateMentions.add(assignee.username)
+  })
+  ;(sharesRes.data || []).forEach((share: Record<string, unknown>) => {
+    if (share.shared_with) candidateMentions.add(String(share.shared_with))
+  })
+
+  const mentionUsers = extractMentionedUsernames(message, Array.from(candidateMentions))
+  const unreadBy = mentionUsers.filter((username) => username !== user.username)
+  const now = new Date().toISOString()
+
+  history[commentIndex] = {
+    ...currentComment,
+    details: message.trim(),
+    mention_users: mentionUsers,
+    unread_by: unreadBy,
+    read_by: Array.from(new Set([...(currentComment.read_by || []), user.username])),
+    edited_at: now,
+  }
+
+  const { error } = await supabase.from('todos').update({
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+export async function deleteTodoCommentAction(
+  todoId: string,
+  messageId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('history')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const history = parseJson<HistoryEntry[]>((existing as Record<string, unknown>).history, [])
+  const commentIndex = history.findIndex((entry) => entry.message_id === messageId)
+  if (commentIndex === -1) return { success: false, error: 'Message not found.' }
+
+  const currentComment = history[commentIndex]
+  if (!canModifyComment(currentComment, user.username)) {
+    return { success: false, error: 'You can delete your own message only within 10 minutes.' }
+  }
+
+  const now = new Date().toISOString()
+  history[commentIndex] = {
+    ...currentComment,
+    details: 'This message was deleted.',
+    mention_users: [],
+    unread_by: [],
+    is_deleted: true,
+    deleted_at: now,
+    edited_at: undefined,
+  }
+
+  const { error } = await supabase.from('todos').update({
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
 // ── Share task ────────────────────────────────────────────────────────────────
 
 export async function shareTodoAction(
@@ -1189,7 +1356,7 @@ export async function saveTodoAttachmentAction(input: {
   const [existingRes, sharesRes] = await Promise.all([
     supabase
       .from('todos')
-      .select('id,username,assigned_to,manager_id,multi_assignment')
+      .select('id,username,assigned_to,manager_id,multi_assignment,completed')
       .eq('id', input.todo_id)
       .single(),
     supabase.from('todo_shares').select('shared_with').eq('todo_id', input.todo_id),
@@ -1218,6 +1385,10 @@ export async function saveTodoAttachmentAction(input: {
     user.role === 'Admin' ||
     user.role === 'Super Manager'
 
+  if (task.completed === true) {
+    return { success: false, error: 'Completed tasks are locked for attachment changes.' }
+  }
+
   if (!canAttach) {
     return { success: false, error: 'No permission to attach files.' }
   }
@@ -1228,7 +1399,7 @@ export async function saveTodoAttachmentAction(input: {
     file_size: input.file_size ?? null,
     mime_type: input.mime_type ?? null,
     file_url: input.file_url || input.storage_path || '',
-    drive_file_id: input.storage_path || null,
+    storage_path: input.storage_path || null,
     uploaded_by: user.username,
   })
 
@@ -1250,7 +1421,7 @@ export async function createTaskAttachmentUploadUrlAction(input: {
   const [existingRes, sharesRes] = await Promise.all([
     supabase
       .from('todos')
-      .select('id,username,assigned_to,manager_id,multi_assignment')
+      .select('id,username,assigned_to,manager_id,multi_assignment,completed')
       .eq('id', input.todo_id)
       .single(),
     supabase.from('todo_shares').select('shared_with').eq('todo_id', input.todo_id),
@@ -1277,6 +1448,10 @@ export async function createTaskAttachmentUploadUrlAction(input: {
     user.role === 'Admin' ||
     user.role === 'Super Manager'
 
+  if (task.completed === true) {
+    return { success: false, error: 'Completed tasks are locked for attachment changes.' }
+  }
+
   if (!canAttach) {
     return { success: false, error: 'No permission to attach files.' }
   }
@@ -1301,6 +1476,51 @@ export async function createTaskAttachmentUploadUrlAction(input: {
     path,
     token: data.token,
   }
+}
+
+export async function deleteTodoAttachmentAction(
+  todoId: string,
+  attachmentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const [taskRes, attachmentRes] = await Promise.all([
+    supabase.from('todos').select('id,username,completed').eq('id', todoId).single(),
+    supabase.from('todo_attachments').select('*').eq('id', attachmentId).eq('todo_id', todoId).single(),
+  ])
+
+  if (!taskRes.data) return { success: false, error: 'Task not found.' }
+  if (!attachmentRes.data) return { success: false, error: 'Attachment not found.' }
+
+  const task = taskRes.data as Record<string, unknown>
+  const attachment = attachmentRes.data as Record<string, unknown>
+
+  if (task.completed === true) {
+    return { success: false, error: 'Completed tasks are locked. Attachments cannot be removed.' }
+  }
+
+  const canDelete =
+    String(task.username || '') === user.username ||
+    String(attachment.uploaded_by || '') === user.username ||
+    user.role === 'Admin' ||
+    user.role === 'Super Manager'
+
+  if (!canDelete) {
+    return { success: false, error: 'Only the uploader, task creator, or admin can remove this attachment.' }
+  }
+
+  const storagePath = getAttachmentStoragePath(attachment)
+  if (storagePath) {
+    await supabase.storage.from(CMS_STORAGE_BUCKET).remove([storagePath])
+  }
+
+  const { error } = await supabase.from('todo_attachments').delete().eq('id', attachmentId).eq('todo_id', todoId)
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
 }
 
 export async function getTodoDetails(todoId: string): Promise<TodoDetails | null> {

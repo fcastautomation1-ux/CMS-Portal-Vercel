@@ -57,12 +57,16 @@ import {
   unshareTodoAction,
   deleteTodoAction,
   createTaskAttachmentUploadUrlAction,
+  deleteTodoCommentAction,
+  editTodoCommentAction,
   getUsersForAssignment,
   saveTodoAttachmentAction,
   archiveTodoAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
+
+const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 
 interface TaskDetailModalProps {
   taskId: string
@@ -235,6 +239,8 @@ export function TaskDetailModal({
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentText, setEditingCommentText] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
@@ -415,6 +421,36 @@ export function TaskDetailModal({
   }
 
   const ask = (message: string) => window.prompt(message)?.trim() ?? ''
+
+  const canManageComment = (entry: HistoryEntry) => {
+    if (entry.type !== 'comment' || entry.is_deleted) return false
+    if ((entry.user || '').toLowerCase() !== currentUsername.toLowerCase()) return false
+    const sentAt = new Date(entry.timestamp).getTime()
+    if (Number.isNaN(sentAt)) return false
+    return Date.now() - sentAt <= COMMENT_EDIT_WINDOW_MS
+  }
+
+  const startEditingComment = (entry: HistoryEntry) => {
+    if (!entry.message_id || !canManageComment(entry)) return
+    setEditingCommentId(entry.message_id)
+    setEditingCommentText(entry.details)
+  }
+
+  const cancelEditingComment = () => {
+    setEditingCommentId(null)
+    setEditingCommentText('')
+  }
+
+  const saveEditedComment = (entry: HistoryEntry) => {
+    if (!entry.message_id || !editingCommentText.trim()) return
+    doAction(() => editTodoCommentAction(t.id, entry.message_id!, editingCommentText.trim()))
+    cancelEditingComment()
+  }
+
+  const deleteComment = (entry: HistoryEntry) => {
+    if (!entry.message_id) return
+    doAction(() => deleteTodoCommentAction(t.id, entry.message_id!))
+  }
 
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionSuggestions.length > 0) {
@@ -764,19 +800,49 @@ export function TaskDetailModal({
                 )}
                 {comments.map((c, i) => {
                   const isMe = c.user === currentUsername
+                  const canManage = canManageComment(c)
+                  const isEditing = editingCommentId === c.message_id
                   return (
                     <div key={i} className={cn('flex gap-2.5', isMe ? 'flex-row-reverse' : '')}>
                       <UserAvatar username={c.user} avatarUrl={t.participant_avatars?.[c.user] ?? null} size="sm" className={cn('mt-0.5', isMe ? 'bg-blue-100 text-blue-700' : '')} />
                       <div className={cn('max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
-                        {c.mention_users && c.mention_users.length > 0 && (
+                        {c.mention_users && c.mention_users.length > 0 && !c.is_deleted && (
                           <div className={cn('mb-1 text-[10px] font-semibold uppercase tracking-[0.14em]', isMe ? 'text-blue-200 text-right' : 'text-orange-500')}>
                             For {c.mention_users.map((username) => `@${username}`).join(', ')}
                           </div>
                         )}
                         <div className={cn('px-3.5 py-2.5 rounded-2xl text-sm text-slate-800 shadow-sm',
-                          isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-100 rounded-tl-sm')}>
-                          {renderCommentWithMentions(c.details)}
+                          isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-100 rounded-tl-sm', c.is_deleted && 'bg-slate-200 text-slate-500')}>
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={editingCommentText}
+                                onChange={(e) => setEditingCommentText(e.target.value)}
+                                rows={3}
+                                className="w-full resize-none rounded-2xl border border-white/40 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-none"
+                              />
+                              <div className="flex justify-end gap-2">
+                                <button onClick={cancelEditingComment} className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">Cancel</button>
+                                <button onClick={() => saveEditedComment(c)} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">Save</button>
+                              </div>
+                            </div>
+                          ) : c.is_deleted ? (
+                            <span className="italic">This message was deleted.</span>
+                          ) : (
+                            renderCommentWithMentions(c.details)
+                          )}
                         </div>
+                        {!isEditing && (canManage || c.edited_at) && (
+                          <div className={cn('mt-1 flex items-center gap-2 px-1 text-[10px]', isMe ? 'justify-end' : 'justify-start')}>
+                            {c.edited_at && !c.is_deleted && <span className="text-slate-400">edited</span>}
+                            {canManage && !c.is_deleted && (
+                              <>
+                                <button onClick={() => startEditingComment(c)} className="font-semibold text-blue-500 hover:text-blue-600">Edit</button>
+                                <button onClick={() => deleteComment(c)} className="font-semibold text-red-500 hover:text-red-600">Delete</button>
+                              </>
+                            )}
+                          </div>
+                        )}
                         <div className={cn('text-[10px] text-slate-400 mt-1 px-1', isMe ? 'text-right' : '')}>
                           {c.user} · {formatDistanceToNow(new Date(c.timestamp), { addSuffix: true })}
                         </div>
@@ -825,6 +891,7 @@ export function TaskDetailModal({
                       ))}
                     </div>
                   )}
+                  <p className="mt-2 px-1 text-[11px] text-slate-400">You can edit or delete only your own message within 10 minutes of sending it.</p>
                 </div>
                 <button
                   onClick={() => { if (comment.trim()) { doAction(() => addCommentAction(t.id, comment.trim())); setComment(''); setMentionIndex(0) } }}

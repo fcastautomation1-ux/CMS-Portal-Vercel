@@ -340,6 +340,7 @@ export type Database = {
           file_size: number | null
           mime_type: string | null
           file_url: string
+          storage_path: string | null
           drive_file_id: string | null
           uploaded_by: string
           created_at: string
@@ -351,6 +352,7 @@ export type Database = {
           file_size?: number | null
           mime_type?: string | null
           file_url: string
+          storage_path?: string | null
           drive_file_id?: string | null
           uploaded_by: string
           created_at?: string
@@ -362,6 +364,7 @@ export type Database = {
           file_size?: number | null
           mime_type?: string | null
           file_url?: string
+          storage_path?: string | null
           drive_file_id?: string | null
           uploaded_by?: string
           created_at?: string

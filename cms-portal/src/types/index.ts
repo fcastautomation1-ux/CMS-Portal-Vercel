@@ -185,6 +185,9 @@ export interface HistoryEntry {
   read_by?: string[]
   message_id?: string
   mention_users?: string[]
+  edited_at?: string
+  deleted_at?: string
+  is_deleted?: boolean
 }
 
 export interface AssignmentChainEntry {
@@ -292,6 +295,7 @@ export interface TodoAttachment {
   file_size: number | null
   mime_type: string | null
   file_url: string
+  storage_path?: string | null
   drive_file_id: string | null
   uploaded_by: string
   created_at: string
