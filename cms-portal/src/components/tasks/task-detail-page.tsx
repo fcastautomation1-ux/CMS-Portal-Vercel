@@ -39,6 +39,7 @@ import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import { CreateTaskModal } from './create-task-modal'
 import {
@@ -164,6 +165,21 @@ function splitDepartments(value: string | null | undefined): string[] {
     .filter(Boolean)
 }
 
+function clearCurrentUserUnreadFlags(entry: HistoryEntry, username: string): HistoryEntry {
+  if (entry.type !== 'comment' || entry.is_deleted) return entry
+
+  const unreadBy = Array.isArray(entry.unread_by)
+    ? entry.unread_by.filter((value) => String(value).toLowerCase() !== username.toLowerCase())
+    : []
+  const readBy = Array.from(new Set([...(entry.read_by || []), username]))
+
+  return {
+    ...entry,
+    unread_by: unreadBy,
+    read_by: readBy,
+  }
+}
+
 function getDepartmentSummary(task: TodoDetails) {
   const departments = new Set<string>()
 
@@ -266,6 +282,9 @@ export function TaskDetailPage({
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
+  const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState<{ id: string; name: string } | null>(null)
+  const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ progress: number; fileName: string; currentFile: number; totalFiles: number; stage: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
@@ -305,6 +324,28 @@ export function TaskDetailPage({
     queryClient.setQueryData(queryKeys.taskDetail(details.id), updated)
     router.refresh()
   }, [details.id, queryClient, router])
+
+  const markCommentsReadLocally = useCallback(() => {
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(details.id), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
+      }
+    })
+
+    queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (prev) => {
+      if (!prev) return prev
+      return prev.map((task) =>
+        task.id !== details.id
+          ? task
+          : {
+              ...task,
+              history: task.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
+            }
+      )
+    })
+  }, [currentUsername, details.id, queryClient])
 
   useEffect(() => {
     let cancelled = false
@@ -445,6 +486,13 @@ export function TaskDetailPage({
   const isPendingApproval = t.approval_status === 'pending_approval'
   const isCompleted = t.completed
   const ma = t.multi_assignment
+  const maProgress = t.completed
+    ? 100
+    : (ma?.completion_percentage ?? (
+      ma?.assignees?.length
+        ? Math.round((ma.assignees.filter((entry) => entry.status === 'accepted' || entry.status === 'completed').length / ma.assignees.length) * 100)
+        : 0
+    ))
   const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
   const delegatedOwner = ma?.assignees?.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
   const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
@@ -468,8 +516,9 @@ export function TaskDetailPage({
       Array.isArray(entry.unread_by) && entry.unread_by.some((username) => username.toLowerCase() === currentUsername.toLowerCase())
     )
     if (!hasUnreadComments) return
+    markCommentsReadLocally()
     void markTaskCommentsReadAction(t.id)
-  }, [comments, currentUsername, t.id])
+  }, [comments, currentUsername, markCommentsReadLocally, t.id])
 
   const insertMention = (username: string) => {
     const textarea = commentInputRef.current
@@ -631,6 +680,21 @@ export function TaskDetailPage({
   const deleteComment = (entry: HistoryEntry) => {
     if (!entry.message_id) return
     openTaskDialog({ type: 'delete-comment', messageId: entry.message_id })
+  }
+
+  const confirmDeleteAttachment = async () => {
+    if (!pendingAttachmentDelete) return
+    setActionError('')
+    setDeletingAttachmentId(pendingAttachmentDelete.id)
+    const res = await deleteTodoAttachmentAction(t.id, pendingAttachmentDelete.id)
+    if (!res.success) {
+      setActionError(res.error ?? 'Failed to remove attachment.')
+      setDeletingAttachmentId(null)
+      return
+    }
+    await refreshDetails()
+    setDeletingAttachmentId(null)
+    setPendingAttachmentDelete(null)
   }
 
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -817,7 +881,13 @@ export function TaskDetailPage({
                   icon={<CheckCircle2 size={14} />}
                   label={isCreator ? 'Mark Complete' : 'Submit For Approval'}
                   color="green"
-                  onClick={() => doAction(() => toggleTodoCompleteAction(t.id, true))}
+                  onClick={() => {
+                    if (isCreator) {
+                      setShowCreatorCompleteConfirm(true)
+                      return
+                    }
+                    doAction(() => toggleTodoCompleteAction(t.id, true))
+                  }}
                   loading={isPending}
                 />
               )}
@@ -973,8 +1043,8 @@ export function TaskDetailPage({
                       <Section icon={<Users size={14} />} label="Multi-Assignment">
                         <div className="grid gap-3">
                           {t.multi_assignment.assignees.map((assignee) => {
-                            const pct = t.multi_assignment?.completion_percentage ?? 0
-                            const done = assignee.status === 'completed' || assignee.status === 'accepted'
+                            const pct = maProgress
+                            const done = t.completed || assignee.status === 'completed' || assignee.status === 'accepted'
                             return (
                               <div key={assignee.username} className="rounded-[24px] border border-cyan-100 bg-cyan-50 px-4 py-3">
                                 <div className="flex items-center gap-3">
@@ -1153,10 +1223,14 @@ export function TaskDetailPage({
                               {canRemoveAttachment && (
                                 <button
                                   type="button"
-                                  onClick={() => void doAction(() => deleteTodoAttachmentAction(t.id, attachment.id))}
-                                  className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100"
+                                  onClick={() => setPendingAttachmentDelete({ id: attachment.id, name: attachment.file_name })}
+                                  disabled={deletingAttachmentId === attachment.id}
+                                  className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 disabled:opacity-60"
                                 >
-                                  Remove
+                                  <span className="inline-flex items-center gap-2">
+                                    {deletingAttachmentId === attachment.id ? <Loader2 size={14} className="animate-spin" /> : null}
+                                    {deletingAttachmentId === attachment.id ? 'Removing...' : 'Remove'}
+                                  </span>
                                 </button>
                               )}
                             </div>
@@ -1449,6 +1523,32 @@ export function TaskDetailPage({
       )}
 
       {editTask && <CreateTaskModal editTask={editTask} onClose={() => setEditTask(null)} onSaved={refreshDetails} />}
+      <ConfirmDialog
+        open={showCreatorCompleteConfirm}
+        title="Complete this task?"
+        description="You created this task. Are you sure you want to complete it? Once confirmed, this task will show as completed for all users."
+        confirmLabel={isPending ? 'Completing...' : 'Complete task'}
+        onCancel={() => {
+          if (isPending) return
+          setShowCreatorCompleteConfirm(false)
+        }}
+        onConfirm={() => {
+          void doAction(() => toggleTodoCompleteAction(t.id, true))
+          setShowCreatorCompleteConfirm(false)
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingAttachmentDelete)}
+        title={pendingAttachmentDelete ? `Delete "${pendingAttachmentDelete.name}"?` : 'Delete attachment?'}
+        description="This file will be removed from this task."
+        confirmLabel={deletingAttachmentId ? 'Deleting...' : 'Delete'}
+        danger
+        onCancel={() => {
+          if (deletingAttachmentId) return
+          setPendingAttachmentDelete(null)
+        }}
+        onConfirm={() => { void confirmDeleteAttachment() }}
+      />
     </>
   )
 }

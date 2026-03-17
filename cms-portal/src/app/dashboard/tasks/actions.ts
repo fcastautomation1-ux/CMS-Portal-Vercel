@@ -118,6 +118,37 @@ function extractMentionedUsernames(message: string, candidates: string[]): strin
   return mentions
 }
 
+function collectTaskCommentParticipants(
+  task: Record<string, unknown>,
+  shares: Array<Record<string, unknown>>
+): string[] {
+  const participants = new Set<string>()
+
+  if (task.username) participants.add(String(task.username))
+  if (task.assigned_to) participants.add(String(task.assigned_to))
+  if (task.manager_id) {
+    String(task.manager_id)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => participants.add(value))
+  }
+
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  multiAssignment?.assignees?.forEach((assignee) => {
+    if (assignee.username) participants.add(assignee.username)
+    ;(assignee.delegated_to || []).forEach((subAssignee) => {
+      if (subAssignee.username) participants.add(subAssignee.username)
+    })
+  })
+
+  shares.forEach((share) => {
+    if (share.shared_with) participants.add(String(share.shared_with))
+  })
+
+  return Array.from(participants)
+}
+
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 
 function canModifyComment(entry: HistoryEntry, username: string): boolean {
@@ -849,7 +880,7 @@ export async function toggleTodoCompleteAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,manager_id,title,history,approval_status,completed,completed_by')
+    .select('username,assigned_to,manager_id,title,history,approval_status,completed,completed_by,multi_assignment')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -876,9 +907,20 @@ export async function toggleTodoCompleteAction(
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
   let updateData: Record<string, unknown> = { updated_at: now }
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
 
   if (completed) {
     if (isOwner) {
+      if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+        multiAssignment.assignees = multiAssignment.assignees.map((entry) => ({
+          ...entry,
+          status: 'accepted',
+          completed_at: entry.completed_at ?? now,
+          accepted_at: now,
+          accepted_by: user.username,
+        }))
+        touchMultiAssignmentProgress(multiAssignment)
+      }
       updateData = {
         ...updateData,
         completed: true,
@@ -886,6 +928,7 @@ export async function toggleTodoCompleteAction(
         completed_by: user.username,
         task_status: 'done',
         approval_status: 'approved',
+        multi_assignment: multiAssignment ? JSON.stringify(multiAssignment) : undefined,
       }
       history.push({
         type: 'completed',
@@ -956,7 +999,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,completed_by,assigned_to,title,history,approval_status,assignment_chain')
+    .select('username,completed_by,assigned_to,title,history,approval_status,assignment_chain,multi_assignment')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -967,6 +1010,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
 
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   history.push({
     type: 'approved',
     user: user.username,
@@ -976,6 +1020,20 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     title: 'Completion Approved',
   })
 
+  if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+    multiAssignment.assignees = multiAssignment.assignees.map((entry) => {
+      if ((entry.username || '').toLowerCase() !== String(task.completed_by || '').toLowerCase()) return entry
+      return {
+        ...entry,
+        status: 'accepted',
+        completed_at: entry.completed_at ?? now,
+        accepted_at: now,
+        accepted_by: user.username,
+      }
+    })
+    touchMultiAssignmentProgress(multiAssignment)
+  }
+
   await supabase.from('todos').update({
     completed: true,
     completed_at: now,
@@ -983,6 +1041,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     approved_at: now,
     approved_by: user.username,
     task_status: 'done',
+    multi_assignment: multiAssignment ? JSON.stringify(multiAssignment) : undefined,
     history: JSON.stringify(history),
     updated_at: now,
   }).eq('id', todoId)
@@ -1090,8 +1149,16 @@ export async function addCommentAction(
   const isAssignee = (task.assigned_to as string) === user.username
   const isManager = isUserInManagerList(task.manager_id as string, user.username)
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  const isMultiAssignee = multiAssignment?.assignees?.some(
+    (assignee) => (assignee.username || '').toLowerCase() === user.username.toLowerCase()
+  ) ?? false
+  const isDelegatedSubAssignee = multiAssignment?.assignees?.some((assignee) =>
+    Array.isArray(assignee.delegated_to) &&
+    assignee.delegated_to.some((subAssignee) => (subAssignee.username || '').toLowerCase() === user.username.toLowerCase())
+  ) ?? false
 
-  if (!isCreator && !isAssignee && !isManager && !isAdmin) {
+  if (!isCreator && !isAssignee && !isManager && !isAdmin && !isMultiAssignee && !isDelegatedSubAssignee) {
     const { data: share } = await supabase
       .from('todo_shares')
       .select('can_edit')
@@ -1102,25 +1169,7 @@ export async function addCommentAction(
   }
 
   const now = new Date().toISOString()
-  const candidateMentions = new Set<string>()
-  if (task.username) candidateMentions.add(String(task.username))
-  if (task.assigned_to) candidateMentions.add(String(task.assigned_to))
-  if (task.manager_id) {
-    String(task.manager_id)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .forEach((value) => candidateMentions.add(value))
-  }
-  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-  multiAssignment?.assignees?.forEach((assignee) => {
-    if (assignee.username) candidateMentions.add(assignee.username)
-  })
-  ;(sharesRes.data || []).forEach((share: Record<string, unknown>) => {
-    if (share.shared_with) candidateMentions.add(String(share.shared_with))
-  })
-
-  const participants = Array.from(candidateMentions)
+  const participants = collectTaskCommentParticipants(task, (sharesRes.data || []) as Array<Record<string, unknown>>)
   const mentionUsers = extractMentionedUsernames(message, participants)
   const unreadBy = participants.filter((username) => username.toLowerCase() !== user.username.toLowerCase())
 
@@ -1192,25 +1241,7 @@ export async function editTodoCommentAction(
     return { success: false, error: 'You can edit your own message only within 10 minutes.' }
   }
 
-  const candidateMentions = new Set<string>()
-  if (task.username) candidateMentions.add(String(task.username))
-  if (task.assigned_to) candidateMentions.add(String(task.assigned_to))
-  if (task.manager_id) {
-    String(task.manager_id)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .forEach((value) => candidateMentions.add(value))
-  }
-  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-  multiAssignment?.assignees?.forEach((assignee) => {
-    if (assignee.username) candidateMentions.add(assignee.username)
-  })
-  ;(sharesRes.data || []).forEach((share: Record<string, unknown>) => {
-    if (share.shared_with) candidateMentions.add(String(share.shared_with))
-  })
-
-  const participants = Array.from(candidateMentions)
+  const participants = collectTaskCommentParticipants(task, (sharesRes.data || []) as Array<Record<string, unknown>>)
   const mentionUsers = extractMentionedUsernames(message, participants)
   const unreadBy = participants.filter((username) => username.toLowerCase() !== user.username.toLowerCase())
   const now = new Date().toISOString()

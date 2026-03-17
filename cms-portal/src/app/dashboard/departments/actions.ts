@@ -21,6 +21,16 @@ function replaceDepartmentInCsv(source: string, oldName: string, nextName: strin
   return unique.join(', ')
 }
 
+function appendDepartmentToCsv(source: string | null | undefined, departmentName: string) {
+  const nextName = departmentName.trim()
+  if (!nextName) return (source ?? '').trim()
+
+  const values = splitDepartmentsCsv(source ?? '')
+  const nextKey = canonicalDepartmentKey(nextName)
+  const withoutSame = values.filter((value) => canonicalDepartmentKey(value) !== nextKey)
+  return [...withoutSame, nextName].join(', ')
+}
+
 export async function getDepartments(): Promise<Department[]> {
   const user = await getSession()
   if (!user) return []
@@ -85,6 +95,58 @@ export async function getDepartmentMembersWithNames(): Promise<Record<string, st
     }
   }
   return map
+}
+
+export async function getUsersForDepartmentAssignment(): Promise<Array<{ username: string; department: string | null }>> {
+  const user = await getSession()
+  if (!user) return []
+  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) return []
+
+  const supabase = createServerClient()
+  const { data, error } = await supabase
+    .from('users')
+    .select('username,department')
+    .order('username', { ascending: true })
+
+  if (error) return []
+  return (data as Array<{ username: string; department: string | null }>) ?? []
+}
+
+export async function assignUsersToDepartment(
+  departmentName: string,
+  usernames: string[]
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) {
+    return { success: false, error: 'Permission denied.' }
+  }
+
+  const cleanDepartment = departmentName.trim()
+  const cleanUsernames = Array.from(new Set(usernames.map((u) => u.trim()).filter(Boolean)))
+  if (!cleanDepartment) return { success: false, error: 'Department is required.' }
+  if (!cleanUsernames.length) return { success: false, error: 'Select at least one user.' }
+
+  const supabase = createServerClient()
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('username,department')
+    .in('username', cleanUsernames)
+
+  if (error) return { success: false, error: error.message }
+
+  for (const row of (users ?? []) as Array<{ username: string; department: string | null }>) {
+    const nextCsv = appendDepartmentToCsv(row.department, cleanDepartment)
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ department: nextCsv || null })
+      .eq('username', row.username)
+    if (updateError) return { success: false, error: updateError.message }
+  }
+
+  revalidatePath('/dashboard/departments')
+  revalidatePath('/dashboard/users')
+  return { success: true }
 }
 
 export async function saveDepartment(

@@ -3,6 +3,7 @@
 import { useState, useTransition, type ReactNode } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
@@ -177,6 +178,7 @@ export function TaskCard({
   const [isPending, startTransition] = useTransition()
   const [showMa, setShowMa] = useState(true)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
+  const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
 
@@ -187,6 +189,10 @@ export function TaskCard({
 
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
+  const maDerivedProgress = maEnabled
+    ? Math.round(((ma.assignees.filter((entry) => entry.status === 'accepted' || entry.status === 'completed').length) / ma.assignees.length) * 100)
+    : 0
+  const maProgress = isCompleted ? 100 : (ma?.completion_percentage ?? maDerivedProgress)
   const myMaEntry = maEnabled ? ma.assignees.find((a) => a.username.toLowerCase() === currentUsername.toLowerCase()) : undefined
   const delegatedEntry = maEnabled
     ? ma.assignees.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
@@ -414,7 +420,20 @@ export function TaskCard({
                   Sub: Submit
                 </ActBtn>
               )}
-              {showCompleteBtn && <ActBtn onClick={() => doAction(() => toggleTodoCompleteAction(task.id, true))} color="green">Complete</ActBtn>}
+              {showCompleteBtn && (
+                <ActBtn
+                  onClick={() => {
+                    if (isCreator) {
+                      setShowCreatorCompleteConfirm(true)
+                      return
+                    }
+                    doAction(() => toggleTodoCompleteAction(task.id, true))
+                  }}
+                  color="green"
+                >
+                  Complete
+                </ActBtn>
+              )}
               {showApproveBtn && (
                 <>
                   <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green">Approve</ActBtn>
@@ -438,13 +457,13 @@ export function TaskCard({
                     </span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8,#2563eb)] transition-all"
-                      style={{ width: `${ma.completion_percentage ?? 0}%` }}
-                    />
-                  </div>
+                      <div
+                        className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8,#2563eb)] transition-all"
+                        style={{ width: `${maProgress}%` }}
+                      />
+                    </div>
                   <p className="mt-2 text-xs font-medium text-slate-600">
-                    {ma.completion_percentage ?? 0}% complete across assigned users
+                    {maProgress}% complete across assigned users
                   </p>
                 </div>
                 {showMa ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
@@ -452,7 +471,7 @@ export function TaskCard({
               {showMa && (
                 <div className="space-y-2 border-t border-slate-200/80 px-3 pb-3 pt-2">
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
-                    const status = assignee.status || 'pending'
+                    const status = isCompleted ? 'accepted' : (assignee.status || 'pending')
                     const assigneeDueDate = assignee.actual_due_date || null
                     const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
                     const assigneeOverdue =
@@ -624,7 +643,7 @@ export function TaskCard({
               <Badge label={`Queued${task.queue_department ? ` · ${task.queue_department}` : ''}`} cls="bg-sky-50 text-sky-700 border-sky-200" />
             )}
             {maEnabled && (
-              <Badge label={`${ma.completion_percentage ?? 0}% · ${ma.assignees.length} Assignees`} cls="bg-cyan-50 text-cyan-700 border-cyan-200" />
+              <Badge label={`${maProgress}% · ${ma.assignees.length} Assignees`} cls="bg-cyan-50 text-cyan-700 border-cyan-200" />
             )}
             {task.approval_status === 'declined' && (
               <Badge label="Declined" cls="bg-red-50 text-red-600 border-red-200" />
@@ -735,6 +754,20 @@ export function TaskCard({
         )}
       </ActionDialog>
     )}
+    <ConfirmDialog
+      open={showCreatorCompleteConfirm}
+      title="Complete this task?"
+      description="You created this task. Are you sure you want to complete it? Once confirmed, this task will show as completed for all users."
+      confirmLabel={isPending ? 'Completing...' : 'Complete task'}
+      onCancel={() => {
+        if (isPending) return
+        setShowCreatorCompleteConfirm(false)
+      }}
+      onConfirm={() => {
+        doAction(() => toggleTodoCompleteAction(task.id, true))
+        setShowCreatorCompleteConfirm(false)
+      }}
+    />
     </>
   )
 }

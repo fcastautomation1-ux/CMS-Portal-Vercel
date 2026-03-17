@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Plus, Trash2, BarChart3, Search, Link as LinkIcon, Users, Calendar } from 'lucide-react'
-import { deleteLookerReport } from '@/app/dashboard/looker/actions'
+import { ExternalLink, Plus, Trash2, BarChart3, Search, Link as LinkIcon, Users, Calendar, UserPlus, X } from 'lucide-react'
+import { deleteLookerReport, getLookerAccessUsers, saveLookerReport } from '@/app/dashboard/looker/actions'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { LookerReport, SessionUser } from '@/types'
 
@@ -25,12 +25,77 @@ export function LookerPage({ reports: initial, user }: Props) {
   const [reports, setReports] = useState(initial)
   const [search, setSearch] = useState('')
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [accessUsers, setAccessUsers] = useState<string[]>([])
+  const [sharingReport, setSharingReport] = useState<LookerReport | null>(null)
+  const [shareSelected, setShareSelected] = useState<string[]>([])
+  const [shareSearch, setShareSearch] = useState('')
+  const [shareAllUsers, setShareAllUsers] = useState(false)
+  const [shareSaving, setShareSaving] = useState(false)
+  const [shareError, setShareError] = useState('')
 
   const filtered = reports.filter(r => r.title.toLowerCase().includes(search.toLowerCase()))
 
   async function handleDelete(id: string) {
     const res = await deleteLookerReport(id)
     if (res.success) setReports(prev => prev.filter(r => r.id !== id))
+  }
+
+  useEffect(() => {
+    if (!canEdit) return
+    let cancelled = false
+    getLookerAccessUsers().then((rows) => {
+      if (!cancelled) setAccessUsers(rows)
+    })
+    return () => { cancelled = true }
+  }, [canEdit])
+
+  const filteredAccessUsers = useMemo(() => {
+    const q = shareSearch.toLowerCase().trim()
+    if (!q) return accessUsers
+    return accessUsers.filter((u) => u.toLowerCase().includes(q))
+  }, [accessUsers, shareSearch])
+
+  const openShareModal = (report: LookerReport) => {
+    setSharingReport(report)
+    const rawAllowed = report.allowed_users || ''
+    const isAll = !rawAllowed.trim() || rawAllowed.trim().toLowerCase() === 'all portal users' || rawAllowed.trim().toLowerCase() === 'all'
+    setShareAllUsers(isAll)
+    setShareSelected(
+      isAll ? [] : rawAllowed.split(',').map((v) => v.trim()).filter(Boolean)
+    )
+    setShareSearch('')
+    setShareError('')
+  }
+
+  const toggleShareUser = (username: string) => {
+    setShareSelected((prev) => (
+      prev.includes(username) ? prev.filter((v) => v !== username) : [...prev, username]
+    ))
+  }
+
+  const submitShare = async () => {
+    if (!sharingReport) return
+    if (!shareAllUsers && shareSelected.length === 0) {
+      setShareError('Select at least one user or choose all users.')
+      return
+    }
+    setShareSaving(true)
+    setShareError('')
+    const allowedUsers = shareAllUsers ? 'All portal users' : shareSelected.join(', ')
+    const res = await saveLookerReport({
+      id: sharingReport.id,
+      title: sharingReport.title,
+      report_url: sharingReport.report_url,
+      allowed_users: allowedUsers,
+    })
+    if (!res.success || !res.report) {
+      setShareSaving(false)
+      setShareError(res.error || 'Failed to update sharing.')
+      return
+    }
+    setReports((prev) => prev.map((r) => (r.id === res.report!.id ? res.report! : r)))
+    setShareSaving(false)
+    setSharingReport(null)
   }
 
   return (
@@ -106,14 +171,24 @@ export function LookerPage({ reports: initial, user }: Props) {
                       <BarChart3 size={22} style={{ color: g.from }} />
                     </div>
                     {canEdit && (
-                      <button
-                        onClick={() => setPendingDeleteId(r.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg"
-                        style={{ color: '#EF4444', background: 'rgba(239,68,68,0.08)' }}
-                        title="Delete report"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                        <button
+                          onClick={() => openShareModal(r)}
+                          className="p-1.5 rounded-lg"
+                          style={{ color: '#2563EB', background: 'rgba(37,99,235,0.08)' }}
+                          title="Share report"
+                        >
+                          <UserPlus size={14} />
+                        </button>
+                        <button
+                          onClick={() => setPendingDeleteId(r.id)}
+                          className="p-1.5 rounded-lg"
+                          style={{ color: '#EF4444', background: 'rgba(239,68,68,0.08)' }}
+                          title="Delete report"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -189,6 +264,55 @@ export function LookerPage({ reports: initial, user }: Props) {
           setPendingDeleteId(null)
         }}
       />
+      {sharingReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setSharingReport(null) }}>
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Share Report</h3>
+              <button onClick={() => setSharingReport(null)} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+            </div>
+            <div className="p-5">
+              <p className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>{sharingReport.title}</p>
+              <label className="mb-3 flex items-center gap-2 text-sm" style={{ color: 'var(--color-text)' }}>
+                <input type="checkbox" checked={shareAllUsers} onChange={(e) => setShareAllUsers(e.target.checked)} />
+                Share with all portal users
+              </label>
+              {!shareAllUsers && (
+                <>
+                  <div className="relative mb-3">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={shareSearch}
+                      onChange={(e) => setShareSearch(e.target.value)}
+                      placeholder="Search users..."
+                      className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
+                      style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                    />
+                  </div>
+                  <div className="max-h-72 overflow-y-auto rounded-xl border" style={{ borderColor: 'var(--color-border)' }}>
+                    {filteredAccessUsers.map((username) => (
+                      <label key={username} className="flex items-center justify-between gap-3 px-3 py-2 text-sm" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <span style={{ color: 'var(--color-text)' }}>{username}</span>
+                        <input type="checkbox" checked={shareSelected.includes(username)} onChange={() => toggleShareUser(username)} />
+                      </label>
+                    ))}
+                    {filteredAccessUsers.length === 0 && (
+                      <div className="px-3 py-4 text-sm text-slate-400">No users found.</div>
+                    )}
+                  </div>
+                </>
+              )}
+              {shareError && <div className="mt-3 rounded-lg px-3 py-2 text-sm" style={{ background: '#FEF2F2', color: '#DC2626' }}>{shareError}</div>}
+            </div>
+            <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <button onClick={() => setSharingReport(null)} className="h-10 px-4 rounded-lg text-sm font-semibold" style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>Cancel</button>
+              <button onClick={submitShare} disabled={shareSaving} className="h-10 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)', opacity: shareSaving ? 0.6 : 1 }}>
+                {shareSaving ? 'Saving...' : 'Save Sharing'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

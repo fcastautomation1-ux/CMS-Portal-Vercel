@@ -36,6 +36,7 @@ import { normalizeTaskDescription } from '@/lib/task-description'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import {
@@ -57,6 +58,7 @@ import {
   unshareTodoAction,
   deleteTodoAction,
   createTaskAttachmentUploadUrlAction,
+  deleteTodoAttachmentAction,
   deleteTodoCommentAction,
   editTodoCommentAction,
   getUsersForAssignment,
@@ -248,6 +250,21 @@ function getActiveMentionQuery(value: string, caretIndex: number) {
   }
 }
 
+function clearCurrentUserUnreadFlags(entry: HistoryEntry, username: string): HistoryEntry {
+  if (entry.type !== 'comment' || entry.is_deleted) return entry
+
+  const unreadBy = Array.isArray(entry.unread_by)
+    ? entry.unread_by.filter((value) => String(value).toLowerCase() !== username.toLowerCase())
+    : []
+  const readBy = Array.from(new Set([...(entry.read_by || []), username]))
+
+  return {
+    ...entry,
+    unread_by: unreadBy,
+    read_by: readBy,
+  }
+}
+
 export function TaskDetailModal({
   taskId,
   currentUsername,
@@ -267,6 +284,9 @@ export function TaskDetailModal({
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState('')
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState<{ id: string; name: string } | null>(null)
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
+  const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
@@ -337,8 +357,26 @@ export function TaskDetailModal({
       entry.unread_by.some((username) => username.toLowerCase() === currentUsername.toLowerCase())
     )
     if (!hasUnreadComments) return
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(taskId), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
+      }
+    })
+    queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (prev) => {
+      if (!prev) return prev
+      return prev.map((task) =>
+        task.id !== taskId
+          ? task
+          : {
+              ...task,
+              history: task.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
+            }
+      )
+    })
     void markTaskCommentsReadAction(details.id)
-  }, [currentUsername, details])
+  }, [currentUsername, details, queryClient, taskId])
 
   useEffect(() => {
     if (!uploadingFiles) return
@@ -439,6 +477,19 @@ export function TaskDetailModal({
   const isPendingApproval = t.approval_status === 'pending_approval'
   const isCompleted = t.completed
   const ma = t.multi_assignment
+  const maProgress = (() => {
+    if (!ma?.enabled || !Array.isArray(ma.assignees) || ma.assignees.length === 0) return t.completed ? 100 : 0
+    if (t.completed) return 100
+    const storedPct =
+      typeof ma.completion_percentage === 'number' && Number.isFinite(ma.completion_percentage)
+        ? ma.completion_percentage
+        : null
+    if (storedPct !== null && storedPct >= 0) {
+      return Math.max(0, Math.min(100, Math.round(storedPct)))
+    }
+    const doneCount = ma.assignees.filter((assignee) => assignee.status === 'accepted' || assignee.status === 'completed').length
+    return Math.max(0, Math.min(100, Math.round((doneCount / ma.assignees.length) * 100)))
+  })()
   const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
   const delegatedOwner = ma?.assignees?.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
   const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
@@ -603,6 +654,23 @@ export function TaskDetailModal({
     openTaskDialog({ type: 'delete-comment', messageId: entry.message_id })
   }
 
+  const confirmDeleteAttachment = async () => {
+    if (!pendingAttachmentDelete) return
+    setActionError('')
+    setDeletingAttachmentId(pendingAttachmentDelete.id)
+    const res = await deleteTodoAttachmentAction(t.id, pendingAttachmentDelete.id)
+    if (!res.success) {
+      setActionError(res.error ?? 'Failed to remove attachment.')
+      setDeletingAttachmentId(null)
+      return
+    }
+    const updated = await getTodoDetails(taskId)
+    queryClient.setQueryData(queryKeys.taskDetail(taskId), updated)
+    onRefresh()
+    setDeletingAttachmentId(null)
+    setPendingAttachmentDelete(null)
+  }
+
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionSuggestions.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -742,7 +810,19 @@ export function TaskDetailModal({
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
           )}
           {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
-            <PrimaryBtn icon={<CheckCircle2 size={14}/>} label={isCreator ? 'Mark Complete' : 'Submit for Approval'} color="green" onClick={() => doAction(() => toggleTodoCompleteAction(t.id, true))} loading={isPending} />
+            <PrimaryBtn
+              icon={<CheckCircle2 size={14}/>}
+              label={isCreator ? 'Mark Complete' : 'Submit for Approval'}
+              color="green"
+              onClick={() => {
+                if (isCreator) {
+                  setShowCreatorCompleteConfirm(true)
+                  return
+                }
+                doAction(() => toggleTodoCompleteAction(t.id, true))
+              }}
+              loading={isPending}
+            />
           )}
           {isCreator && isPendingApproval && (
             <>
@@ -855,8 +935,8 @@ export function TaskDetailModal({
               <Section icon={<User size={14} />} label="Multi-Assignment">
                 <div className="space-y-2">
                   {t.multi_assignment.assignees.map((a) => {
-                    const pct = t.multi_assignment!.completion_percentage ?? 0
-                    const done = a.status === 'completed' || a.status === 'accepted'
+                    const pct = maProgress
+                    const done = t.completed || a.status === 'completed' || a.status === 'accepted'
                     return (
                       <div key={a.username} className="rounded-xl border border-cyan-100 bg-cyan-50 p-2.5">
                         <div className="flex items-center gap-3">
@@ -1153,6 +1233,7 @@ export function TaskDetailModal({
               <div className="space-y-2">
                 {t.attachments.map((a) => {
                   const ext = a.file_name.split('.').pop()?.toUpperCase() ?? 'FILE'
+                  const canRemoveAttachment = !isCompleted && (a.uploaded_by === currentUsername || isCreator)
                   return (
                     <div key={a.id} className="flex items-center gap-3 p-3 border border-slate-200 rounded-xl hover:border-blue-200 hover:bg-blue-50/30 transition-colors group">
                       <div className="shrink-0 w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700">
@@ -1169,6 +1250,19 @@ export function TaskDetailModal({
                         className="px-3 py-1.5 text-xs rounded-lg text-blue-600 hover:bg-blue-100 font-semibold transition-colors opacity-0 group-hover:opacity-100">
                         Download
                       </a>
+                      {canRemoveAttachment && (
+                        <button
+                          type="button"
+                          onClick={() => setPendingAttachmentDelete({ id: a.id, name: a.file_name })}
+                          disabled={deletingAttachmentId === a.id}
+                          className="px-3 py-1.5 text-xs rounded-lg border border-red-200 bg-red-50 text-red-600 font-semibold transition-colors hover:bg-red-100 disabled:opacity-60"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            {deletingAttachmentId === a.id ? <Loader2 size={12} className="animate-spin" /> : null}
+                            {deletingAttachmentId === a.id ? 'Removing...' : 'Remove'}
+                          </span>
+                        </button>
+                      )}
                     </div>
                   )
                 })}
@@ -1279,6 +1373,32 @@ export function TaskDetailModal({
           )}
         </ActionDialog>
       )}
+      <ConfirmDialog
+        open={showCreatorCompleteConfirm}
+        title="Complete this task?"
+        description="You created this task. Are you sure you want to complete it? Once confirmed, this task will show as completed for all users."
+        confirmLabel={isPending ? 'Completing...' : 'Complete task'}
+        onCancel={() => {
+          if (isPending) return
+          setShowCreatorCompleteConfirm(false)
+        }}
+        onConfirm={() => {
+          doAction(() => toggleTodoCompleteAction(t.id, true))
+          setShowCreatorCompleteConfirm(false)
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingAttachmentDelete)}
+        title={pendingAttachmentDelete ? `Delete "${pendingAttachmentDelete.name}"?` : 'Delete attachment?'}
+        description="This file will be removed from this task."
+        confirmLabel={deletingAttachmentId ? 'Deleting...' : 'Delete'}
+        danger
+        onCancel={() => {
+          if (deletingAttachmentId) return
+          setPendingAttachmentDelete(null)
+        }}
+        onConfirm={() => { void confirmDeleteAttachment() }}
+      />
     </ModalShell>
   )
 }

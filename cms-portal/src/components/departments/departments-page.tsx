@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Building2, Plus, Pencil, Trash2, X, Users, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck } from 'lucide-react'
-import { saveDepartment, deleteDepartment } from '@/app/dashboard/departments/actions'
+import { Building2, Plus, Pencil, Trash2, X, Users, UserPlus, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck, Search } from 'lucide-react'
+import { saveDepartment, deleteDepartment, getUsersForDepartmentAssignment, assignUsersToDepartment } from '@/app/dashboard/departments/actions'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Department, SessionUser } from '@/types'
 
@@ -137,14 +137,21 @@ function MemberAvatars({ names, themeColor }: { names: string[]; themeColor: str
 }
 
 export function DepartmentsPage({ departments: initial, memberNames, user }: Props) {
-  const canEdit = ['Admin', 'Super Manager'].includes(user.role)
+  const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const [departments, setDepartments] = useState(initial)
   const [editing, setEditing] = useState<Department | null>(null)
   const [pendingDelete, setPendingDelete] = useState<{ dept: Department; count: number } | null>(null)
+  const [assigningDept, setAssigningDept] = useState<Department | null>(null)
+  const [assignUsers, setAssignUsers] = useState<Array<{ username: string; department: string | null }>>([])
+  const [assignSelected, setAssignSelected] = useState<string[]>([])
+  const [assignSearch, setAssignSearch] = useState('')
+  const [assignSaving, setAssignSaving] = useState(false)
+  const [assignError, setAssignError] = useState('')
+  const [departmentMemberNames, setDepartmentMemberNames] = useState<Record<string, string[]>>(memberNames)
 
   const normalizeDepartment = (value: string) => value.trim().toLowerCase()
   const membersByNormalizedDept: Record<string, string[]> = {}
-  for (const [deptName, names] of Object.entries(memberNames)) {
+  for (const [deptName, names] of Object.entries(departmentMemberNames)) {
     const key = normalizeDepartment(deptName)
     if (!membersByNormalizedDept[key]) membersByNormalizedDept[key] = []
     for (const name of names) {
@@ -155,6 +162,62 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   async function handleDelete(dept: Department) {
     const res = await deleteDepartment(dept.id)
     if (res.success) setDepartments(prev => prev.filter(d => d.id !== dept.id))
+  }
+
+  useEffect(() => {
+    if (!canEdit) return
+    let cancelled = false
+    getUsersForDepartmentAssignment().then((rows) => {
+      if (!cancelled) setAssignUsers(rows)
+    })
+    return () => { cancelled = true }
+  }, [canEdit])
+
+  const filteredAssignUsers = useMemo(() => {
+    const q = assignSearch.toLowerCase().trim()
+    if (!q) return assignUsers
+    return assignUsers.filter((entry) => entry.username.toLowerCase().includes(q))
+  }, [assignSearch, assignUsers])
+
+  const openAssignModal = (dept: Department) => {
+    setAssigningDept(dept)
+    setAssignSearch('')
+    setAssignError('')
+    setAssignSelected([])
+  }
+
+  const toggleAssignSelection = (username: string) => {
+    setAssignSelected((prev) => (
+      prev.includes(username) ? prev.filter((v) => v !== username) : [...prev, username]
+    ))
+  }
+
+  const submitAssign = async () => {
+    if (!assigningDept) return
+    if (!assignSelected.length) {
+      setAssignError('Select at least one user.')
+      return
+    }
+    setAssignSaving(true)
+    setAssignError('')
+    const res = await assignUsersToDepartment(assigningDept.name, assignSelected)
+    if (!res.success) {
+      setAssignError(res.error || 'Failed to assign users.')
+      setAssignSaving(false)
+      return
+    }
+    const refreshed = await getUsersForDepartmentAssignment()
+    setAssignUsers(refreshed)
+    setDepartmentMemberNames((prev) => {
+      const next = { ...prev }
+      const deptKey = normalizeDepartment(assigningDept.name)
+      const existing = new Set(next[deptKey] ?? [])
+      assignSelected.forEach((username) => existing.add(username))
+      next[deptKey] = Array.from(existing).sort((a, b) => a.localeCompare(b))
+      return next
+    })
+    setAssignSaving(false)
+    setAssigningDept(null)
   }
 
   return (
@@ -211,6 +274,16 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)' }}
                         >
                           <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => openAssignModal(dept)}
+                          className="p-1.5 rounded-lg transition-colors"
+                          style={{ color: 'var(--color-text-muted)' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--blue-50)'; (e.currentTarget as HTMLElement).style.color = '#2563EB' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)' }}
+                          title="Add users to department"
+                        >
+                          <UserPlus size={14} />
                         </button>
                         <button
                           onClick={() => {
@@ -271,6 +344,50 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
           setPendingDelete(null)
         }}
       />
+      {assigningDept && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.4)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setAssigningDept(null) }}>
+          <div className="w-full max-w-lg rounded-2xl overflow-hidden" style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)' }}>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Add Users: {assigningDept.name}</h3>
+              <button onClick={() => setAssigningDept(null)} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
+            </div>
+            <div className="p-5">
+              <div className="relative mb-3">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={assignSearch}
+                  onChange={(e) => setAssignSearch(e.target.value)}
+                  placeholder="Search users..."
+                  className="w-full h-10 pl-9 pr-3 rounded-lg text-sm outline-none"
+                  style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                />
+              </div>
+              {assignError && <div className="mb-3 rounded-lg px-3 py-2 text-sm" style={{ background: '#FEF2F2', color: '#DC2626' }}>{assignError}</div>}
+              <div className="max-h-72 overflow-y-auto rounded-xl border" style={{ borderColor: 'var(--color-border)' }}>
+                {filteredAssignUsers.map((entry) => (
+                  <label key={entry.username} className="flex items-center justify-between gap-3 px-3 py-2 text-sm" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <span style={{ color: 'var(--color-text)' }}>{entry.username}</span>
+                    <input
+                      type="checkbox"
+                      checked={assignSelected.includes(entry.username)}
+                      onChange={() => toggleAssignSelection(entry.username)}
+                    />
+                  </label>
+                ))}
+                {filteredAssignUsers.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-slate-400">No users found.</div>
+                )}
+              </div>
+            </div>
+            <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <button onClick={() => setAssigningDept(null)} className="h-10 px-4 rounded-lg text-sm font-semibold" style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>Cancel</button>
+              <button onClick={submitAssign} disabled={assignSaving} className="h-10 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)', opacity: assignSaving ? 0.6 : 1 }}>
+                {assignSaving ? 'Saving...' : 'Add Selected Users'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
