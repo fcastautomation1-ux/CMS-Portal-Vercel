@@ -96,6 +96,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const draftKey = `${DRAFT_STORAGE_PREFIX}:${editTask?.id ?? 'new'}`
   const initialDraft = readDraft(draftKey)
   const descriptionRef = useRef<HTMLDivElement>(null)
+  const lastDescriptionRangeRef = useRef<Range | null>(null)
   const goalRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importFileInputRef = useRef<HTMLInputElement>(null)
@@ -186,6 +187,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       descriptionRef.current.innerHTML = normalizeTaskDescription(
         initialDraft?.description ?? editTask?.description ?? ''
       )
+      normalizeEditableTables(descriptionRef.current)
     }
     if (goalRef.current) {
       goalRef.current.innerHTML = initialDraft?.ourGoal ?? editTask?.our_goal ?? ''
@@ -277,9 +279,56 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     setDescription(descriptionRef.current?.innerHTML ?? '')
   }
 
+  const captureDescriptionSelection = () => {
+    const root = descriptionRef.current
+    if (!root) return
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    if (!root.contains(range.commonAncestorContainer)) return
+    lastDescriptionRangeRef.current = range.cloneRange()
+  }
+
   const execCmd = (cmd: string, targetRef: React.RefObject<HTMLDivElement | null>) => {
-    targetRef.current?.focus()
+    const target = targetRef.current
+    if (!target) return
+
+    ensureCaretInEditor(target)
+    document.execCommand('styleWithCSS', false, 'false')
     document.execCommand(cmd, false)
+
+    // Fallback for browsers where list command fails on a collapsed/empty selection.
+    if ((cmd === 'insertUnorderedList' || cmd === 'insertOrderedList') && !target.querySelector('ul,ol')) {
+      const listTag = cmd === 'insertUnorderedList' ? 'ul' : 'ol'
+      const li = document.createElement('li')
+      li.innerHTML = '<br>'
+      const list = document.createElement(listTag)
+      list.appendChild(li)
+      target.appendChild(list)
+      placeCaretAtNodeStart(li)
+    }
+
+    if (targetRef.current === descriptionRef.current) {
+      syncDescription()
+    }
+  }
+
+  const handleEditorKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    targetRef: React.RefObject<HTMLDivElement | null>
+  ) => {
+    if (event.key !== 'Tab') return
+    const target = targetRef.current
+    if (!target) return
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const anchor = selection.anchorNode
+    if (!anchor || !target.contains(anchor)) return
+    const listItem = (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement)?.closest('li')
+    if (!listItem) return
+
+    event.preventDefault()
+    document.execCommand(event.shiftKey ? 'outdent' : 'indent', false)
     if (targetRef.current === descriptionRef.current) {
       syncDescription()
     }
@@ -429,13 +478,14 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     }, 500)
   }
 
-  const insertDescriptionHtml = (html: string) => {
+  const insertDescriptionHtml = (html: string, preferredRange?: Range | null) => {
     const editor = descriptionRef.current
     if (!editor) return
 
     editor.focus()
     const selection = window.getSelection()
-    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+    const activeRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+    const range = preferredRange ?? activeRange
     const isInsideEditor = !!range && editor.contains(range.commonAncestorContainer)
 
     if (isInsideEditor && range) {
@@ -449,10 +499,12 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       editor.insertAdjacentHTML('beforeend', html)
     }
 
+    normalizeEditableTables(editor)
     syncDescription()
   }
 
   const handleInsertTable = () => {
+    captureDescriptionSelection()
     setTableCols('2')
     setTableRows('2')
     setShowTableDialog(true)
@@ -461,7 +513,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const confirmInsertTable = () => {
     const cols = clampCount(tableCols, 2)
     const rows = clampCount(tableRows, 2)
-    insertDescriptionHtml(buildTableHtml(createEmptyGrid(rows, cols)))
+    insertDescriptionHtml(buildTableHtml(createEmptyGrid(rows, cols)), lastDescriptionRangeRef.current)
     setShowTableDialog(false)
   }
 
@@ -478,6 +530,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       cell.innerHTML = cell.tagName === 'TH' ? headerText : ''
     })
     context.row.insertAdjacentElement('afterend', newRow)
+    normalizeEditableTables(descriptionRef.current)
     syncDescription()
   }
 
@@ -501,6 +554,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       }
     })
 
+    normalizeEditableTables(descriptionRef.current)
     syncDescription()
   }
 
@@ -894,14 +948,17 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                     contentEditable
                     suppressContentEditableWarning
                     onInput={syncDescription}
+                    onKeyDown={(event) => handleEditorKeyDown(event, descriptionRef)}
+                    onKeyUp={captureDescriptionSelection}
+                    onMouseUp={captureDescriptionSelection}
                     className={cn(
                       'min-h-40 px-3 py-3 text-sm text-slate-700 outline-none',
                       '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
                       '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
                       '[&_li]:my-1',
                       '[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse',
-                      '[&_td]:min-w-[120px] [&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top',
-                      '[&_th]:min-w-[120px] [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold'
+                      '[&_td]:min-w-[120px] [&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_td]:whitespace-pre-wrap [&_td]:break-words',
+                      '[&_th]:min-w-[120px] [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold [&_th]:whitespace-pre-wrap [&_th]:break-words'
                     )}
                   />
 
@@ -943,7 +1000,13 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                     ref={goalRef}
                     contentEditable
                     suppressContentEditableWarning
-                    className="min-h-32 bg-white px-3 py-3 text-sm text-slate-700 outline-none"
+                    onKeyDown={(event) => handleEditorKeyDown(event, goalRef)}
+                    className={cn(
+                      'min-h-32 bg-white px-3 py-3 text-sm text-slate-700 outline-none',
+                      '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
+                      '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
+                      '[&_li]:my-1'
+                    )}
                   />
                 </div>
               </Field>
@@ -1608,6 +1671,42 @@ function getSelectedTableContext(root: HTMLDivElement | null) {
   if (!cell || !row || !table || !root.contains(table)) return null
 
   return { cell, row, table }
+}
+
+function ensureCaretInEditor(root: HTMLDivElement) {
+  root.focus()
+  const selection = window.getSelection()
+  if (!selection) return
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0)
+    if (root.contains(range.commonAncestorContainer)) return
+  }
+  const range = document.createRange()
+  range.selectNodeContents(root)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function placeCaretAtNodeStart(node: Node) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function normalizeEditableTables(root: HTMLDivElement | null) {
+  if (!root) return
+  const cells = root.querySelectorAll('td, th')
+  cells.forEach((cell) => {
+    cell.setAttribute('contenteditable', 'true')
+    if (!cell.textContent?.trim() && cell.childNodes.length === 0) {
+      cell.appendChild(document.createElement('br'))
+    }
+  })
 }
 
 function readFileAsArrayBuffer(
