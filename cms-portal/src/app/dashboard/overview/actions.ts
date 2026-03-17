@@ -97,9 +97,15 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   ])
 
   const accounts = (accountsRes.data ?? []) as Array<{ customer_id: string; enabled: boolean; status: string }>
+  const enabledAccountIds = new Set(
+    accounts
+      .filter((account) => Boolean(account.enabled))
+      .map((account) => account.customer_id)
+  )
   const acctStats = {
     total: accounts.length,
-    running: accounts.filter(a => (a.status || '').toLowerCase() === 'running').length,
+    // "running" on dashboard is treated as currently enabled/active accounts.
+    running: accounts.filter((a) => Boolean(a.enabled)).length,
     error: accounts.filter(a => (a.status || '').toLowerCase() === 'error').length,
     pending: accounts.filter(a => (a.status || '').toLowerCase() === 'pending').length,
   }
@@ -107,7 +113,8 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const allCampaigns = campaignResults.flatMap(r => (r.data ?? []) as Array<{ customer_id: string; enabled: boolean }>)
   const campStats = {
     total: allCampaigns.length,
-    enabled: allCampaigns.filter(c => c.enabled).length,
+    // Only count campaigns as active when both campaign and parent account are enabled.
+    enabled: allCampaigns.filter((c) => c.enabled && enabledAccountIds.has(c.customer_id)).length,
   }
 
   const usersData = ((usersRes.data ?? []) as Array<{ username: string; role: string; avatar_data: string | null }>)
@@ -132,6 +139,11 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     if (task.due_date && task.due_date < today) return 'overdue'
     if (task.task_status === 'in_progress') return 'in_progress'
     return 'pending'
+  }
+  const canonicalizeCategory = (value: string | null): string | null => {
+    if (!value) return null
+    const key = canonicalDepartmentKey(value)
+    return (key && canonicalToOfficial[key]) || value
   }
 
   let completed = 0
@@ -159,10 +171,9 @@ export async function getOverviewStats(): Promise<OverviewStats> {
       overdue++
     }
     if (t.due_date === today) dueToday++
-    if (t.category) {
-      const key = canonicalDepartmentKey(t.category)
-      const label = (key && canonicalToOfficial[key]) || t.category
-      deptMap[label] = (deptMap[label] || 0) + 1
+    const categoryLabel = canonicalizeCategory(t.category)
+    if (categoryLabel) {
+      deptMap[categoryLabel] = (deptMap[categoryLabel] || 0) + 1
     }
   }
 
@@ -200,7 +211,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const tasksByDept = Object.entries(deptMap)
     .map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 6)
+    .slice(0, 8)
 
   const recentTasks = todos.slice(0, 8).map(t => ({
     id: t.id,
@@ -211,7 +222,7 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     completed: t.completed,
     priority: t.priority,
     due_date: t.due_date,
-    category: t.category,
+    category: canonicalizeCategory(t.category),
     created_at: t.created_at,
   }))
 
@@ -225,7 +236,10 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     tasksByStatus,
     tasksByDept,
     recentTasks,
-    taskRecords: todos,
+    taskRecords: todos.map((task) => ({
+      ...task,
+      category: canonicalizeCategory(task.category),
+    })),
     userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: avatarMap[u.username] ?? null })),
   }
 }

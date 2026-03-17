@@ -1246,9 +1246,19 @@ export function TaskDetailModal({
                           {a.file_size ? ` · ${(a.file_size / 1024).toFixed(0)} KB` : ''}
                         </p>
                       </div>
-                      <a href={a.file_url} target="_blank" rel="noopener noreferrer"
+                      <a
+                        href={a.file_url}
+                        download={a.file_name}
                         className="px-3 py-1.5 text-xs rounded-lg text-blue-600 hover:bg-blue-100 font-semibold transition-colors opacity-0 group-hover:opacity-100">
                         Download
+                      </a>
+                      <a
+                        href={a.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 text-xs rounded-lg text-slate-600 hover:bg-slate-100 font-semibold transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        Open
                       </a>
                       {canRemoveAttachment && (
                         <button

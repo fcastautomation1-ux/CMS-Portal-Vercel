@@ -318,12 +318,14 @@ export function TaskDetailPage({
     const updated = await getTodoDetails(details.id)
     if (!updated) {
       router.push('/dashboard/tasks')
-      router.refresh()
       return
     }
     queryClient.setQueryData(queryKeys.taskDetail(details.id), updated)
-    router.refresh()
-  }, [details.id, queryClient, router])
+    queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (prev) => {
+      if (!prev) return prev
+      return prev.map((task) => (task.id === updated.id ? { ...task, ...updated } : task))
+    })
+  }, [currentUsername, details.id, queryClient, router])
 
   const markCommentsReadLocally = useCallback(() => {
     queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(details.id), (prev) => {
@@ -399,7 +401,6 @@ export function TaskDetailPage({
       }
       if (options?.redirectToTasks) {
         router.push('/dashboard/tasks')
-        router.refresh()
         return
       }
       await refreshDetails()
@@ -1217,8 +1218,19 @@ export function TaskDetailPage({
                                   {attachment.file_size ? ` · ${(attachment.file_size / 1024).toFixed(0)} KB` : ''}
                                 </p>
                               </div>
-                              <a href={attachment.file_url} target="_blank" rel="noopener noreferrer" className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50">
+                              <a
+                                href={attachment.file_url}
+                                download={attachment.file_name}
+                                className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50"
+                              >
                                 Open File
+                              </a>
+                              <a
+                                href={attachment.file_url}
+                                download={attachment.file_name}
+                                className="rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                              >
+                                Download
                               </a>
                               {canRemoveAttachment && (
                                 <button

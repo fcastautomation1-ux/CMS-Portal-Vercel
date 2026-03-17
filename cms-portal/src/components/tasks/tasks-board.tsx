@@ -365,6 +365,13 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     return list
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser])
 
+  useEffect(() => {
+    // Prefetch likely detail routes to reduce perceived navigation delay.
+    filteredTasks.slice(0, 24).forEach((task) => {
+      router.prefetch(`/dashboard/tasks/${task.id}`)
+    })
+  }, [filteredTasks, router])
+
   const bulkDelete = () => {
     startTransition(async () => {
       await Promise.all([...selected].map((id) => deleteTodoAction(id)))

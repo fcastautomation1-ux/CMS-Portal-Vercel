@@ -7,6 +7,7 @@ import {
   Bell, CheckCheck, Info, AlertTriangle, CheckCircle, XCircle,
   X, BellOff, ArrowRight, Check, Search, Reply,
 } from 'lucide-react'
+import { UserAvatar } from '@/components/ui/user-avatar'
 import {
   getNotifications,
   getUnreadCount,
@@ -26,6 +27,7 @@ function norm(n: Notification) {
     bodyText: n.message ?? n.body ?? null,
     navLink: n.link ?? n.related_id ?? null,
     senderName: n.created_by ?? null,
+    senderAvatar: n.sender_avatar ?? null,
   }
 }
 
@@ -452,6 +454,10 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
                 {group.items.map(notif => {
                   const n = norm(notif)
                   const cfg = TYPE_CONFIG[notif.type ?? 'info'] ?? TYPE_CONFIG.info
+                  const isReminder = (notif.type ?? '').toLowerCase() === 'reminder'
+                  const markerBg = isReminder ? 'rgba(245,158,11,0.14)' : cfg.bg
+                  const markerColor = isReminder ? '#F59E0B' : cfg.color
+                  const markerEmoji = isReminder ? 'R' : cfg.emoji
                   const isReplying = replyingTo === notif.id
                   const canReply = !!(n.senderName && n.senderName !== currentUsername)
 
@@ -487,14 +493,32 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
                         </div>
 
                         <button type="button" onClick={() => void handleNotifClick(notif)} className="w-full flex items-start gap-3 px-5 py-3.5 text-left pr-16">
-                          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-base" style={{ background: cfg.bg, opacity: n.isRead ? 0.5 : 1 }}>
-                            {cfg.emoji}
+                          <div className="relative shrink-0 mt-0.5">
+                            <UserAvatar
+                              username={n.senderName || notif.title || 'Notification'}
+                              avatarUrl={n.senderAvatar}
+                              size="md"
+                              className="ring-1 ring-slate-200"
+                            />
+                            <span
+                              className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold"
+                              style={{ background: markerBg, color: markerColor, opacity: n.isRead ? 0.8 : 1 }}
+                            >
+                              {markerEmoji}
+                            </span>
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm leading-snug truncate" style={{ color: n.isRead ? 'var(--slate-500)' : 'var(--color-text)', fontWeight: n.isRead ? '500' : '600' }}>
-                              {notif.title}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm leading-snug truncate" style={{ color: n.isRead ? 'var(--slate-500)' : 'var(--color-text)', fontWeight: n.isRead ? '500' : '600' }}>
+                                {notif.title}
+                              </p>
+                              {isReminder && (
+                                <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ background: markerBg, color: markerColor }}>
+                                  Reminder
+                                </span>
+                              )}
+                            </div>
                             {n.bodyText && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--color-text-muted)' }}>{n.bodyText}</p>}
                             <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-1">
                               <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>Time: {timeAgo(notif.created_at)}</span>

@@ -114,6 +114,7 @@ export interface Notification {
   read: boolean                // old DB column
   is_read: boolean             // alias kept for compat
   created_by: string | null
+  sender_avatar: string | null
   metadata: Record<string, unknown> | string | null
   created_at: string
 }

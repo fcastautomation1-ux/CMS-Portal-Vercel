@@ -2,6 +2,7 @@
 
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
+import { resolveStorageUrl } from '@/lib/storage'
 import type { Notification } from '@/types'
 
 function getNotificationUserKeys(user: { username: string; email: string }): string[] {
@@ -27,7 +28,33 @@ export async function getNotifications(): Promise<Notification[]> {
     .order('created_at', { ascending: false })
     .limit(200)
 
-  return (data as unknown as Notification[]) ?? []
+  const notifications = (data as unknown as Notification[]) ?? []
+  const senderNames = Array.from(
+    new Set(
+      notifications
+        .map((notification) => String(notification.created_by || '').trim())
+        .filter(Boolean)
+    )
+  )
+
+  const { data: senderRows } = senderNames.length > 0
+    ? await supabase.from('users').select('username,avatar_data').in('username', senderNames)
+    : { data: [] as Array<{ username: string; avatar_data: string | null }> }
+
+  const avatarMap = new Map<string, string | null>()
+  await Promise.all(
+    (senderRows || []).map(async (row) => {
+      avatarMap.set(
+        row.username,
+        row.avatar_data ? await resolveStorageUrl(supabase, row.avatar_data) : null
+      )
+    })
+  )
+
+  return notifications.map((notification) => ({
+    ...notification,
+    sender_avatar: notification.created_by ? (avatarMap.get(notification.created_by) ?? null) : null,
+  }))
 }
 
 export async function getUnreadCount(): Promise<number> {
