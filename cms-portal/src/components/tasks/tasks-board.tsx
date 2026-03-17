@@ -88,7 +88,7 @@ interface TasksBoardProps {
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserDept, initialTasks, initialScope = 'my_all', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'my_all', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -226,7 +226,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     const userLower = username.toLowerCase()
     if (task.archived) return false
     if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
-    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username)
+    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)
     return (
       task.username.toLowerCase() === userLower ||
       (task.completed_by || '').toLowerCase() === userLower ||
@@ -272,7 +272,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     if (quickFilter === 'created_by_me') {
       list = list.filter((t) => !t.archived && t.username.toLowerCase() === userLower)
     } else if (quickFilter === 'assigned_to_me') {
-      list = list.filter((t) => !t.archived && isTaskAssignedByOthersToUser(t, effectiveUser))
+      list = list.filter((t) => !t.archived && (isTaskAssignedByOthersToUser(t, effectiveUser) || isQueuedTaskForDepartmentUser(t, effectiveUser)))
     } else if (quickFilter === 'my_pending') {
       list = list.filter((t) => {
         if (t.completed || t.archived) return false
@@ -441,6 +441,7 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     task,
     currentUsername,
     currentUserDept,
+    currentUserTeamMembers,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),

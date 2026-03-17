@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getTodos } from '@/app/dashboard/tasks/actions'
 import { getTeamStats } from '@/app/dashboard/team/actions'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   LayoutGrid,
   TrendingUp,
@@ -258,8 +259,11 @@ export function Sidebar({
   const assignedToMeTasks = sidebarTasks.filter((t) => {
     if (t.archived) return false
     const userLower = user.username.toLowerCase()
+    const queueDeptKey = canonicalDepartmentKey(t.queue_department || '')
+    const userDeptKeys = splitDepartmentsCsv(user.department).map((dept) => canonicalDepartmentKey(dept)).filter(Boolean)
     if ((t.username || '').toLowerCase() === userLower) return false
     if ((t.assigned_to || '').toLowerCase() === userLower) return true
+    if (t.queue_status === 'queued' && !t.assigned_to && (!queueDeptKey || userDeptKeys.includes(queueDeptKey))) return true
     const assignees = t.multi_assignment?.assignees ?? []
     return assignees.some((a) =>
       (a.username || '').toLowerCase() === userLower ||

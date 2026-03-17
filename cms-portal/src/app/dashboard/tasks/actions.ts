@@ -161,6 +161,31 @@ function isUserInManagerList(managerIdField: string | null, username: string): b
     .includes(username.toLowerCase())
 }
 
+async function getManagedTeamUsernames(
+  supabase: ReturnType<typeof createServerClient>,
+  user: Awaited<ReturnType<typeof getSession>>
+): Promise<string[]> {
+  if (!user) return []
+
+  const team = new Set(
+    (user.teamMembers || [])
+      .map((member) => String(member || '').trim())
+      .filter(Boolean)
+  )
+
+  const { data: managedRows } = await supabase
+    .from('users')
+    .select('username')
+    .ilike('manager_id', `%${user.username}%`)
+
+  ;(managedRows || []).forEach((row: Record<string, unknown>) => {
+    const username = String(row.username || '').trim()
+    if (username) team.add(username)
+  })
+
+  return Array.from(team)
+}
+
 function extractMentionedUsernames(message: string, candidates: string[]): string[] {
   const candidateMap = new Map(
     candidates
@@ -2191,6 +2216,92 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
 }
 
 // ── Reassign task handoff ────────────────────────────────────────────────────
+
+export async function assignQueuedTaskToTeamMemberAction(
+  todoId: string,
+  toUsername: string,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const target = String(toUsername || '').trim()
+  if (!target) return { success: false, error: 'Team member is required.' }
+
+  const supabase = createServerClient()
+  const managedTeam = await getManagedTeamUsernames(supabase, user)
+  const managedTeamLower = new Set(managedTeam.map((member) => member.toLowerCase()))
+
+  if (!managedTeamLower.has(target.toLowerCase())) {
+    return { success: false, error: 'You can only assign queued tasks to your own team members.' }
+  }
+
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,queue_status,queue_department,task_status,history,title,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.queue_status as string) !== 'queued') {
+    return { success: false, error: 'Task is not in the queue.' }
+  }
+  if (task.assigned_to) {
+    return { success: false, error: 'Task has already been assigned.' }
+  }
+
+  const taskDept = canonicalDepartmentKey((task.queue_department as string) || '')
+  const userDepts = splitDepartmentsCsv(user.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
+  if (taskDept && userDepts.length > 0 && !userDepts.includes(taskDept)) {
+    return { success: false, error: 'This task is for a different department.' }
+  }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} assigned this queued task to ${target}${task.queue_department ? ` from the ${task.queue_department} queue` : ''}`,
+    timestamp: now,
+    icon: '📥',
+    title: 'Queued Task Assigned',
+  })
+  assignmentChain.push({
+    user: target,
+    role: 'assigned_from_department_queue',
+    assignedAt: now,
+    next_user: target,
+  })
+
+  await supabase.from('todos').update({
+    assigned_to: target,
+    manager_id: user.username,
+    queue_status: 'claimed',
+    task_status: 'todo',
+    workflow_state: 'assigned_from_department_queue',
+    assignment_chain: JSON.stringify(assignmentChain),
+    last_handoff_at: now,
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await notifyUsers(
+    supabase,
+    [target, task.username as string],
+    {
+      type: 'task_assigned',
+      title: 'Queued Task Assigned',
+      body: `${user.username} assigned "${task.title}" to ${target}.`,
+      relatedId: todoId,
+    },
+    user.username,
+  )
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
 
 export async function reassignTaskAction(
   todoId: string,

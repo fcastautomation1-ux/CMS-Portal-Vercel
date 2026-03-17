@@ -321,11 +321,23 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     event: React.KeyboardEvent<HTMLDivElement>,
     targetRef: React.RefObject<HTMLDivElement | null>
   ) => {
-    if (event.key !== 'Tab') return
     const target = targetRef.current
     if (!target) return
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    if (!target.contains(range.commonAncestorContainer)) return
+
+    if ((event.key === 'Backspace' || event.key === 'Delete') && !range.collapsed) {
+      event.preventDefault()
+      range.deleteContents()
+      normalizeEditableTables(target)
+      syncDescription()
+      captureDescriptionSelection()
+      return
+    }
+
+    if (event.key !== 'Tab') return
     const anchor = selection.anchorNode
     if (!anchor || !target.contains(anchor)) return
     const anchorElement =
@@ -346,7 +358,8 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     const target = event.target
     if (!(target instanceof Element)) return
     const cell = target.closest('td, th')
-    if (!cell) return
+    if (!cell || target !== cell) return
+    if ((cell.textContent ?? '').trim()) return
 
     const selection = window.getSelection()
     if (!selection) return
@@ -1733,13 +1746,22 @@ function placeCaretAtNodeStart(node: Node) {
 
 function normalizeEditableTables(root: HTMLDivElement | null) {
   if (!root) return
-  const cells = root.querySelectorAll('td, th')
+  const cells = root.querySelectorAll<HTMLTableCellElement>('td, th')
   cells.forEach((cell) => {
     cell.removeAttribute('contenteditable')
-    if (!cell.textContent?.trim() && cell.childNodes.length === 0) {
-      cell.appendChild(document.createElement('br'))
+    if (isVisuallyEmptyTableCell(cell)) {
+      cell.replaceChildren(document.createElement('br'))
     }
   })
+}
+
+function isVisuallyEmptyTableCell(cell: HTMLTableCellElement) {
+  const text = cell.textContent?.replace(/\u00a0/g, ' ').trim() ?? ''
+  if (text) return false
+
+  return !Array.from(cell.childNodes).some(
+    (child) => child.nodeType === Node.ELEMENT_NODE && !(child instanceof HTMLBRElement)
+  )
 }
 
 function normalizeEditorHtml(root: HTMLDivElement | null): string {
