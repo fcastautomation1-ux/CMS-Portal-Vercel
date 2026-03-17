@@ -1710,7 +1710,7 @@ function normalizeEditableTables(root: HTMLDivElement | null) {
   if (!root) return
   const cells = root.querySelectorAll('td, th')
   cells.forEach((cell) => {
-    cell.setAttribute('contenteditable', 'true')
+    cell.removeAttribute('contenteditable')
     if (!cell.textContent?.trim() && cell.childNodes.length === 0) {
       cell.appendChild(document.createElement('br'))
     }
