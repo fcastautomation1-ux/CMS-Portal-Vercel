@@ -195,7 +195,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   }, [editTask, initialDraft?.description, initialDraft?.ourGoal])
 
   useEffect(() => {
-      const snapshot: DraftPayload = {
+    const snapshot: DraftPayload = {
       appNames,
       packageNames,
       kpiType,
@@ -210,7 +210,10 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       assignedManager,
       multiAssignees,
     }
-    window.localStorage.setItem(draftKey, JSON.stringify(snapshot))
+    const timer = window.setTimeout(() => {
+      window.localStorage.setItem(draftKey, JSON.stringify(snapshot))
+    }, 300)
+    return () => window.clearTimeout(timer)
   }, [
     appNames,
     assignedManager,
@@ -276,7 +279,8 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   )
 
   const syncDescription = () => {
-    setDescription(descriptionRef.current?.innerHTML ?? '')
+    const next = descriptionRef.current?.innerHTML ?? ''
+    setDescription((current) => (current === next ? current : next))
   }
 
   const captureDescriptionSelection = () => {
