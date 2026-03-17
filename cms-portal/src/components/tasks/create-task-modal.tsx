@@ -290,15 +290,15 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     setAppNames((current) => {
       const exists = current.includes(nextApp)
       const next = exists ? current.filter((item) => item !== nextApp) : [...current, nextApp]
-      if (!next.includes('Others')) {
-        setPackageNames((selectedPackages) =>
-          selectedPackages.filter((pkgName) => {
-            if (pkgName === 'Others') return false
-            const pkg = packages.find((item) => item.name === pkgName)
-            return pkg?.app_name ? next.includes(pkg.app_name) : false
-          })
-        )
-      }
+      const autoSelectedPackages = Array.from(
+        new Set([
+          ...packages
+            .filter((item) => item.app_name && next.includes(item.app_name))
+            .map((item) => item.name),
+          ...(next.includes('Others') ? ['Others'] : []),
+        ])
+      )
+      setPackageNames(autoSelectedPackages)
       return next
     })
   }
