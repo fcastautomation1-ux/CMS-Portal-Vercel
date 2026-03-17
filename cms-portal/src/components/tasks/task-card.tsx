@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, type ReactNode } from 'react'
+import { useEffect, useState, useTransition, type ReactNode } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -23,6 +23,7 @@ import {
   duplicateTodoAction,
   claimQueuedTaskAction,
   assignQueuedTaskToTeamMemberAction,
+  getUsersForAssignment,
   reassignTaskAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
@@ -188,6 +189,7 @@ export function TaskCard({
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -237,6 +239,16 @@ export function TaskCard({
   const playPkg = packageNames.find((value) => value !== 'Others') ?? null
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
+
+  useEffect(() => {
+    let cancelled = false
+    getUsersForAssignment().then((users) => {
+      if (!cancelled) setAssignableUsers(users)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
@@ -802,7 +814,23 @@ export function TaskCard({
       >
         {taskDialog.type === 'reassign' ? (
           <div className="space-y-3">
-            <DialogInput label="Next Assignee Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">Next Assignee</span>
+              <select
+                value={dialogValue}
+                onChange={(e) => setDialogValue(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">Select user</option>
+                {assignableUsers
+                  .filter((user) => user.username !== task.assigned_to && user.username !== currentUsername)
+                  .map((user) => (
+                    <option key={user.username} value={user.username}>
+                      {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you assigning this task to the next person?" />
           </div>
         ) : taskDialog.type === 'queue-assign' ? (

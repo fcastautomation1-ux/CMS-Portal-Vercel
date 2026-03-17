@@ -1424,7 +1424,23 @@ export function TaskDetailModal({
         >
           {taskDialog.type === 'reassign' ? (
             <div className="space-y-3">
-              <DialogInput label="New Assignee Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Next Assignee</span>
+                <select
+                  value={dialogValue}
+                  onChange={(e) => setDialogValue(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">Select user</option>
+                  {shareUsers
+                    .filter((user) => user.username !== t.assigned_to && user.username !== currentUsername)
+                    .map((user) => (
+                      <option key={user.username} value={user.username}>
+                        {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
+                      </option>
+                    ))}
+                </select>
+              </label>
               <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you reassigning?" />
             </div>
           ) : taskDialog.type === 'split-multi' ? (
