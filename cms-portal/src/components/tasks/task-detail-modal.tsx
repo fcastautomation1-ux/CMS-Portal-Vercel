@@ -862,7 +862,7 @@ export function TaskDetailModal({
                       setComment(e.target.value)
                       setMentionIndex(0)
                     }}
-                    placeholder="Write a comment... Use @username to mention someone."
+                    placeholder="Write a message for this task... Use @username to mention someone."
                     rows={1}
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none"
                     onClick={() => setMentionIndex(0)}
@@ -891,7 +891,6 @@ export function TaskDetailModal({
                       ))}
                     </div>
                   )}
-                  <p className="mt-2 px-1 text-[11px] text-slate-400">You can edit or delete only your own message within 10 minutes of sending it.</p>
                 </div>
                 <button
                   onClick={() => { if (comment.trim()) { doAction(() => addCommentAction(t.id, comment.trim())); setComment(''); setMentionIndex(0) } }}

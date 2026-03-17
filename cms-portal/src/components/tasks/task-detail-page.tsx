@@ -1291,11 +1291,7 @@ export function TaskDetailPage({
                       ))}
                     </div>
                   )}
-                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-2 pt-2">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Task-only discussion</p>
-                      <p className="mt-1 text-[11px] text-slate-400">You can edit or delete only your own message within 10 minutes of sending it.</p>
-                    </div>
+                  <div className="flex items-center justify-end border-t border-slate-100 px-2 pt-2">
                     <button
                       onClick={() => {
                         if (!comment.trim()) return
