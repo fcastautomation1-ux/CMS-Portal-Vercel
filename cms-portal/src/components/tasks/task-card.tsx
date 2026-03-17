@@ -638,17 +638,19 @@ export function TaskCard({
         </div>
 
         <div className="flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between">
-          <div className="text-left md:text-right">
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Expected</div>
-            <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-700')}>
-              {task.due_date ? fmtShort(task.due_date) : 'No date'}
-            </div>
-            {task.due_date && (
-              <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-400')}>
-                {fmtTime(task.due_date)}
+          {!maEnabled && (
+            <div className="text-left md:text-right">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Expected</div>
+              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-700')}>
+                {task.due_date ? fmtShort(task.due_date) : 'No date'}
               </div>
-            )}
-          </div>
+              {task.due_date && (
+                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-400')}>
+                  {fmtTime(task.due_date)}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-col items-end gap-2 md:mt-5">
             {task.queue_status === 'queued' && (
