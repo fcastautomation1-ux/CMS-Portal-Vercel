@@ -221,6 +221,12 @@ export type Database = {
           completed_by: string | null
           completed_at: string | null
           approval_status: string
+          workflow_state: string | null
+          pending_approver: string | null
+          approval_chain: Json
+          approval_requested_at: string | null
+          approval_sla_due_at: string | null
+          last_handoff_at: string | null
           approved_at: string | null
           approved_by: string | null
           declined_at: string | null
@@ -258,6 +264,12 @@ export type Database = {
           completed_by?: string | null
           completed_at?: string | null
           approval_status?: string
+          workflow_state?: string | null
+          pending_approver?: string | null
+          approval_chain?: Json
+          approval_requested_at?: string | null
+          approval_sla_due_at?: string | null
+          last_handoff_at?: string | null
           approved_at?: string | null
           approved_by?: string | null
           declined_at?: string | null
@@ -295,6 +307,12 @@ export type Database = {
           completed_by?: string | null
           completed_at?: string | null
           approval_status?: string
+          workflow_state?: string | null
+          pending_approver?: string | null
+          approval_chain?: Json
+          approval_requested_at?: string | null
+          approval_sla_due_at?: string | null
+          last_handoff_at?: string | null
           approved_at?: string | null
           approved_by?: string | null
           declined_at?: string | null

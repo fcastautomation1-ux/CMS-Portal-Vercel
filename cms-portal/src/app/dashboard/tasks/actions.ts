@@ -18,6 +18,7 @@ import type {
   MultiAssignmentEntry,
   MultiAssignmentSubEntry,
   AssignmentChainEntry,
+  ApprovalChainEntry,
 } from '@/types'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
   t.history = parseJson<HistoryEntry[]>(raw.history, [])
   t.assignment_chain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
   t.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+  t.approval_chain = parseJson<ApprovalChainEntry[]>(raw.approval_chain, [])
   if (!t.archived) t.archived = false
   // Assignee sees their actual_due_date; everyone else sees expected_due_date
   const isAssignee = (t.assigned_to || '').toLowerCase() === username.toLowerCase()
@@ -85,6 +87,70 @@ function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
     t.due_date = t.expected_due_date
   }
   return t
+}
+
+function addHoursIso(baseIso: string, hours: number): string {
+  const base = new Date(baseIso)
+  return new Date(base.getTime() + hours * 60 * 60 * 1000).toISOString()
+}
+
+function normalizeApprovalUser(value: unknown): string {
+  return String(value || '').trim()
+}
+
+function getApprovalChainFromTask(task: Record<string, unknown>): ApprovalChainEntry[] {
+  const chain = parseJson<ApprovalChainEntry[]>(task.approval_chain, [])
+  return Array.isArray(chain) ? chain : []
+}
+
+function deriveApprovalUserOrder(task: Record<string, unknown>, completedBy: string): string[] {
+  const completedByLower = completedBy.toLowerCase()
+  const creator = normalizeApprovalUser(task.username)
+  const historyChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+  const dedup: string[] = []
+  const seen = new Set<string>()
+
+  for (let i = historyChain.length - 1; i >= 0; i -= 1) {
+    const candidate = normalizeApprovalUser(historyChain[i]?.user)
+    if (!candidate) continue
+    const lower = candidate.toLowerCase()
+    if (lower === completedByLower) continue
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    dedup.push(candidate)
+  }
+
+  if (creator && !seen.has(creator.toLowerCase()) && creator.toLowerCase() !== completedByLower) {
+    dedup.push(creator)
+  }
+
+  return dedup
+}
+
+function buildPendingApprovalChain(task: Record<string, unknown>, completedBy: string, now: string): ApprovalChainEntry[] {
+  const users = deriveApprovalUserOrder(task, completedBy)
+  return users.map((user, index) => ({
+    user,
+    status: 'pending',
+    step: index + 1,
+    requested_at: now,
+  }))
+}
+
+function getMaxMaDueDate(ma: MultiAssignment | null): string | null {
+  if (!ma?.enabled || !Array.isArray(ma.assignees)) return null
+  let maxTs = 0
+  let maxIso: string | null = null
+  for (const assignee of ma.assignees) {
+    if (!assignee.actual_due_date) continue
+    const ts = new Date(assignee.actual_due_date).getTime()
+    if (Number.isNaN(ts)) continue
+    if (ts > maxTs) {
+      maxTs = ts
+      maxIso = new Date(ts).toISOString()
+    }
+  }
+  return maxIso
 }
 
 function isUserInManagerList(managerIdField: string | null, username: string): boolean {
@@ -290,10 +356,11 @@ export async function getTodos(): Promise<Todo[]> {
   })
 
   // Parallel queries
-  const [ownedRes, assignedRes, completedByRes, sharedRes, deptQueueRes] = await Promise.all([
+  const [ownedRes, assignedRes, completedByRes, pendingApproverRes, sharedRes, deptQueueRes] = await Promise.all([
     supabase.from('todos').select('*').eq('username', user.username),
     supabase.from('todos').select('*').eq('assigned_to', user.username),
     supabase.from('todos').select('*').eq('completed_by', user.username),
+    supabase.from('todos').select('*').eq('pending_approver', user.username),
     supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username),
     user.department
       ? supabase
@@ -333,6 +400,7 @@ export async function getTodos(): Promise<Todo[]> {
   ;(ownedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r))
   ;(assignedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_assigned_to_me: true }))
   ;(completedByRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_completed_by_me: true }))
+  ;(pendingApproverRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_chain_member: true }))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => {
     const queueDept = String(r.queue_department || '')
     const queueDeptKey = canonicalDepartmentKey(queueDept)
@@ -607,6 +675,7 @@ export async function saveTodoAction(
       input.routing === 'multi' && input.multi_assignment?.enabled
         ? input.multi_assignment
         : null
+    const rolledMaDue = getMaxMaDueDate(nextMultiAssignment)
 
     payload.assigned_to = nextAssignedTo
     payload.manager_id = nextManagerId
@@ -615,6 +684,23 @@ export async function saveTodoAction(
     payload.multi_assignment = nextMultiAssignment
       ? JSON.stringify(nextMultiAssignment)
       : null
+    if (rolledMaDue) {
+      payload.due_date = rolledMaDue
+      payload.expected_due_date = rolledMaDue
+    }
+    payload.workflow_state =
+      input.routing === 'department'
+        ? 'queued_department'
+        : input.routing === 'multi'
+          ? 'split_to_multi'
+          : nextAssignedTo
+            ? 'claimed_by_department'
+            : 'in_progress'
+    payload.pending_approver = null
+    payload.approval_chain = JSON.stringify([])
+    payload.approval_requested_at = null
+    payload.approval_sla_due_at = null
+    payload.last_handoff_at = now
     payload.category =
       input.category || (input.routing === 'department' ? nextQueueDept : null)
 
@@ -654,6 +740,7 @@ export async function saveTodoAction(
       input.routing === 'multi' && input.multi_assignment?.enabled
         ? input.multi_assignment
         : null
+    const rolledMaDue = getMaxMaDueDate(multiAssignment)
 
     const assignmentChain: AssignmentChainEntry[] = []
     if (assignedTo) {
@@ -704,7 +791,7 @@ export async function saveTodoAction(
       category: input.category || (input.routing === 'department' ? queueDept : null),
       kpi_type: input.kpi_type,
       due_date: input.due_date || null,
-      expected_due_date: input.due_date || null,
+      expected_due_date: input.due_date || rolledMaDue || null,
       actual_due_date: input.due_date || null,
       notes: input.notes || null,
       package_name: input.package_name || null,
@@ -719,6 +806,19 @@ export async function saveTodoAction(
       completed_by: null,
       completed_at: null,
       approval_status: 'approved',
+      workflow_state:
+        input.routing === 'department'
+          ? 'queued_department'
+          : input.routing === 'multi'
+            ? 'split_to_multi'
+            : assignedTo
+              ? 'claimed_by_department'
+              : 'in_progress',
+      pending_approver: null,
+      approval_chain: JSON.stringify([]),
+      approval_requested_at: null,
+      approval_sla_due_at: null,
+      last_handoff_at: now,
       approved_at: null,
       approved_by: null,
       declined_at: null,
@@ -728,6 +828,11 @@ export async function saveTodoAction(
       history: JSON.stringify(history),
       created_at: now,
       updated_at: now,
+    }
+
+    if (rolledMaDue) {
+      payload.due_date = rolledMaDue
+      payload.expected_due_date = rolledMaDue
     }
 
     const { error } = await supabase.from('todos').insert(payload)
@@ -848,6 +953,7 @@ export async function startTaskAction(todoId: string): Promise<{ success: boolea
 
   await supabase.from('todos').update({
     task_status: 'in_progress',
+    workflow_state: 'in_progress',
     completed: false,
     history: JSON.stringify(history),
     updated_at: now,
@@ -880,7 +986,7 @@ export async function toggleTodoCompleteAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,manager_id,title,history,approval_status,completed,completed_by,multi_assignment')
+    .select('username,assigned_to,manager_id,title,history,approval_status,completed,completed_by,multi_assignment,assignment_chain,approval_chain,pending_approver')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -928,6 +1034,11 @@ export async function toggleTodoCompleteAction(
         completed_by: user.username,
         task_status: 'done',
         approval_status: 'approved',
+        workflow_state: 'final_approved',
+        pending_approver: null,
+        approval_chain: JSON.stringify([]),
+        approval_requested_at: null,
+        approval_sla_due_at: null,
         multi_assignment: multiAssignment ? JSON.stringify(multiAssignment) : undefined,
       }
       history.push({
@@ -939,24 +1050,31 @@ export async function toggleTodoCompleteAction(
         title: 'Task Completed',
       })
     } else {
+      const pendingChain = buildPendingApprovalChain(task, user.username, now)
+      const nextApprover = pendingChain[0]?.user || (task.username as string)
       updateData = {
         ...updateData,
         completed: false,
         approval_status: 'pending_approval',
         completed_by: user.username,
         task_status: 'done',
+        workflow_state: 'submitted_for_approval',
+        pending_approver: nextApprover,
+        approval_chain: JSON.stringify(pendingChain),
+        approval_requested_at: now,
+        approval_sla_due_at: addHoursIso(now, 48),
       }
       history.push({
         type: 'completion_submitted',
         user: user.username,
-        details: `${user.username} submitted task for completion — awaiting creator approval`,
+        details: `${user.username} submitted task for completion — awaiting approval from ${nextApprover}`,
         timestamp: now,
         icon: '⏳',
         title: 'Completion Submitted',
       })
-      // Notify creator
+      // Notify next approver
       await createNotification(supabase, {
-        userId: task.username as string,
+        userId: nextApprover,
         type: 'task_assigned',
         title: 'Task Completion Needs Approval',
         body: `${user.username} completed "${task.title}" and needs your approval.`,
@@ -972,6 +1090,11 @@ export async function toggleTodoCompleteAction(
       completed_by: null,
       task_status: 'in_progress',
       approval_status: 'approved',
+      workflow_state: 'in_progress',
+      pending_approver: null,
+      approval_chain: JSON.stringify([]),
+      approval_requested_at: null,
+      approval_sla_due_at: null,
     }
     history.push({
       type: 'uncompleted',
@@ -999,25 +1122,47 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,completed_by,assigned_to,title,history,approval_status,assignment_chain,multi_assignment')
+    .select('username,completed_by,assigned_to,title,history,approval_status,assignment_chain,multi_assignment,pending_approver,approval_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  if ((task.username as string) !== user.username) return { success: false, error: 'Only the task creator can approve completion.' }
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
+
+  const configuredPendingApprover = normalizeApprovalUser(task.pending_approver)
+  const expectedApprover = configuredPendingApprover || normalizeApprovalUser(task.username)
+  if (expectedApprover.toLowerCase() !== user.username.toLowerCase()) {
+    return { success: false, error: `Only ${expectedApprover} can approve at this stage.` }
+  }
 
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
   const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  const approvalChain = getApprovalChainFromTask(task)
+
+  const currentStepIndex = approvalChain.findIndex(
+    (entry) => normalizeApprovalUser(entry.user).toLowerCase() === user.username.toLowerCase() && entry.status === 'pending',
+  )
+  if (currentStepIndex !== -1) {
+    approvalChain[currentStepIndex] = {
+      ...approvalChain[currentStepIndex],
+      status: 'approved',
+      acted_at: now,
+      acted_by: user.username,
+    }
+  }
+
+  const nextPending = approvalChain.find((entry) => entry.status === 'pending')
   history.push({
     type: 'approved',
     user: user.username,
-    details: `Task completion approved by ${user.username}`,
+    details: nextPending
+      ? `Task completion approved by ${user.username} and forwarded to ${nextPending.user}`
+      : `Task completion approved by ${user.username}`,
     timestamp: now,
     icon: '✅',
-    title: 'Completion Approved',
+    title: nextPending ? 'Approval Forwarded' : 'Completion Approved',
   })
 
   if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
@@ -1034,17 +1179,34 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     touchMultiAssignmentProgress(multiAssignment)
   }
 
-  await supabase.from('todos').update({
-    completed: true,
-    completed_at: now,
-    approval_status: 'approved',
-    approved_at: now,
-    approved_by: user.username,
+  const updatePayload: Record<string, unknown> = {
     task_status: 'done',
     multi_assignment: multiAssignment ? JSON.stringify(multiAssignment) : undefined,
     history: JSON.stringify(history),
+    approval_chain: JSON.stringify(approvalChain),
     updated_at: now,
-  }).eq('id', todoId)
+  }
+
+  if (nextPending) {
+    updatePayload.completed = false
+    updatePayload.approval_status = 'pending_approval'
+    updatePayload.pending_approver = nextPending.user
+    updatePayload.approval_requested_at = now
+    updatePayload.approval_sla_due_at = addHoursIso(now, 48)
+    updatePayload.workflow_state = 'submitted_for_approval'
+  } else {
+    updatePayload.completed = true
+    updatePayload.completed_at = now
+    updatePayload.approval_status = 'approved'
+    updatePayload.pending_approver = null
+    updatePayload.approval_requested_at = null
+    updatePayload.approval_sla_due_at = null
+    updatePayload.approved_at = now
+    updatePayload.approved_by = user.username
+    updatePayload.workflow_state = 'final_approved'
+  }
+
+  await supabase.from('todos').update(updatePayload).eq('id', todoId)
 
   // Notify all involved users
   const notifySet = new Set<string>()
@@ -1055,8 +1217,20 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     await createNotification(supabase, {
       userId: targetUser,
       type: 'task_assigned',
-      title: 'Task Approved!',
-      body: `${user.username} approved completion of "${task.title}". Task is now complete.`,
+      title: nextPending ? 'Task Approval Forwarded' : 'Task Approved!',
+      body: nextPending
+        ? `${user.username} approved "${task.title}" and forwarded it to ${nextPending.user}.`
+        : `${user.username} approved completion of "${task.title}". Task is now complete.`,
+      relatedId: todoId,
+    })
+  }
+
+  if (nextPending && nextPending.user.toLowerCase() !== user.username.toLowerCase()) {
+    await createNotification(supabase, {
+      userId: nextPending.user,
+      type: 'task_assigned',
+      title: 'Approval Required',
+      body: `${user.username} forwarded "${task.title}" to you for approval.`,
       relatedId: todoId,
     })
   }
@@ -1074,17 +1248,32 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,completed_by,assigned_to,title,history,approval_status')
+    .select('username,completed_by,assigned_to,title,history,approval_status,pending_approver,approval_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  if ((task.username as string) !== user.username) return { success: false, error: 'Only the task creator can decline completion.' }
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
+
+  const expectedApprover = normalizeApprovalUser(task.pending_approver) || normalizeApprovalUser(task.username)
+  if (expectedApprover.toLowerCase() !== user.username.toLowerCase()) {
+    return { success: false, error: `Only ${expectedApprover} can decline at this stage.` }
+  }
 
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
+  const approvalChain = getApprovalChainFromTask(task).map((entry) => {
+    if (entry.status !== 'pending') return entry
+    if (normalizeApprovalUser(entry.user).toLowerCase() !== user.username.toLowerCase()) return entry
+    return {
+      ...entry,
+      status: 'declined',
+      acted_at: now,
+      acted_by: user.username,
+      comment: reason || undefined,
+    }
+  })
   history.push({
     type: 'declined',
     user: user.username,
@@ -1104,6 +1293,11 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
     completed_by: null,
     assigned_to: previousAssignee || (task.assigned_to as string),
     task_status: 'in_progress',
+    workflow_state: 'rework_required',
+    pending_approver: null,
+    approval_chain: JSON.stringify(approvalChain),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
     history: JSON.stringify(history),
     updated_at: now,
   }).eq('id', todoId)
@@ -1748,6 +1942,11 @@ export async function updateTaskStatusAction(
     return { success: false, error: 'No permission to update this task status.' }
   }
 
+  const oldStatus = String(task.task_status || '')
+  if (oldStatus === 'done' && newStatus !== 'done' && !isCreator) {
+    return { success: false, error: 'Only the task creator can reopen a completed task.' }
+  }
+
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
   history.push({
@@ -1770,11 +1969,32 @@ export async function updateTaskStatusAction(
     updatePayload.completed = true
     updatePayload.completed_at = now
     updatePayload.completed_by = user.username
-    if (isCreator) updatePayload.approval_status = 'approved'
-    else updatePayload.approval_status = 'pending_approval'
+    if (isCreator) {
+      updatePayload.approval_status = 'approved'
+      updatePayload.workflow_state = 'final_approved'
+      updatePayload.pending_approver = null
+      updatePayload.approval_chain = JSON.stringify([])
+      updatePayload.approval_requested_at = null
+      updatePayload.approval_sla_due_at = null
+    } else {
+      const pendingChain = buildPendingApprovalChain(task, user.username, now)
+      const nextApprover = pendingChain[0]?.user || (task.username as string)
+      updatePayload.approval_status = 'pending_approval'
+      updatePayload.workflow_state = 'submitted_for_approval'
+      updatePayload.pending_approver = nextApprover
+      updatePayload.approval_chain = JSON.stringify(pendingChain)
+      updatePayload.approval_requested_at = now
+      updatePayload.approval_sla_due_at = addHoursIso(now, 48)
+    }
   } else if (newStatus === 'in_progress') {
     updatePayload.completed = false
     updatePayload.completed_at = null
+    updatePayload.approval_status = 'approved'
+    updatePayload.workflow_state = 'in_progress'
+    updatePayload.pending_approver = null
+    updatePayload.approval_chain = JSON.stringify([])
+    updatePayload.approval_requested_at = null
+    updatePayload.approval_sla_due_at = null
   }
 
   await supabase.from('todos').update(updatePayload).eq('id', todoId)
@@ -1815,6 +2035,7 @@ export async function acknowledgeTaskAction(todoId: string): Promise<{ success: 
 
   await supabase.from('todos').update({
     task_status: 'todo',
+    workflow_state: 'claimed_by_department',
     history: JSON.stringify(history),
     updated_at: now,
   }).eq('id', todoId)
@@ -1910,7 +2131,7 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,queue_status,queue_department,task_status,history,title')
+    .select('username,assigned_to,queue_status,queue_department,task_status,history,title,assignment_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -1929,6 +2150,7 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
 
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
   history.push({
     type: 'assigned',
     user: user.username,
@@ -1937,11 +2159,19 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
     icon: '📥',
     title: 'Task Claimed',
   })
+  assignmentChain.push({
+    user: user.username,
+    role: 'claimed_from_department',
+    assignedAt: now,
+  })
 
   await supabase.from('todos').update({
     assigned_to: user.username,
     queue_status: 'claimed',
     task_status: 'todo',
+    workflow_state: 'claimed_by_department',
+    assignment_chain: JSON.stringify(assignmentChain),
+    last_handoff_at: now,
     history: JSON.stringify(history),
     updated_at: now,
   }).eq('id', todoId)
@@ -1960,6 +2190,198 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
   return { success: true }
 }
 
+// ── Reassign task handoff ────────────────────────────────────────────────────
+
+export async function reassignTaskAction(
+  todoId: string,
+  toUsername: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const target = String(toUsername || '').trim()
+  if (!target) return { success: false, error: 'Target assignee is required.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,task_status,completed,approval_status,title,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+
+  if (!isCreator && !isCurrentAssignee && !isAdmin) {
+    return { success: false, error: 'Only creator, current assignee, or admin can reassign this task.' }
+  }
+  if ((task.completed as boolean) === true) {
+    return { success: false, error: 'Completed tasks cannot be reassigned.' }
+  }
+  if ((task.approval_status as string) === 'pending_approval') {
+    return { success: false, error: 'Task is awaiting approval and cannot be reassigned.' }
+  }
+  if ((task.assigned_to as string) === target) {
+    return { success: false, error: 'Task is already assigned to this user.' }
+  }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+  const fromUser = String(task.assigned_to || user.username)
+
+  assignmentChain.push({
+    user: target,
+    role: 'reassigned',
+    assignedAt: now,
+    next_user: target,
+    feedback: reason?.trim() || undefined,
+  })
+
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} reassigned task from ${fromUser} to ${target}${reason?.trim() ? `. Reason: ${reason.trim()}` : ''}`,
+    timestamp: now,
+    icon: '🔁',
+    title: 'Task Reassigned',
+  })
+
+  await supabase.from('todos').update({
+    assigned_to: target,
+    manager_id: target,
+    task_status: 'todo',
+    workflow_state: 'reassigned',
+    assignment_chain: JSON.stringify(assignmentChain),
+    history: JSON.stringify(history),
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
+    last_handoff_at: now,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await notifyUsers(
+    supabase,
+    [target, task.username as string],
+    {
+      type: 'task_assigned',
+      title: 'Task Reassigned',
+      body: `${user.username} reassigned "${task.title}" to ${target}.`,
+      relatedId: todoId,
+    },
+    user.username,
+  )
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+// ── Convert single task to multi-assignment ──────────────────────────────────
+
+export async function convertTaskToMultiAssignmentAction(
+  todoId: string,
+  assignees: Array<{ username: string; actual_due_date?: string | null }>,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  if (!Array.isArray(assignees) || assignees.length === 0) {
+    return { success: false, error: 'At least one assignee is required.' }
+  }
+
+  const normalizedAssignees = assignees
+    .map((entry) => ({
+      username: String(entry.username || '').trim(),
+      actual_due_date: entry.actual_due_date || null,
+    }))
+    .filter((entry) => Boolean(entry.username))
+
+  if (normalizedAssignees.length === 0) {
+    return { success: false, error: 'Invalid assignee payload.' }
+  }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,completed,multi_assignment,approval_status,history,title')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const isCreator = (task.username as string) === user.username
+  const isAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!isCreator && !isAssignee && !isAdmin) {
+    return { success: false, error: 'Only creator, current assignee, or admin can split into multi-assignment.' }
+  }
+
+  const existingMa = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (existingMa?.enabled) return { success: false, error: 'Task is already multi-assigned.' }
+  if ((task.completed as boolean) === true) return { success: false, error: 'Completed tasks cannot be split.' }
+  if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be split.' }
+
+  const now = new Date().toISOString()
+  const nextMa: MultiAssignment = {
+    enabled: true,
+    created_by: user.username,
+    assignees: normalizedAssignees.map((entry) => ({
+      username: entry.username,
+      status: 'pending',
+      assigned_at: now,
+      actual_due_date: entry.actual_due_date || undefined,
+    })),
+    completion_percentage: 0,
+    all_completed: false,
+  }
+  touchMultiAssignmentProgress(nextMa)
+  const rolledDue = getMaxMaDueDate(nextMa)
+
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} converted task to multi-assignment (${normalizedAssignees.length} assignees).`,
+    timestamp: now,
+    icon: '👥',
+    title: 'Split Into Multi-Assignment',
+  })
+
+  await supabase.from('todos').update({
+    multi_assignment: JSON.stringify(nextMa),
+    task_status: 'in_progress',
+    workflow_state: 'split_to_multi',
+    ...(rolledDue ? { due_date: rolledDue, expected_due_date: rolledDue } : {}),
+    history: JSON.stringify(history),
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await notifyUsers(
+    supabase,
+    normalizedAssignees.map((entry) => entry.username),
+    {
+      type: 'task_assigned',
+      title: 'You were added to a multi-assignment task',
+      body: `${user.username} assigned you work in "${task.title}".`,
+      relatedId: todoId,
+    },
+    user.username,
+  )
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
 // ── Update multi-assignment per-assignee status ───────────────────────────────
 
 export async function updateMaAssigneeStatusAction(
@@ -1973,7 +2395,7 @@ export async function updateMaAssigneeStatusAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,multi_assignment,history,title')
+    .select('username,assigned_to,multi_assignment,history,title')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -2011,6 +2433,7 @@ export async function updateMaAssigneeStatusAction(
 
   await supabase.from('todos').update({
     multi_assignment: JSON.stringify(ma),
+    workflow_state: 'split_to_multi',
     history: JSON.stringify(history),
     updated_at: now,
   }).eq('id', todoId)
@@ -2042,14 +2465,17 @@ export async function acceptMaAssigneeAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,multi_assignment,history,title')
+    .select('username,assigned_to,multi_assignment,history,title,assignment_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  if ((task.username as string) !== user.username)
-    return { success: false, error: 'Only the task creator can accept work.' }
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!isCreator && !isCurrentAssignee && !isAdmin)
+    return { success: false, error: 'Only task owner, current assignee, or admin can accept work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -2071,12 +2497,40 @@ export async function acceptMaAssigneeAction(
     title: 'Work Accepted',
   })
 
-  await supabase.from('todos').update({
+  const updatePayload: Record<string, unknown> = {
     multi_assignment: JSON.stringify(ma),
     history: JSON.stringify(history),
-    ...(allAccepted ? { completed: true, completed_at: now, task_status: 'done', approval_status: 'approved' } : {}),
     updated_at: now,
-  }).eq('id', todoId)
+  }
+
+  if (allAccepted) {
+    const pendingChain = buildPendingApprovalChain(task, user.username, now)
+    const nextApprover = pendingChain[0]?.user || (task.username as string)
+    updatePayload.completed = false
+    updatePayload.completed_at = null
+    updatePayload.completed_by = user.username
+    updatePayload.task_status = 'done'
+    updatePayload.approval_status = 'pending_approval'
+    updatePayload.pending_approver = nextApprover
+    updatePayload.approval_chain = JSON.stringify(pendingChain)
+    updatePayload.approval_requested_at = now
+    updatePayload.approval_sla_due_at = addHoursIso(now, 48)
+    updatePayload.workflow_state = 'submitted_for_approval'
+
+    history.push({
+      type: 'completion_submitted',
+      user: user.username,
+      details: `${user.username} submitted fully accepted multi-assignment for approval by ${nextApprover}`,
+      timestamp: now,
+      icon: '📨',
+      title: 'MA Submitted For Approval',
+    })
+    updatePayload.history = JSON.stringify(history)
+  } else {
+    updatePayload.workflow_state = 'multi_accepted'
+  }
+
+  await supabase.from('todos').update(updatePayload).eq('id', todoId)
 
   await createNotification(supabase, {
     userId: assigneeUsername,
@@ -2085,6 +2539,17 @@ export async function acceptMaAssigneeAction(
     body: `${user.username} accepted your work on "${task.title}"`,
     relatedId: todoId,
   })
+
+  if (allAccepted) {
+    const nextApprover = buildPendingApprovalChain(task, user.username, now)[0]?.user || (task.username as string)
+    await createNotification(supabase, {
+      userId: nextApprover,
+      type: 'task_assigned',
+      title: 'Approval Required',
+      body: `${user.username} submitted fully accepted work for "${task.title}".`,
+      relatedId: todoId,
+    })
+  }
 
   revalidatePath('/dashboard/tasks')
   return { success: true }
@@ -2110,7 +2575,10 @@ export async function rejectMaAssigneeAction(
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  if ((task.username as string) !== user.username) return { success: false, error: 'Only the task creator can reject work.' }
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!isCreator && !isCurrentAssignee && !isAdmin) return { success: false, error: 'Only task owner, current assignee, or admin can reject work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -2147,6 +2615,11 @@ export async function rejectMaAssigneeAction(
     completed_at: null,
     approval_status: 'approved',
     task_status: 'in_progress',
+    workflow_state: 'rework_required',
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
     updated_at: now,
   }).eq('id', todoId)
 
@@ -2179,13 +2652,16 @@ export async function reopenMaAssigneeAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,multi_assignment,history,title')
+    .select('username,assigned_to,multi_assignment,history,title')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  if ((task.username as string) !== user.username) return { success: false, error: 'Only the task creator can reopen accepted work.' }
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!isCreator && !isCurrentAssignee && !isAdmin) return { success: false, error: 'Only task owner, current assignee, or admin can reopen accepted work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -2206,6 +2682,7 @@ export async function reopenMaAssigneeAction(
     accepted_by: undefined,
   }
   touchMultiAssignmentProgress(ma)
+  const rolledDue = getMaxMaDueDate(ma)
 
   const history = parseJson<HistoryEntry[]>(task.history, [])
   history.push({
@@ -2224,6 +2701,12 @@ export async function reopenMaAssigneeAction(
     completed_at: null,
     approval_status: 'approved',
     task_status: 'in_progress',
+    workflow_state: 'rework_required',
+    ...(rolledDue ? { due_date: rolledDue, expected_due_date: rolledDue } : {}),
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
     updated_at: now,
   }).eq('id', todoId)
 
@@ -2568,6 +3051,28 @@ export async function removeMaDelegationAction(
 
   revalidatePath('/dashboard/tasks')
   return { success: true }
+}
+
+export async function getMyOverdueApprovalsAction(): Promise<Array<{ id: string; title: string; approval_sla_due_at: string | null }>> {
+  const user = await getSession()
+  if (!user) return []
+
+  const supabase = createServerClient()
+  const nowIso = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('todos')
+    .select('id,title,approval_sla_due_at')
+    .eq('approval_status', 'pending_approval')
+    .eq('pending_approver', user.username)
+    .not('approval_sla_due_at', 'is', null)
+    .lt('approval_sla_due_at', nowIso)
+
+  if (error) {
+    console.error('getMyOverdueApprovalsAction error:', error)
+    return []
+  }
+
+  return (data || []) as Array<{ id: string; title: string; approval_sla_due_at: string | null }>
 }
 
 async function createNotification(

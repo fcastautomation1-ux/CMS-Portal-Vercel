@@ -157,6 +157,16 @@ export interface LookerReport {
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'done'
 export type ApprovalStatus = 'approved' | 'pending_approval' | 'declined'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type TaskWorkflowState =
+  | 'queued_department'
+  | 'claimed_by_department'
+  | 'reassigned'
+  | 'in_progress'
+  | 'split_to_multi'
+  | 'multi_accepted'
+  | 'submitted_for_approval'
+  | 'rework_required'
+  | 'final_approved'
 
 export const KPI_TYPES = [
   'Monitizations',
@@ -197,6 +207,16 @@ export interface AssignmentChainEntry {
   assignedAt: string
   next_user?: string
   feedback?: string
+}
+
+export interface ApprovalChainEntry {
+  user: string
+  status: 'pending' | 'approved' | 'declined'
+  step: number
+  requested_at?: string
+  acted_at?: string
+  acted_by?: string
+  comment?: string
 }
 
 export interface MultiAssignmentSubEntry {
@@ -256,6 +276,12 @@ export interface Todo {
   completed_by: string | null
   completed_at: string | null
   approval_status: ApprovalStatus
+  workflow_state?: TaskWorkflowState | null
+  pending_approver?: string | null
+  approval_chain?: ApprovalChainEntry[]
+  approval_requested_at?: string | null
+  approval_sla_due_at?: string | null
+  last_handoff_at?: string | null
   approved_at: string | null
   approved_by: string | null
   declined_at: string | null

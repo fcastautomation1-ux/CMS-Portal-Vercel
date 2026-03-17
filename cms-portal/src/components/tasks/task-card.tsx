@@ -187,6 +187,7 @@ export function TaskCard({
   const isAssignee = task.assigned_to === currentUsername
   const isCompleted = task.completed
   const isPendingApproval = task.approval_status === 'pending_approval'
+  const pendingApprover = task.pending_approver || task.username
 
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
@@ -204,7 +205,7 @@ export function TaskCard({
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && task.task_status === 'in_progress'
   const showReopenBtn = isCreator && isCompleted
-  const showApproveBtn = isCreator && isPendingApproval
+  const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
   const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
   const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
@@ -380,7 +381,7 @@ export function TaskCard({
             )}
             {task.approval_status === 'pending_approval' && (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-600">
-                Waiting for Approval
+                Waiting for {pendingApprover}
               </span>
             )}
           </div>

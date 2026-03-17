@@ -35,6 +35,7 @@ import {
   getTodos,
   deleteTodoAction,
   archiveTodoAction,
+  getMyOverdueApprovalsAction,
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
@@ -117,7 +118,17 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
     refetchOnWindowFocus: false,
   })
 
+  const overdueApprovalsQuery = useQuery({
+    queryKey: ['task-overdue-approvals', currentUsername],
+    queryFn: () => getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+
   const tasks = tasksQuery.data ?? initialTasks
+  const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
   const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
   const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
@@ -164,8 +175,12 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const ft = await getTodos().catch(() => [] as Todo[])
+    const [ft, overdue] = await Promise.all([
+      getTodos().catch(() => [] as Todo[]),
+      getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
+    ])
     queryClient.setQueryData(queryKeys.tasks(currentUsername), ft)
+    queryClient.setQueryData(['task-overdue-approvals', currentUsername], overdue)
     setLoading(false)
     setSelected(new Set())
   }, [currentUsername, queryClient])
@@ -299,7 +314,12 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
         return false
       })
     } else if (quickFilter === 'my_approval') {
-      list = list.filter((t) => !t.archived && t.approval_status === 'pending_approval' && t.username.toLowerCase() === userLower)
+      list = list.filter((t) => {
+        if (t.archived || t.approval_status !== 'pending_approval') return false
+        const pendingApprover = (t.pending_approver || '').toLowerCase()
+        if (pendingApprover) return pendingApprover === userLower
+        return t.username.toLowerCase() === userLower
+      })
     } else if (quickFilter === 'other_approval') {
       list = list.filter((t) => {
         if (t.archived || t.approval_status !== 'pending_approval') return false
@@ -470,6 +490,16 @@ export function TasksBoard({ currentUsername, currentUserDept, initialTasks, ini
           <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
             <div className="flex min-w-0 items-center">
               <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
+              {overdueApprovals.length > 0 && (
+                <button
+                  onClick={() => router.replace('/dashboard/tasks?scope=my_approval&status=all', { scroll: false })}
+                  className="ml-3 inline-flex items-center gap-1.5 rounded-full border border-[#FECDD3] bg-[#FFF1F2] px-3 py-1.5 text-xs font-semibold text-[#BE123C] transition hover:bg-[#ffe4e8]"
+                  title={`${overdueApprovals.length} approval SLA item(s) are overdue`}
+                >
+                  <AlertTriangle size={12} />
+                  {overdueApprovals.length} approval SLA overdue
+                </button>
+              )}
             </div>
 
             <div className="inline-flex items-center rounded-xl border border-[#d9e2f0] bg-white p-1 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">

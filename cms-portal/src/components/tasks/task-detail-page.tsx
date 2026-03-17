@@ -57,9 +57,11 @@ import {
   editTodoCommentAction,
   declineTodoAction,
   deleteTodoAction,
+  convertTaskToMultiAssignmentAction,
   getTodoDetails,
   getUsersForAssignment,
   markTaskCommentsReadAction,
+  reassignTaskAction,
   rejectMaAssigneeAction,
   rejectMaSubAssigneeAction,
   removeMaDelegationAction,
@@ -79,6 +81,8 @@ const MAX_PARALLEL_UPLOADS = 3
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
+  | { type: 'reassign' }
+  | { type: 'split-multi' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
   | { type: 'reject-assignee'; assigneeUsername: string }
@@ -129,7 +133,7 @@ function fmtTs(ts: string) {
 
 function nextStepLabel(task: TodoDetails): string | null {
   if (task.completed) return null
-  if (task.approval_status === 'pending_approval') return 'Waiting for creator approval'
+  if (task.approval_status === 'pending_approval') return `Waiting for approval from ${task.pending_approver || task.username}`
   if (task.task_status === 'in_progress') return 'Pending action from assigned agent'
   if (task.task_status === 'backlog' || task.task_status === 'todo') return 'Waiting to be started'
   return null
@@ -487,6 +491,8 @@ export function TaskDetailPage({
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
   const isPendingApproval = t.approval_status === 'pending_approval'
+  const pendingApprover = t.pending_approver || t.username
+  const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const isCompleted = t.completed
   const ma = t.multi_assignment
   const maProgress = t.completed
@@ -561,6 +567,40 @@ export function TaskDetailPage({
         void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', dialogValue.trim() || undefined))
         closeTaskDialog()
         return
+      case 'reassign':
+        if (!dialogValue.trim()) {
+          setActionError('Target username is required.')
+          return
+        }
+        void doAction(() => reassignTaskAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'split-multi': {
+        const rows = dialogValue
+          .split('\n')
+          .map((row) => row.trim())
+          .filter(Boolean)
+        if (rows.length === 0) {
+          setActionError('Add at least one assignee line: username|YYYY-MM-DDTHH:mm')
+          return
+        }
+        const assignees = rows
+          .map((row) => {
+            const [username, dueDate] = row.split('|').map((part) => part.trim())
+            return {
+              username,
+              actual_due_date: dueDate ? new Date(dueDate).toISOString() : null,
+            }
+          })
+          .filter((entry) => entry.username)
+        if (assignees.length === 0) {
+          setActionError('Assignee lines are invalid.')
+          return
+        }
+        void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees))
+        closeTaskDialog()
+        return
+      }
       case 'delegate':
         if (!dialogValue.trim()) {
           setActionError('Please enter a username for delegation.')
@@ -853,7 +893,7 @@ export function TaskDetailPage({
                   {sm.label}
                 </span>
                 <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', pm.bg, pm.text)}>{pm.label}</span>
-                {isPendingApproval && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Pending Approval</span>}
+                {isPendingApproval && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Pending: {pendingApprover}</span>}
                 {isCompleted && <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">Completed</span>}
               </div>
               <h1 className={cn('mt-3 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl', isCompleted && 'line-through text-slate-400')}>
@@ -879,6 +919,22 @@ export function TaskDetailPage({
               {isAssignee && t.task_status === 'todo' && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
               )}
+              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && (
+                <button
+                  onClick={() => openTaskDialog({ type: 'reassign' })}
+                  className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                >
+                  Reassign
+                </button>
+              )}
+              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !ma?.enabled && (
+                <button
+                  onClick={() => openTaskDialog({ type: 'split-multi' })}
+                  className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
+                >
+                  Split To Multi
+                </button>
+              )}
               {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
@@ -903,7 +959,7 @@ export function TaskDetailPage({
                   loading={isPending}
                 />
               )}
-              {isCreator && isPendingApproval && (
+              {canApproveCurrentStep && (
                 <>
                   <PrimaryBtn icon={<CheckCheck size={14} />} label="Approve" color="green" onClick={() => doAction(() => approveTodoAction(t.id))} loading={isPending} />
                   <PrimaryBtn icon={<XCircle size={14} />} label="Decline" color="red" onClick={() => setShowDeclineInput(true)} loading={isPending} />
@@ -1501,6 +1557,8 @@ export function TaskDetailPage({
       {taskDialog && (
         <ActionDialog
           title={
+            taskDialog.type === 'reassign' ? 'Reassign task' :
+            taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
             taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
@@ -1509,6 +1567,8 @@ export function TaskDetailPage({
             'Add summary'
           }
           description={
+            taskDialog.type === 'reassign' ? 'Send this task to another user with an optional reason.' :
+            taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
             taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
@@ -1520,7 +1580,19 @@ export function TaskDetailPage({
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
-          {taskDialog.type === 'delegate' ? (
+          {taskDialog.type === 'reassign' ? (
+            <div className="space-y-3">
+              <DialogInput label="New Assignee Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+              <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you reassigning?" />
+            </div>
+          ) : taskDialog.type === 'split-multi' ? (
+            <DialogTextarea
+              label="Assignees"
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder={'user1|2026-03-20T18:00\nuser2|2026-03-22T12:00\nuser3'}
+            />
+          ) : taskDialog.type === 'delegate' ? (
             <div className="space-y-3">
               <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
               <DialogTextarea label="Instructions (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add delegation notes or instructions" />

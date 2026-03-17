@@ -63,9 +63,11 @@ import {
   deleteTodoCommentAction,
   editTodoCommentAction,
   getUsersForAssignment,
+  convertTaskToMultiAssignmentAction,
   saveTodoAttachmentAction,
   markTaskCommentsReadAction,
   archiveTodoAction,
+  reassignTaskAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
@@ -83,6 +85,8 @@ interface TaskDetailModalProps {
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
+  | { type: 'reassign' }
+  | { type: 'split-multi' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
   | { type: 'reject-assignee'; assigneeUsername: string }
@@ -125,7 +129,7 @@ const EVT_META: Record<string, { label: string; iconBg: string; iconText: string
 // ── next step label logic ────────────────────────────────────────────────────
 function nextStepLabel(task: TodoDetails): string | null {
   if (task.completed) return null
-  if (task.approval_status === 'pending_approval') return 'Waiting for creator approval'
+  if (task.approval_status === 'pending_approval') return `Waiting for approval from ${task.pending_approver || task.username}`
   if (task.task_status === 'in_progress') return 'Pending action from assigned agent'
   if (task.task_status === 'backlog' || task.task_status === 'todo') return 'Waiting to be started'
   return null
@@ -477,6 +481,8 @@ export function TaskDetailModal({
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
   const isPendingApproval = t.approval_status === 'pending_approval'
+  const pendingApprover = t.pending_approver || t.username
+  const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const isCompleted = t.completed
   const ma = t.multi_assignment
   const maProgress = (() => {
@@ -547,6 +553,31 @@ export function TaskDetailModal({
         void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', dialogValue.trim() || undefined))
         closeTaskDialog()
         return
+      case 'reassign':
+        if (!dialogValue.trim()) return
+        void doAction(() => reassignTaskAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'split-multi': {
+        const rows = dialogValue
+          .split('\n')
+          .map((row) => row.trim())
+          .filter(Boolean)
+        if (rows.length === 0) return
+        const assignees = rows
+          .map((row) => {
+            const [username, dueDate] = row.split('|').map((part) => part.trim())
+            return {
+              username,
+              actual_due_date: dueDate ? new Date(dueDate).toISOString() : null,
+            }
+          })
+          .filter((entry) => entry.username)
+        if (assignees.length === 0) return
+        void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees))
+        closeTaskDialog()
+        return
+      }
       case 'delegate':
         if (!dialogValue.trim()) return
         void doAction(() => delegateMaAssigneeAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
@@ -737,7 +768,7 @@ export function TaskDetailModal({
               </span>
               {isPendingApproval && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-                  Pending Approval
+                  Pending: {pendingApprover}
                 </span>
               )}
               {isCompleted && (
@@ -811,6 +842,22 @@ export function TaskDetailModal({
           {isAssignee && t.task_status === 'todo' && (
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
           )}
+          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && (
+            <button
+              onClick={() => openTaskDialog({ type: 'reassign' })}
+              className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+            >
+              Reassign
+            </button>
+          )}
+          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !ma?.enabled && (
+            <button
+              onClick={() => openTaskDialog({ type: 'split-multi' })}
+              className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
+            >
+              Split To Multi
+            </button>
+          )}
           {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
             <PrimaryBtn
               icon={<CheckCircle2 size={14}/>}
@@ -835,7 +882,7 @@ export function TaskDetailModal({
               loading={isPending}
             />
           )}
-          {isCreator && isPendingApproval && (
+          {canApproveCurrentStep && (
             <>
               <PrimaryBtn icon={<CheckCheck size={14}/>} label="Approve Completion" color="green" onClick={() => doAction(() => approveTodoAction(t.id))} loading={isPending} />
               <PrimaryBtn icon={<XCircle size={14}/>} label="Decline" color="red" onClick={() => setShowDeclineInput(true)} loading={isPending} />
@@ -1351,6 +1398,8 @@ export function TaskDetailModal({
       {taskDialog && (
         <ActionDialog
           title={
+            taskDialog.type === 'reassign' ? 'Reassign task' :
+            taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
             taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
@@ -1359,6 +1408,8 @@ export function TaskDetailModal({
             'Add summary'
           }
           description={
+            taskDialog.type === 'reassign' ? 'Send this task to another user with an optional reason.' :
+            taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
             taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
@@ -1370,7 +1421,19 @@ export function TaskDetailModal({
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
-          {taskDialog.type === 'delegate' ? (
+          {taskDialog.type === 'reassign' ? (
+            <div className="space-y-3">
+              <DialogInput label="New Assignee Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+              <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you reassigning?" />
+            </div>
+          ) : taskDialog.type === 'split-multi' ? (
+            <DialogTextarea
+              label="Assignees"
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder={'user1|2026-03-20T18:00\nuser2|2026-03-22T12:00\nuser3'}
+            />
+          ) : taskDialog.type === 'delegate' ? (
             <div className="space-y-3">
               <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
               <DialogTextarea label="Instructions (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add delegation notes or instructions" />

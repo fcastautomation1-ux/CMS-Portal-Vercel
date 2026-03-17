@@ -42,6 +42,16 @@ type ReminderTask = {
   multi_assignment?: unknown
 }
 
+type ApprovalReminderTask = {
+  id: string
+  title: string
+  pending_approver: string | null
+  approval_sla_due_at: string | null
+  approval_status: string | null
+  archived: boolean
+  completed: boolean
+}
+
 type MultiAssignmentLike = {
   assignees?: Array<{
     username?: string
@@ -77,7 +87,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
+  const { data: approvalTasks, error: approvalError } = await supabase
+    .from('todos')
+    .select('id,title,pending_approver,approval_sla_due_at,approval_status,archived,completed')
+    .eq('completed', false)
+    .eq('archived', false)
+    .eq('approval_status', 'pending_approval')
+    .not('pending_approver', 'is', null)
+    .not('approval_sla_due_at', 'is', null)
+    .lt('approval_sla_due_at', now.toISOString())
+
+  if (approvalError) {
+    return NextResponse.json({ success: false, error: approvalError.message }, { status: 500 })
+  }
+
   const taskList = (tasks || []) as ReminderTask[]
+  const approvalTaskList = (approvalTasks || []) as ApprovalReminderTask[]
   const recipientsByTask = new Map<string, Set<string>>()
   const allRecipients = new Set<string>()
   const taskIds = taskList.map((task) => task.id)
@@ -108,13 +133,22 @@ export async function GET(request: NextRequest) {
   const tomorrow = new Date(today)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
   const tomorrowIso = tomorrow.toISOString()
-  const { data: todayReminders } = taskIds.length && allRecipients.size
+  const reminderTaskIds = [
+    ...taskIds,
+    ...approvalTaskList.map((task) => task.id),
+  ]
+  const reminderRecipients = [
+    ...Array.from(allRecipients),
+    ...approvalTaskList.map((task) => String(task.pending_approver || '').trim()).filter(Boolean),
+  ]
+
+  const { data: todayReminders } = reminderTaskIds.length && reminderRecipients.length
     ? await supabase
         .from('notifications')
         .select('related_id,user_id,type,created_at')
-        .eq('type', 'reminder')
-        .in('related_id', taskIds)
-        .in('user_id', Array.from(allRecipients))
+        .in('type', ['reminder', 'approval_reminder'])
+        .in('related_id', reminderTaskIds)
+        .in('user_id', reminderRecipients)
         .gte('created_at', todayIso)
         .lt('created_at', tomorrowIso)
     : { data: [] as Array<{ related_id: string | null; user_id: string | null }> }
@@ -127,6 +161,7 @@ export async function GET(request: NextRequest) {
 
   const sentKeys = new Set<string>(existingToday)
   let remindersSent = 0
+  let approvalRemindersSent = 0
 
   for (const task of taskList) {
     if (!task.due_date) continue
@@ -157,10 +192,37 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  for (const task of approvalTaskList) {
+    const approver = String(task.pending_approver || '').trim()
+    const dueAt = task.approval_sla_due_at ? new Date(task.approval_sla_due_at) : null
+    if (!approver || !dueAt || Number.isNaN(dueAt.getTime())) continue
+
+    const overdueDays = Math.max(1, Math.floor((today.getTime() - startOfUtcDay(dueAt).getTime()) / 86_400_000))
+    const dedupeKey = `${task.id}:${approver.toLowerCase()}`
+    if (sentKeys.has(dedupeKey)) continue
+    sentKeys.add(dedupeKey)
+
+    await supabase.from('notifications').insert({
+      user_id: approver,
+      title: `Approval SLA overdue: ${task.title}`,
+      message: `Approval for "${task.title}" is ${overdueDays === 1 ? '1 day' : `${overdueDays} days`} overdue.`,
+      body: `Approval for "${task.title}" is ${overdueDays === 1 ? '1 day' : `${overdueDays} days`} overdue and needs your action.`,
+      type: 'approval_reminder',
+      link: task.id,
+      related_id: task.id,
+      read: false,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
+    approvalRemindersSent += 1
+  }
+
   return NextResponse.json({
     success: true,
     remindersSent,
+    approvalRemindersSent,
     tasksChecked: (tasks || []).length,
+    approvalTasksChecked: approvalTaskList.length,
     route: '/api/tasks/reminders',
   })
 }
