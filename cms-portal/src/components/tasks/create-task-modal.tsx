@@ -279,7 +279,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   )
 
   const syncDescription = () => {
-    const next = descriptionRef.current?.innerHTML ?? ''
+    const next = normalizeEditorHtml(descriptionRef.current)
     setDescription((current) => (current === next ? current : next))
   }
 
@@ -340,6 +340,30 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     if (targetRef.current === descriptionRef.current) {
       syncDescription()
     }
+  }
+
+  const handleDescriptionMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const cell = target.closest('td, th')
+    if (!cell) return
+
+    const selection = window.getSelection()
+    if (!selection) return
+
+    const range = document.createRange()
+    const firstChild = cell.firstChild
+
+    if (firstChild) {
+      range.setStart(firstChild, 0)
+    } else {
+      range.selectNodeContents(cell)
+      range.collapse(true)
+    }
+
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
   }
 
   const toggleApp = (nextApp: string) => {
@@ -956,6 +980,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                     contentEditable
                     suppressContentEditableWarning
                     onInput={syncDescription}
+                    onMouseDown={handleDescriptionMouseDown}
                     onKeyDown={(event) => handleEditorKeyDown(event, descriptionRef)}
                     onKeyUp={captureDescriptionSelection}
                     onMouseUp={captureDescriptionSelection}
@@ -1715,6 +1740,22 @@ function normalizeEditableTables(root: HTMLDivElement | null) {
       cell.appendChild(document.createElement('br'))
     }
   })
+}
+
+function normalizeEditorHtml(root: HTMLDivElement | null): string {
+  if (!root) return ''
+  const html = root.innerHTML ?? ''
+  const compact = html
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, '')
+    .replace(/\s+/g, '')
+
+  if (!compact) {
+    if (root.innerHTML !== '') root.innerHTML = ''
+    return ''
+  }
+
+  return html
 }
 
 function readFileAsArrayBuffer(
