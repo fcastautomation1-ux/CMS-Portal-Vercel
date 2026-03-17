@@ -312,8 +312,9 @@ export function TaskDetailPage({
     initialData: initialDetails,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchInterval: 10_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   })
 
   const details = detailsQuery.data ?? initialDetails
@@ -924,7 +925,7 @@ export function TaskDetailPage({
                   onClick={() => openTaskDialog({ type: 'reassign' })}
                   className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
                 >
-                  Reassign
+                  Assign To Next
                 </button>
               )}
               {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !ma?.enabled && (

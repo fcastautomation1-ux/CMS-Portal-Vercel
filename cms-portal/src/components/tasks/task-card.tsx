@@ -23,6 +23,7 @@ import {
   duplicateTodoAction,
   claimQueuedTaskAction,
   assignQueuedTaskToTeamMemberAction,
+  reassignTaskAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -49,6 +50,7 @@ interface TaskCardProps {
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
+  | { type: 'reassign' }
   | { type: 'queue-assign' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
@@ -216,13 +218,14 @@ export function TaskCard({
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
+  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
   const showMaDelegateBtn = !!myMaEntry && !isCompleted
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
@@ -260,6 +263,11 @@ export function TaskCard({
     switch (taskDialog.type) {
       case 'ma-submit':
         doAction(() => updateMaAssigneeStatusAction(task.id, 'completed', dialogValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'reassign':
+        if (!dialogValue.trim()) return
+        doAction(() => reassignTaskAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
       case 'queue-assign':
@@ -402,6 +410,16 @@ export function TaskCard({
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber">Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue">Start Work</ActBtn>}
               {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet">Pick Task</ActBtn>}
+              {showReassignBtn && (
+                <ActBtn
+                  onClick={() => {
+                    openTaskDialog({ type: 'reassign' })
+                  }}
+                  color="indigo"
+                >
+                  Assign To Next
+                </ActBtn>
+              )}
               {showQueueAssignBtn && (
                 <ActBtn
                   onClick={() => {
@@ -761,6 +779,7 @@ export function TaskCard({
     {taskDialog && (
       <ActionDialog
         title={
+          taskDialog.type === 'reassign' ? 'Assign task to next person' :
           taskDialog.type === 'queue-assign' ? 'Assign queued task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -769,6 +788,7 @@ export function TaskCard({
           'Add summary'
         }
         description={
+          taskDialog.type === 'reassign' ? 'Move this task to the next assignee without waiting for completion.' :
           taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -776,11 +796,16 @@ export function TaskCard({
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' || taskDialog.type === 'reassign' ? 'Assign task' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
       >
-        {taskDialog.type === 'queue-assign' ? (
+        {taskDialog.type === 'reassign' ? (
+          <div className="space-y-3">
+            <DialogInput label="Next Assignee Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+            <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you assigning this task to the next person?" />
+          </div>
+        ) : taskDialog.type === 'queue-assign' ? (
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-slate-700">Team Member</span>
             <select

@@ -184,8 +184,9 @@ export function Sidebar({
     queryFn: () => getTodos().catch(() => []),
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchInterval: 10_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   })
   const sidebarTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
 
