@@ -38,6 +38,7 @@ import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry } from '@/types'
 import {
@@ -67,7 +68,7 @@ import {
   saveTodoAttachmentAction,
   markTaskCommentsReadAction,
   archiveTodoAction,
-  reassignTaskAction,
+  sendTaskToDepartmentQueueAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
 } from '@/app/dashboard/tasks/actions'
@@ -85,6 +86,7 @@ interface TaskDetailModalProps {
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
+  | { type: 'complete' }
   | { type: 'reassign' }
   | { type: 'split-multi' }
   | { type: 'delegate' }
@@ -293,6 +295,7 @@ export function TaskDetailModal({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
+  const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
@@ -554,9 +557,12 @@ export function TaskDetailModal({
         void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', dialogValue.trim() || undefined))
         closeTaskDialog()
         return
-      case 'reassign':
-        if (!dialogValue.trim()) return
-        void doAction(() => reassignTaskAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+      case 'complete':
+        if (!dialogValue.trim()) {
+          setActionError('Completion feedback is required.')
+          return
+        }
+        void doAction(() => toggleTodoCompleteAction(t.id, true, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'split-multi': {
@@ -845,18 +851,10 @@ export function TaskDetailModal({
           )}
           {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && (
             <button
-              onClick={() => openTaskDialog({ type: 'reassign' })}
+              onClick={() => setShowHandoffDialog(true)}
               className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
             >
               Assign To Next
-            </button>
-          )}
-          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !ma?.enabled && (
-            <button
-              onClick={() => openTaskDialog({ type: 'split-multi' })}
-              className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
-            >
-              Split To Multi
             </button>
           )}
           {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && t.task_status !== 'backlog' && (
@@ -869,7 +867,7 @@ export function TaskDetailModal({
                   setShowCreatorCompleteConfirm(true)
                   return
                 }
-                doAction(() => toggleTodoCompleteAction(t.id, true))
+                openTaskDialog({ type: 'complete' })
               }}
               loading={isPending}
             />
@@ -1399,7 +1397,7 @@ export function TaskDetailModal({
       {taskDialog && (
         <ActionDialog
           title={
-            taskDialog.type === 'reassign' ? 'Reassign task' :
+            taskDialog.type === 'complete' ? 'Submit completion feedback' :
             taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -1409,7 +1407,7 @@ export function TaskDetailModal({
             'Add summary'
           }
           description={
-            taskDialog.type === 'reassign' ? 'Send this task to another user with an optional reason.' :
+            taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
             taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -1418,31 +1416,17 @@ export function TaskDetailModal({
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
-          {taskDialog.type === 'reassign' ? (
-            <div className="space-y-3">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Next Assignee</span>
-                <select
-                  value={dialogValue}
-                  onChange={(e) => setDialogValue(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="">Select user</option>
-                  {shareUsers
-                    .filter((user) => user.username !== t.assigned_to && user.username !== currentUsername)
-                    .map((user) => (
-                      <option key={user.username} value={user.username}>
-                        {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you reassigning?" />
-            </div>
+          {taskDialog.type === 'complete' ? (
+            <DialogTextarea
+              label="Completion Feedback"
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder="What work was completed? Add summary or handoff notes."
+            />
           ) : taskDialog.type === 'split-multi' ? (
             <DialogTextarea
               label="Assignees"
@@ -1474,6 +1458,20 @@ export function TaskDetailModal({
           )}
         </ActionDialog>
       )}
+      <TaskHandoffDialog
+        open={showHandoffDialog}
+        currentUsername={currentUsername}
+        currentAssignee={t.assigned_to}
+        onClose={() => setShowHandoffDialog(false)}
+        onAssignDepartment={(department, reason) => {
+          setShowHandoffDialog(false)
+          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, reason))
+        }}
+        onAssignMulti={(usernames) => {
+          setShowHandoffDialog(false)
+          void doAction(() => convertTaskToMultiAssignmentAction(t.id, usernames.map((username) => ({ username }))))
+        }}
+      />
       <ConfirmDialog
         open={showCreatorCompleteConfirm}
         title="Complete this task?"

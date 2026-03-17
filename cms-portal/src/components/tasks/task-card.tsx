@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useTransition, type ReactNode } from 'react'
+import { useState, useTransition, type ReactNode } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
@@ -23,8 +24,8 @@ import {
   duplicateTodoAction,
   claimQueuedTaskAction,
   assignQueuedTaskToTeamMemberAction,
-  getUsersForAssignment,
-  reassignTaskAction,
+  sendTaskToDepartmentQueueAction,
+  convertTaskToMultiAssignmentAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -51,7 +52,7 @@ interface TaskCardProps {
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
-  | { type: 'reassign' }
+  | { type: 'complete' }
   | { type: 'queue-assign' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
@@ -187,9 +188,9 @@ export function TaskCard({
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
+  const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
-  const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -220,7 +221,7 @@ export function TaskCard({
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
-  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to
+  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
   const showMaDelegateBtn = !!myMaEntry && !isCompleted
@@ -239,16 +240,6 @@ export function TaskCard({
   const playPkg = packageNames.find((value) => value !== 'Others') ?? null
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
-
-  useEffect(() => {
-    let cancelled = false
-    getUsersForAssignment().then((users) => {
-      if (!cancelled) setAssignableUsers(users)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
@@ -277,9 +268,9 @@ export function TaskCard({
         doAction(() => updateMaAssigneeStatusAction(task.id, 'completed', dialogValue.trim() || undefined))
         closeTaskDialog()
         return
-      case 'reassign':
+      case 'complete':
         if (!dialogValue.trim()) return
-        doAction(() => reassignTaskAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        doAction(() => toggleTodoCompleteAction(task.id, true, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'queue-assign':
@@ -425,7 +416,7 @@ export function TaskCard({
               {showReassignBtn && (
                 <ActBtn
                   onClick={() => {
-                    openTaskDialog({ type: 'reassign' })
+                    setShowHandoffDialog(true)
                   }}
                   color="indigo"
                 >
@@ -481,7 +472,7 @@ export function TaskCard({
                       setShowCreatorCompleteConfirm(true)
                       return
                     }
-                    doAction(() => toggleTodoCompleteAction(task.id, true))
+                    openTaskDialog({ type: 'complete' })
                   }}
                   color="green"
                 >
@@ -791,7 +782,7 @@ export function TaskCard({
     {taskDialog && (
       <ActionDialog
         title={
-          taskDialog.type === 'reassign' ? 'Assign task to next person' :
+          taskDialog.type === 'complete' ? 'Submit completion feedback' :
           taskDialog.type === 'queue-assign' ? 'Assign queued task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -800,7 +791,7 @@ export function TaskCard({
           'Add summary'
         }
         description={
-          taskDialog.type === 'reassign' ? 'Move this task to the next assignee without waiting for completion.' :
+          taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
           taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -808,31 +799,12 @@ export function TaskCard({
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' || taskDialog.type === 'reassign' ? 'Assign task' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
       >
-        {taskDialog.type === 'reassign' ? (
-          <div className="space-y-3">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">Next Assignee</span>
-              <select
-                value={dialogValue}
-                onChange={(e) => setDialogValue(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">Select user</option>
-                {assignableUsers
-                  .filter((user) => user.username !== task.assigned_to && user.username !== currentUsername)
-                  .map((user) => (
-                    <option key={user.username} value={user.username}>
-                      {user.username}{user.department ? ` - ${user.department}` : ''}{user.role ? ` (${user.role})` : ''}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <DialogTextarea label="Reason (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Why are you assigning this task to the next person?" />
-          </div>
+        {taskDialog.type === 'complete' ? (
+          <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
         ) : taskDialog.type === 'queue-assign' ? (
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-slate-700">Team Member</span>
@@ -871,6 +843,20 @@ export function TaskCard({
         )}
       </ActionDialog>
     )}
+    <TaskHandoffDialog
+      open={showHandoffDialog}
+      currentUsername={currentUsername}
+      currentAssignee={task.assigned_to}
+      onClose={() => setShowHandoffDialog(false)}
+      onAssignDepartment={(department, reason) => {
+        setShowHandoffDialog(false)
+        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, reason))
+      }}
+      onAssignMulti={(usernames) => {
+        setShowHandoffDialog(false)
+        doAction(() => convertTaskToMultiAssignmentAction(task.id, usernames.map((username) => ({ username }))))
+      }}
+    />
     <ConfirmDialog
       open={showCreatorCompleteConfirm}
       title="Complete this task?"

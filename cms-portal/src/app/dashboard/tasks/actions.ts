@@ -1003,7 +1003,8 @@ export async function startTaskAction(todoId: string): Promise<{ success: boolea
 
 export async function toggleTodoCompleteAction(
   todoId: string,
-  completed: boolean
+  completed: boolean,
+  submissionNote?: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
@@ -1041,6 +1042,7 @@ export async function toggleTodoCompleteAction(
   const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
 
   if (completed) {
+    const note = String(submissionNote || '').trim()
     if (isOwner) {
       if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
         multiAssignment.assignees = multiAssignment.assignees.map((entry) => ({
@@ -1069,7 +1071,7 @@ export async function toggleTodoCompleteAction(
       history.push({
         type: 'completed',
         user: user.username,
-        details: `Task marked as completed by ${user.username}`,
+        details: note ? `Task marked as completed by ${user.username}. Summary: ${note}` : `Task marked as completed by ${user.username}`,
         timestamp: now,
         icon: '✅',
         title: 'Task Completed',
@@ -1092,7 +1094,9 @@ export async function toggleTodoCompleteAction(
       history.push({
         type: 'completion_submitted',
         user: user.username,
-        details: `${user.username} submitted task for completion — awaiting approval from ${nextApprover}`,
+        details: note
+          ? `${user.username} submitted task for completion and is awaiting approval from ${nextApprover}. Summary: ${note}`
+          : `${user.username} submitted task for completion and is awaiting approval from ${nextApprover}`,
         timestamp: now,
         icon: '⏳',
         title: 'Completion Submitted',
@@ -2394,6 +2398,92 @@ export async function reassignTaskAction(
 }
 
 // ── Convert single task to multi-assignment ──────────────────────────────────
+
+export async function sendTaskToDepartmentQueueAction(
+  todoId: string,
+  department: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const targetDepartment = String(department || '').trim()
+  if (!targetDepartment) return { success: false, error: 'Department is required.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,task_status,completed,approval_status,title,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+
+  if (!isCreator && !isCurrentAssignee && !isAdmin) {
+    return { success: false, error: 'Only creator, current assignee, or admin can send this task to a department.' }
+  }
+  if ((task.completed as boolean) === true) {
+    return { success: false, error: 'Completed tasks cannot be routed to a department queue.' }
+  }
+  if ((task.approval_status as string) === 'pending_approval') {
+    return { success: false, error: 'Task is awaiting approval and cannot be routed right now.' }
+  }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  assignmentChain.push({
+    user: user.username,
+    role: 'routed_to_department_queue',
+    assignedAt: now,
+    next_user: targetDepartment,
+    feedback: reason?.trim() || undefined,
+  })
+
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} routed task to ${targetDepartment}${reason?.trim() ? `. Reason: ${reason.trim()}` : ''}`,
+    timestamp: now,
+    icon: '📤',
+    title: 'Sent To Department Queue',
+  })
+
+  await supabase.from('todos').update({
+    assigned_to: null,
+    manager_id: null,
+    queue_department: targetDepartment,
+    queue_status: 'queued',
+    task_status: 'backlog',
+    workflow_state: 'queued_for_department',
+    assignment_chain: JSON.stringify(assignmentChain),
+    history: JSON.stringify(history),
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
+    last_handoff_at: now,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  if ((task.username as string) && (task.username as string) !== user.username) {
+    await createNotification(supabase, {
+      userId: task.username as string,
+      type: 'task_assigned',
+      title: 'Task Sent To Department Queue',
+      body: `${user.username} routed "${task.title}" to ${targetDepartment}.`,
+      relatedId: todoId,
+    })
+  }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
 
 export async function convertTaskToMultiAssignmentAction(
   todoId: string,
