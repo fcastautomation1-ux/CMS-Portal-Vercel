@@ -324,7 +324,11 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     if (!selection || selection.rangeCount === 0) return
     const anchor = selection.anchorNode
     if (!anchor || !target.contains(anchor)) return
-    const listItem = (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement)?.closest('li')
+    const anchorElement =
+      anchor.nodeType === Node.ELEMENT_NODE
+        ? (anchor as Element)
+        : anchor.parentElement
+    const listItem = anchorElement?.closest('li')
     if (!listItem) return
 
     event.preventDefault()
