@@ -81,6 +81,7 @@ type ImportProgress = {
 
 const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
+const MAX_PARALLEL_UPLOADS = 3
 const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr><tr><td></td><td></td></tr></tbody></table>'
 
 interface CreateTaskModalProps {
@@ -149,6 +150,9 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   })
   const [sheetImportPending, setSheetImportPending] = useState(false)
   const [error, setError] = useState('')
+  const [showTableDialog, setShowTableDialog] = useState(false)
+  const [tableRows, setTableRows] = useState('2')
+  const [tableCols, setTableCols] = useState('2')
   const minDueDate = pakistanNowInputValue()
 
   const [packages, setPackages] = useState<Package[]>([])
@@ -166,6 +170,16 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       setDepartments(depts ?? [])
     })
   }, [])
+
+  useEffect(() => {
+    if (!isPending) return
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [isPending])
 
   useEffect(() => {
     if (descriptionRef.current) {
@@ -359,7 +373,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
 
     const supabase = createBrowserClient()
     const resolvedOwner = ownerUsername || editTask?.username || 'unknown-user'
-    for (const attachment of pendingAttachments) {
+    await runWithConcurrency(pendingAttachments, MAX_PARALLEL_UPLOADS, async (attachment) => {
       const signedUpload = await createTaskAttachmentUploadUrlAction({
         todo_id: todoId,
         owner_username: resolvedOwner,
@@ -389,7 +403,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       if (!saveAttachment.success) {
         throw new Error(saveAttachment.error ?? `Failed to link ${attachment.file.name}`)
       }
-    }
+    })
   }
 
   const updateImportProgress = (label: string, progress: number) => {
@@ -439,9 +453,16 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   }
 
   const handleInsertTable = () => {
-    const cols = clampCount(window.prompt('How many columns?', '2'), 2)
-    const rows = clampCount(window.prompt('How many rows?', '2'), 2)
+    setTableCols('2')
+    setTableRows('2')
+    setShowTableDialog(true)
+  }
+
+  const confirmInsertTable = () => {
+    const cols = clampCount(tableCols, 2)
+    const rows = clampCount(tableRows, 2)
     insertDescriptionHtml(buildTableHtml(createEmptyGrid(rows, cols)))
+    setShowTableDialog(false)
   }
 
   const handleAddTableRow = () => {
@@ -1207,6 +1228,50 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
           </div>
         </form>
       </div>
+      {showTableDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.2)]">
+            <h3 className="text-base font-bold text-slate-900">Insert Table</h3>
+            <p className="mt-1 text-sm text-slate-600">Choose rows and columns for the table.</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Rows</label>
+                <input
+                  value={tableRows}
+                  onChange={(event) => setTableRows(event.target.value)}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Columns</label>
+                <input
+                  value={tableCols}
+                  onChange={(event) => setTableCols(event.target.value)}
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowTableDialog(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmInsertTable}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Insert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1454,6 +1519,20 @@ function readDraft(key: string): DraftPayload | null {
     window.localStorage.removeItem(key)
     return null
   }
+}
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  if (!items.length) return
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      await worker(items[index])
+    }
+  })
+  await Promise.all(runners)
 }
 
 function clampCount(value: string | null, fallback: number): number {

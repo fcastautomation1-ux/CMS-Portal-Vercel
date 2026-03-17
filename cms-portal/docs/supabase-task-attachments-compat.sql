@@ -10,6 +10,10 @@ ADD COLUMN IF NOT EXISTS storage_path text;
 ALTER TABLE public.todo_attachments
 ADD COLUMN IF NOT EXISTS drive_file_id text;
 
+-- 2.1) Optional mime type metadata used by current portal uploads.
+ALTER TABLE public.todo_attachments
+ADD COLUMN IF NOT EXISTS mime_type text;
+
 -- 3) Backfill storage_path only for bucket-style paths.
 -- Priority:
 --   a) existing storage_path

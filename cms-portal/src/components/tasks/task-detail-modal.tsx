@@ -61,6 +61,7 @@ import {
   editTodoCommentAction,
   getUsersForAssignment,
   saveTodoAttachmentAction,
+  markTaskCommentsReadAction,
   archiveTodoAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
@@ -71,10 +72,22 @@ const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 interface TaskDetailModalProps {
   taskId: string
   currentUsername: string
+  currentUserRole?: string
   onClose: () => void
   onEdit: (task: Todo) => void
   onRefresh: () => void
 }
+
+type TaskActionDialogState =
+  | { type: 'ma-submit' }
+  | { type: 'delegate' }
+  | { type: 'sub-submit'; delegatorUsername: string }
+  | { type: 'reject-assignee'; assigneeUsername: string }
+  | { type: 'reopen-assignee'; assigneeUsername: string }
+  | { type: 'reject-sub'; delegatorUsername: string; subUsername: string }
+  | { type: 'remove-delegation'; delegatorUsername: string; subUsername: string }
+  | { type: 'delete-comment'; messageId: string }
+  | null
 
 // ── status / priority colours ────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; bg: string; text: string; dot: string }> = {
@@ -120,6 +133,21 @@ function fmtTs(ts: string) {
 }
 
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
+const MAX_PARALLEL_UPLOADS = 3
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  if (!items.length) return
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      await worker(items[index])
+    }
+  })
+  await Promise.all(runners)
+}
 
 function splitDepartments(value: string | null | undefined): string[] {
   return String(value ?? '')
@@ -223,6 +251,7 @@ function getActiveMentionQuery(value: string, caretIndex: number) {
 export function TaskDetailModal({
   taskId,
   currentUsername,
+  currentUserRole = 'User',
   onClose,
   onEdit,
   onRefresh,
@@ -241,6 +270,9 @@ export function TaskDetailModal({
   const [mentionIndex, setMentionIndex] = useState(0)
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
+  const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
+  const [dialogValue, setDialogValue] = useState('')
+  const [dialogExtraValue, setDialogExtraValue] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const refreshTimerRef = useRef<number | null>(null)
@@ -297,6 +329,27 @@ export function TaskDetailModal({
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    if (!details) return
+    const comments = details.history.filter((entry) => entry.type === 'comment' && !entry.is_deleted)
+    const hasUnreadComments = comments.some((entry) =>
+      Array.isArray(entry.unread_by) &&
+      entry.unread_by.some((username) => username.toLowerCase() === currentUsername.toLowerCase())
+    )
+    if (!hasUnreadComments) return
+    void markTaskCommentsReadAction(details.id)
+  }, [currentUsername, details])
+
+  useEffect(() => {
+    if (!uploadingFiles) return
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [uploadingFiles])
+
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>) => {
     setActionError('')
     startTransition(async () => {
@@ -327,7 +380,7 @@ export function TaskDetailModal({
 
     try {
       const supabase = createBrowserClient()
-      for (const file of files) {
+      await runWithConcurrency(files, MAX_PARALLEL_UPLOADS, async (file) => {
         const signedUpload = await createTaskAttachmentUploadUrlAction({
           todo_id: details.id,
           owner_username: details.username,
@@ -353,7 +406,7 @@ export function TaskDetailModal({
         })
 
         if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)
-      }
+      })
 
       const updated = await getTodoDetails(taskId)
       queryClient.setQueryData(queryKeys.taskDetail(taskId), updated)
@@ -380,6 +433,7 @@ export function TaskDetailModal({
   )
 
   const t = details
+  const isAdminOrSuperManager = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
   const isPendingApproval = t.approval_status === 'pending_approval'
@@ -391,7 +445,7 @@ export function TaskDetailModal({
   const sm = STATUS_META[t.task_status] ?? STATUS_META.backlog
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
 
-  const comments     = t.history.filter((h: HistoryEntry) => h.type === 'comment')
+  const comments     = t.history.filter((h: HistoryEntry) => h.type === 'comment' && (!h.is_deleted || isAdminOrSuperManager))
   const historyEvts  = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
   const nextStep     = nextStepLabel(t)
   const assignedSummary = getAssignedSummary(t)
@@ -420,7 +474,64 @@ export function TaskDetailModal({
     })
   }
 
-  const ask = (message: string) => window.prompt(message)?.trim() ?? ''
+  const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>) => {
+    setTaskDialog(dialog)
+    setDialogValue('')
+    setDialogExtraValue('')
+  }
+
+  const closeTaskDialog = () => {
+    setTaskDialog(null)
+    setDialogValue('')
+    setDialogExtraValue('')
+  }
+
+  const submitTaskDialog = () => {
+    if (!taskDialog) return
+
+    switch (taskDialog.type) {
+      case 'ma-submit':
+        void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', dialogValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'delegate':
+        if (!dialogValue.trim()) return
+        void doAction(() => delegateMaAssigneeAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'sub-submit':
+        void doAction(() => updateMaSubAssigneeStatusAction(t.id, taskDialog.delegatorUsername, 'completed', dialogValue.trim() || undefined))
+        closeTaskDialog()
+        return
+      case 'reject-assignee':
+        if (!dialogValue.trim()) return
+        void doAction(() => rejectMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'reopen-assignee':
+        if (!dialogValue.trim()) return
+        if (!dialogExtraValue.trim()) return
+        void doAction(() => reopenMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim()))
+        closeTaskDialog()
+        return
+      case 'reject-sub':
+        if (!dialogValue.trim()) return
+        void doAction(() => rejectMaSubAssigneeAction(t.id, taskDialog.delegatorUsername, taskDialog.subUsername, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'remove-delegation':
+        void doAction(() => removeMaDelegationAction(t.id, taskDialog.delegatorUsername, taskDialog.subUsername))
+        closeTaskDialog()
+        return
+      case 'delete-comment':
+        applyOptimisticCommentDelete(taskDialog.messageId)
+        doAction(() => deleteTodoCommentAction(t.id, taskDialog.messageId))
+        closeTaskDialog()
+        return
+      default:
+        return
+    }
+  }
 
   const canManageComment = (entry: HistoryEntry) => {
     if (entry.type !== 'comment' || entry.is_deleted) return false
@@ -441,15 +552,55 @@ export function TaskDetailModal({
     setEditingCommentText('')
   }
 
+  const applyOptimisticCommentEdit = (messageId: string, nextText: string) => {
+    const nowIso = new Date().toISOString()
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(taskId), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((item) =>
+          item.message_id === messageId
+            ? {
+                ...item,
+                details: nextText,
+                edited_at: nowIso,
+              }
+            : item
+        ),
+      }
+    })
+  }
+
+  const applyOptimisticCommentDelete = (messageId: string) => {
+    const nowIso = new Date().toISOString()
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(taskId), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((item) =>
+          item.message_id === messageId
+            ? {
+                ...item,
+                is_deleted: true,
+                deleted_at: nowIso,
+              }
+            : item
+        ),
+      }
+    })
+  }
+
   const saveEditedComment = (entry: HistoryEntry) => {
     if (!entry.message_id || !editingCommentText.trim()) return
-    doAction(() => editTodoCommentAction(t.id, entry.message_id!, editingCommentText.trim()))
+    const nextText = editingCommentText.trim()
+    applyOptimisticCommentEdit(entry.message_id, nextText)
+    doAction(() => editTodoCommentAction(t.id, entry.message_id!, nextText))
     cancelEditingComment()
   }
 
   const deleteComment = (entry: HistoryEntry) => {
     if (!entry.message_id) return
-    doAction(() => deleteTodoCommentAction(t.id, entry.message_id!))
+    openTaskDialog({ type: 'delete-comment', messageId: entry.message_id })
   }
 
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -603,10 +754,10 @@ export function TaskDetailModal({
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="MA Start" color="blue" onClick={() => doAction(() => updateMaAssigneeStatusAction(t.id, 'in_progress'))} loading={isPending} />
           )}
           {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (
-            <PrimaryBtn icon={<CheckCircle2 size={14}/>} label="MA Submit" color="green" onClick={() => { const feedback = ask('Add feedback or summary for your submission'); void doAction(() => updateMaAssigneeStatusAction(t.id, 'completed', feedback || undefined)) }} loading={isPending} />
+            <PrimaryBtn icon={<CheckCircle2 size={14}/>} label="MA Submit" color="green" onClick={() => openTaskDialog({ type: 'ma-submit' })} loading={isPending} />
           )}
           {myMaEntry && !isCompleted && (
-            <button onClick={() => { const username = ask('Delegate to which username?'); if (!username) return; const instructions = ask('Optional delegation instructions'); void doAction(() => delegateMaAssigneeAction(t.id, username, instructions || undefined)) }} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100">
+            <button onClick={() => openTaskDialog({ type: 'delegate' })} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100">
               Delegate
             </button>
           )}
@@ -616,7 +767,7 @@ export function TaskDetailModal({
             </button>
           )}
           {myDelegatedEntry && !isCompleted && myDelegatedEntry.status === 'in_progress' && (
-            <button onClick={() => { const feedback = ask('Add feedback or summary for delegated work'); void doAction(() => updateMaSubAssigneeStatusAction(t.id, delegatedOwner!.username, 'completed', feedback || undefined)) }} className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100">
+            <button onClick={() => openTaskDialog({ type: 'sub-submit', delegatorUsername: delegatedOwner!.username })} className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100">
               Sub Submit
             </button>
           )}
@@ -731,13 +882,13 @@ export function TaskDetailModal({
                             <button onClick={() => void doAction(() => acceptMaAssigneeAction(t.id, a.username))} className="rounded-xl bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">
                               Accept
                             </button>
-                            <button onClick={() => { const feedback = ask(`Feedback for ${a.username}`); if (!feedback) return; void doAction(() => rejectMaAssigneeAction(t.id, a.username, feedback)) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100">
+                            <button onClick={() => openTaskDialog({ type: 'reject-assignee', assigneeUsername: a.username })} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100">
                               Reject
                             </button>
                           </>
                         )}
                         {isCreator && a.status === 'accepted' && (
-                          <button onClick={() => { const feedback = ask(`Why reopen ${a.username}'s work?`); if (!feedback) return; void doAction(() => reopenMaAssigneeAction(t.id, a.username, feedback)) }} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                          <button onClick={() => openTaskDialog({ type: 'reopen-assignee', assigneeUsername: a.username })} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
                             Reopen
                           </button>
                         )}
@@ -756,10 +907,10 @@ export function TaskDetailModal({
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-2">
                                   {isSubMe && sub.status === 'pending' && <button onClick={() => void doAction(() => updateMaSubAssigneeStatusAction(t.id, a.username, 'in_progress'))} className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100">Start</button>}
-                                  {isSubMe && sub.status === 'in_progress' && <button onClick={() => { const feedback = ask(`Feedback for ${a.username}`); void doAction(() => updateMaSubAssigneeStatusAction(t.id, a.username, 'completed', feedback || undefined)) }} className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-1.5 text-[11px] font-semibold text-teal-700 hover:bg-teal-100">Submit</button>}
+                                  {isSubMe && sub.status === 'in_progress' && <button onClick={() => openTaskDialog({ type: 'sub-submit', delegatorUsername: a.username })} className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-1.5 text-[11px] font-semibold text-teal-700 hover:bg-teal-100">Submit</button>}
                                   {isDelegator && sub.status === 'completed' && <button onClick={() => void doAction(() => acceptMaSubAssigneeAction(t.id, a.username, sub.username))} className="rounded-xl bg-green-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-green-700">Accept</button>}
-                                  {isDelegator && sub.status === 'completed' && <button onClick={() => { const feedback = ask(`Feedback for ${sub.username}`); if (!feedback) return; void doAction(() => rejectMaSubAssigneeAction(t.id, a.username, sub.username, feedback)) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100">Reject</button>}
-                                  {isDelegator && <button onClick={() => { if (!window.confirm(`Remove delegation for ${sub.username}?`)) return; void doAction(() => removeMaDelegationAction(t.id, a.username, sub.username)) }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">Remove</button>}
+                                  {isDelegator && sub.status === 'completed' && <button onClick={() => openTaskDialog({ type: 'reject-sub', delegatorUsername: a.username, subUsername: sub.username })} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100">Reject</button>}
+                                  {isDelegator && <button onClick={() => openTaskDialog({ type: 'remove-delegation', delegatorUsername: a.username, subUsername: sub.username })} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">Remove</button>}
                                 </div>
                               </div>
                             )
@@ -826,8 +977,6 @@ export function TaskDetailModal({
                                 <button onClick={() => saveEditedComment(c)} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">Save</button>
                               </div>
                             </div>
-                          ) : c.is_deleted ? (
-                            <span className="italic">This message was deleted.</span>
                           ) : (
                             renderCommentWithMentions(c.details)
                           )}
@@ -1084,11 +1233,124 @@ export function TaskDetailModal({
             )}
           </div>
       </div>
+      {taskDialog && (
+        <ActionDialog
+          title={
+            taskDialog.type === 'delegate' ? 'Delegate task work' :
+            taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
+            taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
+            taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Send feedback' :
+            taskDialog.type === 'delete-comment' ? 'Delete message' :
+            'Add summary'
+          }
+          description={
+            taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
+            taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
+            taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
+            taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
+            taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
+            'Add an optional summary for this submission.'
+          }
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : 'Confirm'}
+          onClose={closeTaskDialog}
+          onConfirm={submitTaskDialog}
+        >
+          {taskDialog.type === 'delegate' ? (
+            <div className="space-y-3">
+              <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
+              <DialogTextarea label="Instructions (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add delegation notes or instructions" />
+            </div>
+          ) : taskDialog.type === 'remove-delegation' ? (
+            <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>
+          ) : taskDialog.type === 'delete-comment' ? (
+            <p className="text-sm text-slate-600">Are you sure you want to delete this message?</p>
+          ) : taskDialog.type === 'reopen-assignee' ? (
+            <div className="space-y-3">
+              <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
+              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            </div>
+          ) : (
+            <DialogTextarea
+              label={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary (optional)' : 'Feedback'}
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Add work summary or notes' : 'Type feedback here'}
+            />
+          )}
+        </ActionDialog>
+      )}
     </ModalShell>
   )
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function ActionDialog({
+  title,
+  description,
+  primaryLabel,
+  onClose,
+  onConfirm,
+  children,
+}: {
+  title: string
+  description: string
+  primaryLabel: string
+  onClose: () => void
+  onConfirm: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-[28px] border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="mb-4">
+          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+          <p className="mt-1 text-sm text-slate-500">{description}</p>
+        </div>
+        <div className="space-y-4">{children}</div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">
+            {primaryLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DialogInput({ label, value, onChange, placeholder, type = 'text', min }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; min?: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
+      <input
+        type={type}
+        min={min}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  )
+}
+
+function DialogTextarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  )
+}
 
 function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (

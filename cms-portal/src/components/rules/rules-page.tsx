@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Settings, Plus, Pencil, Trash2, X } from 'lucide-react'
 import { saveRule, deleteRule } from '@/app/dashboard/rules/actions'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Rule, SessionUser } from '@/types'
 
 interface Props { rules: Rule[]; user: SessionUser }
@@ -12,9 +13,9 @@ export function RulesPage({ rules: initial, user }: Props) {
   const [rules, setRules] = useState(initial)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this rule?')) return
     const res = await deleteRule(id)
     if (res.success) setRules(prev => prev.filter(r => r.id !== id))
   }
@@ -61,7 +62,7 @@ export function RulesPage({ rules: initial, user }: Props) {
                     {canEdit && (
                       <div className="flex items-center gap-1">
                         <button onClick={() => { setEditing(r); setModalOpen(true) }} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"><Pencil size={14} /></button>
-                        <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                        <button onClick={() => setPendingDeleteId(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                       </div>
                     )}
                   </td>
@@ -84,6 +85,19 @@ export function RulesPage({ rules: initial, user }: Props) {
           }}
         />
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDeleteId)}
+        title="Delete this rule?"
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={async () => {
+          if (!pendingDeleteId) return
+          await handleDelete(pendingDeleteId)
+          setPendingDeleteId(null)
+        }}
+      />
     </div>
   )
 }

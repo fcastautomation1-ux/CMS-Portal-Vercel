@@ -17,5 +17,5 @@ export default async function TaskDetailRoute({
   const details = await getTodoDetails(taskId)
   if (!details) notFound()
 
-  return <TaskDetailPage initialDetails={details} currentUsername={user.username} />
+  return <TaskDetailPage initialDetails={details} currentUsername={user.username} currentUserRole={user.role} />
 }

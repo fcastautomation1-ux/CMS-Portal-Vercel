@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { Building2, Plus, Pencil, Trash2, X, Users, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck } from 'lucide-react'
 import { saveDepartment, deleteDepartment } from '@/app/dashboard/departments/actions'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Department, SessionUser } from '@/types'
 
 interface Props { departments: Department[]; memberNames: Record<string, string[]>; user: SessionUser }
@@ -139,6 +140,7 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   const canEdit = ['Admin', 'Super Manager'].includes(user.role)
   const [departments, setDepartments] = useState(initial)
   const [editing, setEditing] = useState<Department | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ dept: Department; count: number } | null>(null)
 
   const normalizeDepartment = (value: string) => value.trim().toLowerCase()
   const membersByNormalizedDept: Record<string, string[]> = {}
@@ -151,9 +153,6 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   }
 
   async function handleDelete(dept: Department) {
-    const count = (membersByNormalizedDept[normalizeDepartment(dept.name)] ?? []).length
-    if (count > 0 && !confirm(`"${dept.name}" has ${count} members. Delete anyway?`)) return
-    if (count === 0 && !confirm(`Delete "${dept.name}"?`)) return
     const res = await deleteDepartment(dept.id)
     if (res.success) setDepartments(prev => prev.filter(d => d.id !== dept.id))
   }
@@ -214,7 +213,10 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
                           <Pencil size={14} />
                         </button>
                         <button
-                          onClick={() => handleDelete(dept)}
+                          onClick={() => {
+                            const count = (membersByNormalizedDept[normalizeDepartment(dept.name)] ?? []).length
+                            setPendingDelete({ dept, count })
+                          }}
                           className="p-1.5 rounded-lg transition-colors"
                           style={{ color: 'var(--color-text-muted)' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLElement).style.color = '#EF4444' }}
@@ -256,6 +258,19 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
           }}
         />
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={pendingDelete ? `Delete "${pendingDelete.dept.name}"?` : 'Delete department?'}
+        description={pendingDelete && pendingDelete.count > 0 ? `${pendingDelete.count} members are currently in this department.` : 'This action cannot be undone.'}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          if (!pendingDelete) return
+          await handleDelete(pendingDelete.dept)
+          setPendingDelete(null)
+        }}
+      />
     </div>
   )
 }

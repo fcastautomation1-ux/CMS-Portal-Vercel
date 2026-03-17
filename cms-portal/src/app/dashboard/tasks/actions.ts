@@ -1120,8 +1120,9 @@ export async function addCommentAction(
     if (share.shared_with) candidateMentions.add(String(share.shared_with))
   })
 
-  const mentionUsers = extractMentionedUsernames(message, Array.from(candidateMentions))
-  const unreadBy = mentionUsers.filter((username) => username !== user.username)
+  const participants = Array.from(candidateMentions)
+  const mentionUsers = extractMentionedUsernames(message, participants)
+  const unreadBy = participants.filter((username) => username.toLowerCase() !== user.username.toLowerCase())
 
   const history = parseJson<HistoryEntry[]>(task.history, [])
   const newComment: HistoryEntry = {
@@ -1209,8 +1210,9 @@ export async function editTodoCommentAction(
     if (share.shared_with) candidateMentions.add(String(share.shared_with))
   })
 
-  const mentionUsers = extractMentionedUsernames(message, Array.from(candidateMentions))
-  const unreadBy = mentionUsers.filter((username) => username !== user.username)
+  const participants = Array.from(candidateMentions)
+  const mentionUsers = extractMentionedUsernames(message, participants)
+  const unreadBy = participants.filter((username) => username.toLowerCase() !== user.username.toLowerCase())
   const now = new Date().toISOString()
 
   history[commentIndex] = {
@@ -1259,7 +1261,6 @@ export async function deleteTodoCommentAction(
   const now = new Date().toISOString()
   history[commentIndex] = {
     ...currentComment,
-    details: 'This message was deleted.',
     mention_users: [],
     unread_by: [],
     is_deleted: true,
@@ -1393,15 +1394,84 @@ export async function saveTodoAttachmentAction(input: {
     return { success: false, error: 'No permission to attach files.' }
   }
 
-  const { error } = await supabase.from('todo_attachments').insert({
+  const basePayload = {
     todo_id: input.todo_id,
     file_name: input.file_name,
     file_size: input.file_size ?? null,
-    mime_type: input.mime_type ?? null,
     file_url: input.file_url || input.storage_path || '',
     storage_path: input.storage_path || null,
     uploaded_by: user.username,
+  }
+
+  const withMimePayload = {
+    ...basePayload,
+    mime_type: input.mime_type ?? null,
+  }
+
+  const initialInsert = await supabase.from('todo_attachments').insert(withMimePayload)
+  if (initialInsert.error) {
+    const message = initialInsert.error.message || ''
+    const missingMimeColumn =
+      message.includes("'mime_type'") &&
+      message.toLowerCase().includes('schema cache')
+
+    if (!missingMimeColumn) {
+      return { success: false, error: message }
+    }
+
+    const fallbackInsert = await supabase.from('todo_attachments').insert(basePayload)
+    if (fallbackInsert.error) return { success: false, error: fallbackInsert.error.message }
+  }
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+export async function markTaskCommentsReadAction(
+  todoId: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('history')
+    .eq('id', todoId)
+    .single()
+
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const history = parseJson<HistoryEntry[]>((existing as Record<string, unknown>).history, [])
+  let changed = false
+
+  const nextHistory = history.map((entry) => {
+    if (entry.type !== 'comment' || entry.is_deleted) return entry
+
+    const nextUnreadBy = Array.isArray(entry.unread_by)
+      ? entry.unread_by.filter((username) => String(username).toLowerCase() !== user.username.toLowerCase())
+      : []
+    const nextReadBy = Array.from(new Set([...(entry.read_by || []), user.username]))
+
+    const unreadChanged = (entry.unread_by || []).length !== nextUnreadBy.length
+    const readChanged = (entry.read_by || []).length !== nextReadBy.length
+    if (!unreadChanged && !readChanged) return entry
+
+    changed = true
+    return {
+      ...entry,
+      unread_by: nextUnreadBy,
+      read_by: nextReadBy,
+    }
   })
+
+  if (!changed) return { success: true }
+
+  const now = new Date().toISOString()
+  const { error } = await supabase.from('todos').update({
+    history: JSON.stringify(nextHistory),
+    updated_at: now,
+  }).eq('id', todoId)
 
   if (error) return { success: false, error: error.message }
 
@@ -2063,11 +2133,17 @@ export async function rejectMaAssigneeAction(
 export async function reopenMaAssigneeAction(
   todoId: string,
   assigneeUsername: string,
-  feedback: string
+  feedback: string,
+  newDueDate: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
   if (!feedback.trim()) return { success: false, error: 'Feedback is required.' }
+  if (!newDueDate.trim()) return { success: false, error: 'New due date is required.' }
+
+  const parsedDueDate = new Date(newDueDate)
+  if (Number.isNaN(parsedDueDate.getTime())) return { success: false, error: 'Invalid due date.' }
+  if (parsedDueDate.getTime() <= Date.now()) return { success: false, error: 'New due date must be in the future.' }
 
   const supabase = createServerClient()
   const { data: existing } = await supabase
@@ -2093,6 +2169,7 @@ export async function reopenMaAssigneeAction(
     status: 'in_progress',
     notes: feedback.trim(),
     rejection_reason: feedback.trim(),
+    actual_due_date: parsedDueDate.toISOString(),
     completed_at: undefined,
     accepted_at: undefined,
     accepted_by: undefined,
@@ -2103,7 +2180,7 @@ export async function reopenMaAssigneeAction(
   history.push({
     type: 'uncompleted',
     user: user.username,
-    details: `${user.username} reopened ${assigneeUsername}'s work. Feedback: ${feedback.trim()}`,
+    details: `${user.username} reopened ${assigneeUsername}'s work. Feedback: ${feedback.trim()}. New due date: ${parsedDueDate.toISOString()}`,
     timestamp: now,
     icon: '↩️',
     title: 'Work Reopened',
@@ -2122,7 +2199,7 @@ export async function reopenMaAssigneeAction(
   await notifyUsers(supabase, [assigneeUsername], {
     type: 'task_assigned',
     title: 'Accepted Work Reopened',
-    body: `${user.username} reopened your accepted work on "${task.title}". Feedback: ${feedback.trim()}`,
+    body: `${user.username} reopened your accepted work on "${task.title}". Feedback: ${feedback.trim()}. New due date: ${parsedDueDate.toISOString()}`,
     relatedId: todoId,
   }, user.username)
 
@@ -2467,7 +2544,20 @@ async function createNotification(
   opts: { userId: string; type: string; title: string; body: string; relatedId: string }
 ) {
   try {
-    await supabase.from('notifications').insert({
+    const legacyPayload = {
+      user_id: opts.userId,
+      title: opts.title,
+      message: opts.body,
+      type: opts.type,
+      link: opts.relatedId,
+      read: false,
+      created_at: new Date().toISOString(),
+    }
+
+    const primary = await supabase.from('notifications').insert(legacyPayload)
+    if (!primary.error) return
+
+    const modernPayload = {
       user_id: opts.userId,
       title: opts.title,
       body: opts.body,
@@ -2475,6 +2565,12 @@ async function createNotification(
       related_id: opts.relatedId,
       is_read: false,
       created_at: new Date().toISOString(),
-    })
-  } catch { /* silent */ }
+    }
+    const fallback = await supabase.from('notifications').insert(modernPayload)
+    if (fallback.error) {
+      console.error('createNotification insert failed:', fallback.error.message)
+    }
+  } catch (error) {
+    console.error('createNotification unexpected error:', error)
+  }
 }

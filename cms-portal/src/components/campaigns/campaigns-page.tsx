@@ -5,6 +5,7 @@ import { Search, Filter, TrendingUp, Trash2, Settings2, Save, X } from 'lucide-r
 import type { Campaign, Account, SessionUser } from '@/types'
 import { saveCampaign, saveCampaignBatch, deleteCampaign } from '@/app/dashboard/campaigns/actions'
 import { RunStopToggle } from '@/components/ui/run-stop-toggle'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 type Condition = { id: string; name: string; description: string | null }
 
@@ -42,6 +43,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
   const [managingAccount, setManagingAccount] = useState<string | null>(null)
   const [savingBulk, setSavingBulk] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, DraftCampaign>>({})
+  const [pendingDelete, setPendingDelete] = useState<Campaign | null>(null)
 
   const accountNameMap = useMemo(() => {
     return Object.fromEntries(accounts.map(a => [a.customer_id, a.account_name || '']))
@@ -109,7 +111,6 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
   }
 
   async function handleDelete(c: Campaign) {
-    if (!confirm(`Delete campaign "${c.campaign_name}"?`)) return
     const res = await deleteCampaign(c.customer_id, c.campaign_name, c.workflow)
     if (res.success) {
       setCampaigns(prev => prev.filter(x => !(x.customer_id === c.customer_id && x.campaign_name === c.campaign_name)))
@@ -262,7 +263,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
                         </td>
                         {canEdit && (
                           <td className="px-5 py-3 text-center">
-                            <button onClick={() => handleDelete(c)} className="btn-motion p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                            <button onClick={() => setPendingDelete(c)} className="btn-motion p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
                               <Trash2 size={14} />
                             </button>
                           </td>
@@ -374,6 +375,19 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={pendingDelete ? `Delete campaign "${pendingDelete.campaign_name}"?` : 'Delete campaign?'}
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          if (!pendingDelete) return
+          await handleDelete(pendingDelete)
+          setPendingDelete(null)
+        }}
+      />
     </div>
   )
 }

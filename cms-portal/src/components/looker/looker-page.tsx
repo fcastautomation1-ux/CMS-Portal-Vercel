@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ExternalLink, Plus, Trash2, BarChart3, Search, Link as LinkIcon, Users, Calendar } from 'lucide-react'
 import { deleteLookerReport } from '@/app/dashboard/looker/actions'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { LookerReport, SessionUser } from '@/types'
 
 interface Props { reports: LookerReport[]; user: SessionUser }
@@ -23,11 +24,11 @@ export function LookerPage({ reports: initial, user }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const [reports, setReports] = useState(initial)
   const [search, setSearch] = useState('')
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   const filtered = reports.filter(r => r.title.toLowerCase().includes(search.toLowerCase()))
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this report?')) return
     const res = await deleteLookerReport(id)
     if (res.success) setReports(prev => prev.filter(r => r.id !== id))
   }
@@ -106,7 +107,7 @@ export function LookerPage({ reports: initial, user }: Props) {
                     </div>
                     {canEdit && (
                       <button
-                        onClick={() => handleDelete(r.id)}
+                        onClick={() => setPendingDeleteId(r.id)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg"
                         style={{ color: '#EF4444', background: 'rgba(239,68,68,0.08)' }}
                         title="Delete report"
@@ -175,6 +176,19 @@ export function LookerPage({ reports: initial, user }: Props) {
           })}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDeleteId)}
+        title="Delete this report?"
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={async () => {
+          if (!pendingDeleteId) return
+          await handleDelete(pendingDeleteId)
+          setPendingDeleteId(null)
+        }}
+      />
     </div>
   )
 }

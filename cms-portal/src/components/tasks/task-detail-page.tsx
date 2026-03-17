@@ -57,6 +57,7 @@ import {
   deleteTodoAction,
   getTodoDetails,
   getUsersForAssignment,
+  markTaskCommentsReadAction,
   rejectMaAssigneeAction,
   rejectMaSubAssigneeAction,
   removeMaDelegationAction,
@@ -72,6 +73,7 @@ import {
 
 type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
+const MAX_PARALLEL_UPLOADS = 3
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
@@ -81,6 +83,7 @@ type TaskActionDialogState =
   | { type: 'reopen-assignee'; assigneeUsername: string }
   | { type: 'reject-sub'; delegatorUsername: string; subUsername: string }
   | { type: 'remove-delegation'; delegatorUsername: string; subUsername: string }
+  | { type: 'delete-comment'; messageId: string }
   | null
 
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
@@ -229,12 +232,28 @@ function getActiveMentionQuery(value: string, caretIndex: number) {
   }
 }
 
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  if (!items.length) return
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      await worker(items[index])
+    }
+  })
+  await Promise.all(runners)
+}
+
 export function TaskDetailPage({
   initialDetails,
   currentUsername,
+  currentUserRole,
 }: {
   initialDetails: TodoDetails
   currentUsername: string
+  currentUserRole: string
 }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -319,6 +338,16 @@ export function TaskDetailPage({
     }
   }, [details.id, refreshDetails])
 
+  useEffect(() => {
+    if (!uploadingFiles) return
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [uploadingFiles])
+
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>, options?: { redirectToTasks?: boolean }) => {
     setActionError('')
     startTransition(async () => {
@@ -353,19 +382,22 @@ export function TaskDetailPage({
 
     try {
       const supabase = createBrowserClient()
-      for (const [index, file] of files.entries()) {
-        const updateProgress = (fileProgress: number, stage: string) => {
-          const overall = Math.min(100, Math.round(((index + fileProgress) / files.length) * 100))
-          setUploadProgress({
-            progress: overall,
-            fileName: file.name,
-            currentFile: index + 1,
-            totalFiles: files.length,
-            stage,
-          })
-        }
+      let completed = 0
+      const totalFiles = files.length
 
-        updateProgress(0.05, 'Preparing secure upload')
+      const updateCounterProgress = (fileName: string, stage: string) => {
+        const progress = Math.max(5, Math.min(100, Math.round((completed / totalFiles) * 100)))
+        setUploadProgress({
+          progress,
+          fileName,
+          currentFile: Math.min(completed + 1, totalFiles),
+          totalFiles,
+          stage,
+        })
+      }
+
+      await runWithConcurrency(files, MAX_PARALLEL_UPLOADS, async (file) => {
+        updateCounterProgress(file.name, 'Preparing secure upload')
         const signedUpload = await createTaskAttachmentUploadUrlAction({
           todo_id: details.id,
           owner_username: details.username,
@@ -376,14 +408,14 @@ export function TaskDetailPage({
           throw new Error(signedUpload.error ?? 'Unable to prepare file upload.')
         }
 
-        updateProgress(0.2, 'Uploading file')
+        updateCounterProgress(file.name, 'Uploading file')
         const upload = await supabase.storage
           .from(signedUpload.bucket || CMS_STORAGE_BUCKET)
           .uploadToSignedUrl(signedUpload.path, signedUpload.token, file)
 
         if (upload.error) throw new Error(upload.error.message)
 
-        updateProgress(0.88, 'Saving attachment record')
+        updateCounterProgress(file.name, 'Saving attachment record')
         const saved = await saveTodoAttachmentAction({
           todo_id: details.id,
           file_name: file.name,
@@ -393,9 +425,9 @@ export function TaskDetailPage({
         })
 
         if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)
-
-        updateProgress(1, 'Completed')
-      }
+        completed += 1
+        updateCounterProgress(file.name, completed === totalFiles ? 'Completed' : 'Uploading files')
+      })
 
       await refreshDetails()
     } catch (error) {
@@ -407,6 +439,7 @@ export function TaskDetailPage({
   }
 
   const t = details
+  const isAdminOrSuperManager = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
   const isPendingApproval = t.approval_status === 'pending_approval'
@@ -417,7 +450,7 @@ export function TaskDetailPage({
   const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
   const sm = STATUS_META[t.task_status] ?? STATUS_META.backlog
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
-  const comments = t.history.filter((h: HistoryEntry) => h.type === 'comment')
+  const comments = t.history.filter((h: HistoryEntry) => h.type === 'comment' && (!h.is_deleted || isAdminOrSuperManager))
   const historyEvents = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
   const activityTimeline = [...historyEvents].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const combinedTimeline = [...t.history].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -429,6 +462,14 @@ export function TaskDetailPage({
   const mentionSuggestions = activeMention
     ? participants.filter((participant) => participant.username.toLowerCase().includes(activeMention.query.toLowerCase()))
     : []
+
+  useEffect(() => {
+    const hasUnreadComments = comments.some((entry) =>
+      Array.isArray(entry.unread_by) && entry.unread_by.some((username) => username.toLowerCase() === currentUsername.toLowerCase())
+    )
+    if (!hasUnreadComments) return
+    void markTaskCommentsReadAction(t.id)
+  }, [comments, currentUsername, t.id])
 
   const insertMention = (username: string) => {
     const textarea = commentInputRef.current
@@ -493,7 +534,11 @@ export function TaskDetailPage({
           setActionError('Feedback is required.')
           return
         }
-        void doAction(() => reopenMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim()))
+        if (!dialogExtraValue.trim()) {
+          setActionError('New due date is required.')
+          return
+        }
+        void doAction(() => reopenMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim()))
         closeTaskDialog()
         return
       case 'reject-sub':
@@ -506,6 +551,11 @@ export function TaskDetailPage({
         return
       case 'remove-delegation':
         void doAction(() => removeMaDelegationAction(t.id, taskDialog.delegatorUsername, taskDialog.subUsername))
+        closeTaskDialog()
+        return
+      case 'delete-comment':
+        applyOptimisticCommentDelete(taskDialog.messageId)
+        void doAction(() => deleteTodoCommentAction(t.id, taskDialog.messageId))
         closeTaskDialog()
         return
       default:
@@ -532,15 +582,55 @@ export function TaskDetailPage({
     setEditingCommentText('')
   }
 
+  const applyOptimisticCommentEdit = (messageId: string, nextText: string) => {
+    const nowIso = new Date().toISOString()
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(t.id), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((item) =>
+          item.message_id === messageId
+            ? {
+                ...item,
+                details: nextText,
+                edited_at: nowIso,
+              }
+            : item
+        ),
+      }
+    })
+  }
+
+  const applyOptimisticCommentDelete = (messageId: string) => {
+    const nowIso = new Date().toISOString()
+    queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(t.id), (prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        history: prev.history.map((item) =>
+          item.message_id === messageId
+            ? {
+                ...item,
+                is_deleted: true,
+                deleted_at: nowIso,
+              }
+            : item
+        ),
+      }
+    })
+  }
+
   const saveEditedComment = (entry: HistoryEntry) => {
     if (!entry.message_id || !editingCommentText.trim()) return
-    void doAction(() => editTodoCommentAction(t.id, entry.message_id!, editingCommentText.trim()))
+    const nextText = editingCommentText.trim()
+    applyOptimisticCommentEdit(entry.message_id, nextText)
+    void doAction(() => editTodoCommentAction(t.id, entry.message_id!, nextText))
     cancelEditingComment()
   }
 
   const deleteComment = (entry: HistoryEntry) => {
     if (!entry.message_id) return
-    void doAction(() => deleteTodoCommentAction(t.id, entry.message_id!))
+    openTaskDialog({ type: 'delete-comment', messageId: entry.message_id })
   }
 
   const handleCommentKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1223,8 +1313,6 @@ export function TaskDetailPage({
                                   <button onClick={() => saveEditedComment(entry)} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">Save</button>
                                 </div>
                               </div>
-                            ) : entry.is_deleted ? (
-                              <span className="italic">This message was deleted.</span>
                             ) : (
                               renderCommentWithMentions(entry.details)
                             )}
@@ -1320,6 +1408,7 @@ export function TaskDetailPage({
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
             taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
             taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Send feedback' :
+            taskDialog.type === 'delete-comment' ? 'Delete message' :
             'Add summary'
           }
           description={
@@ -1327,9 +1416,10 @@ export function TaskDetailPage({
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
             taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
             taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
+            taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -1340,6 +1430,13 @@ export function TaskDetailPage({
             </div>
           ) : taskDialog.type === 'remove-delegation' ? (
             <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>
+          ) : taskDialog.type === 'delete-comment' ? (
+            <p className="text-sm text-slate-600">Are you sure you want to delete this message?</p>
+          ) : taskDialog.type === 'reopen-assignee' ? (
+            <div className="space-y-3">
+              <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
+              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            </div>
           ) : (
             <DialogTextarea
               label={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary (optional)' : 'Feedback'}
@@ -1392,11 +1489,13 @@ function ActionDialog({
   )
 }
 
-function DialogInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+function DialogInput({ label, value, onChange, placeholder, type = 'text', min }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; min?: string }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
       <input
+        type={type}
+        min={min}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

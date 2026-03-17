@@ -83,18 +83,17 @@ function resolveNavUrl(notif: Notification): string {
   return '/dashboard'
 }
 
-const TYPE_CONFIG: Record<string, { icon: typeof Info; color: string; bg: string; emoji: string }> = {
-  task_assigned: { icon: CheckCircle, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'ðŸ“Œ' },
-  task_completed: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'âœ…' },
-  task_shared: { icon: Info, color: '#6366F1', bg: 'rgba(99,102,241,0.1)', emoji: 'ðŸ“' },
-  access_granted: { icon: CheckCircle, color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', emoji: 'ðŸ”“' },
-  team_update: { icon: AlertTriangle, color: '#F97316', bg: 'rgba(249,115,22,0.1)', emoji: 'ðŸ‘¥' },
-  message: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'ðŸ’¬' },
-  reply: { icon: Info, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'â†©ï¸' },
-  success: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'âœ…' },
-  warning: { icon: AlertTriangle, color: '#F59E0B', bg: 'rgba(245,158,11,0.1)', emoji: 'âš ï¸' },
-  error: { icon: XCircle, color: '#EF4444', bg: 'rgba(239,68,68,0.1)', emoji: 'âŒ' },
-  info: { icon: Info, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'ðŸ””' },
+const TYPE_CONFIG: Record<string, { icon: typeof Info; color: string; bg: string; emoji: string }> = {  task_assigned: { icon: CheckCircle, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'T' },
+  task_completed: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'C' },
+  task_shared: { icon: Info, color: '#6366F1', bg: 'rgba(99,102,241,0.1)', emoji: 'S' },
+  access_granted: { icon: CheckCircle, color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', emoji: 'A' },
+  team_update: { icon: AlertTriangle, color: '#F97316', bg: 'rgba(249,115,22,0.1)', emoji: 'U' },
+  message: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'M' },
+  reply: { icon: Info, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'R' },
+  success: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'OK' },
+  warning: { icon: AlertTriangle, color: '#F59E0B', bg: 'rgba(245,158,11,0.1)', emoji: '!' },
+  error: { icon: XCircle, color: '#EF4444', bg: 'rgba(239,68,68,0.1)', emoji: 'X' },
+  info: { icon: Info, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'i' },
 }
 
 async function requestDesktopPermission(): Promise<boolean> {
@@ -446,7 +445,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
               <div key={group.label}>
                 <div className="px-5 py-2" style={{ background: group.label === 'Today' ? 'linear-gradient(135deg, #eff6ff, #dbeafe)' : 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
                   <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: group.label === 'Today' ? '#1D4ED8' : 'var(--color-text-muted)' }}>
-                    ðŸ“… {group.label}
+                    {group.label}
                   </span>
                 </div>
 
@@ -498,8 +497,8 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
                             </p>
                             {n.bodyText && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--color-text-muted)' }}>{n.bodyText}</p>}
                             <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                              <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>ðŸ• {timeAgo(notif.created_at)}</span>
-                              {n.senderName && <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>Â· ðŸ‘¤ {n.senderName}</span>}
+                              <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>Time: {timeAgo(notif.created_at)}</span>
+                              {n.senderName && <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>By: {n.senderName}</span>}
                               <span className="text-[10px] font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5" style={{ color: '#3B82F6' }}>
                                 Go <ArrowRight size={9} />
                               </span>
