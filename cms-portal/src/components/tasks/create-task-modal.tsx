@@ -176,6 +176,12 @@ export function CreateTaskModal({
   const [departments, setDepartments] = useState<string[]>(initialDepartments ?? [])
 
   useEffect(() => {
+    if (initialPackages && initialPackages.length > 0) setPackages(initialPackages)
+    if (initialUsers && initialUsers.length > 0) setUsers(initialUsers)
+    if (initialDepartments && initialDepartments.length > 0) setDepartments(initialDepartments)
+  }, [initialPackages, initialUsers, initialDepartments])
+
+  useEffect(() => {
     if (packages.length > 0 && users.length > 0 && departments.length > 0) return
 
     Promise.all([
@@ -183,9 +189,9 @@ export function CreateTaskModal({
       getUsersForAssignment(),
       getDepartmentsForTaskForm(),
     ]).then(([pkgs, usrs, depts]) => {
-      setPackages(pkgs ?? [])
-      setUsers(usrs ?? [])
-      setDepartments(depts ?? [])
+      if (pkgs && pkgs.length > 0) setPackages(pkgs)
+      if (usrs && usrs.length > 0) setUsers(usrs)
+      if (depts && depts.length > 0) setDepartments(depts)
     })
   }, [departments.length, packages.length, users.length])
 
@@ -299,13 +305,15 @@ export function CreateTaskModal({
     [appSearch, availableApps]
   )
 
-  const filteredPackages = useMemo(
-    () =>
-      filteredPackagesByApp.filter((pkg) =>
-        pkg.name.toLowerCase().includes(packageSearch.toLowerCase())
-      ),
-    [filteredPackagesByApp, packageSearch]
-  )
+  const filteredPackages = useMemo(() => {
+    const list = filteredPackagesByApp.filter((pkg) =>
+      pkg.name.toLowerCase().includes(packageSearch.toLowerCase())
+    )
+    if (packageSearch && !list.some((p) => p.name.toLowerCase() === packageSearch.toLowerCase())) {
+      return [...list, { id: 'search-others', name: packageSearch, app_name: 'Others' }]
+    }
+    return list
+  }, [filteredPackagesByApp, packageSearch])
 
   const filteredUsersForMulti = useMemo(
     () =>
