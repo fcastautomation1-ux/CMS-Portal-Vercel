@@ -352,27 +352,27 @@ function flattenWorkflowTree(
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
   const rows = flattenWorkflowTree(nodes).slice(0, 8)
-  const indent = 28
-  const lineOffset = 22
+const indent = 30
+  const lineOffset = 18
 
   return (
-    <div className="hidden w-[190px] shrink-0 md:flex">
+    <div className="hidden w-[220px] shrink-0 md:flex">
       <div className="relative w-full py-2">
         {rows.map(({ node, depth, pathHasNext, isLast }) => {
           const ringCls =
             node.tone === 'active'
-              ? 'ring-2 ring-blue-200'
+              ? 'ring-2 ring-blue-500/20'
               : node.tone === 'department'
-                ? 'ring-2 ring-emerald-100'
+                ? 'ring-2 ring-emerald-500/20'
                 : node.tone === 'multi'
-                  ? 'ring-2 ring-cyan-100'
-                  : 'ring-2 ring-white'
+                  ? 'ring-2 ring-cyan-500/20'
+                  : 'ring-2 ring-white/50'
           const centerX = lineOffset + depth * indent
           const parentCenterX = centerX - indent
           const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : pathHasNext
 
           return (
-            <div key={node.key} className="group/rail relative min-h-[56px]" title={node.title}>
+            <div key={node.key} className="group/rail relative min-h-[64px]" title={node.title}>
               {ancestorGuides.map((hasNext, level) =>
                 hasNext ? (
                   <div
@@ -403,31 +403,33 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
               <button
                 type="button"
                 onClick={() => onNodeClick(node)}
-                className="relative flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-slate-50"
+                className="relative flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-slate-50"
                 style={{ marginLeft: `${depth * indent}px` }}
               >
-                <UserAvatar
-                  username={node.label}
-                  avatarUrl={node.avatarUrl}
-                  size="sm"
-                  className={cn(
-                    'shrink-0 shadow-sm transition-transform group-hover/rail:scale-105',
-                    node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
-                    node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
-                    node.tone === 'active' && 'bg-blue-100 text-blue-700',
-                    ringCls
-                  )}
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-[12px] font-semibold text-slate-700">
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    username={node.label}
+                    avatarUrl={node.avatarUrl}
+                    size="sm"
+                    className={cn(
+                      'shadow-sm transition-transform group-hover/rail:scale-105',
+                      node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
+                      node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
+                      node.tone === 'active' && 'bg-blue-100 text-blue-700',
+                      ringCls
+                    )}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-bold text-slate-800">
                     {node.label}
-                  </span>
+                  </div>
                   {node.subtitle && (
-                    <span className="block truncate text-[10px] text-slate-400">
+                    <div className="truncate text-[10px] leading-tight text-slate-400">
                       {node.subtitle}
-                    </span>
+                    </div>
                   )}
-                </span>
+                </div>
               </button>
               <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
                 <div className="text-xs font-semibold text-slate-900">{node.title}</div>
@@ -724,17 +726,8 @@ export function TaskCard({
         <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
             {appNames.map((appName) => (
-              <span key={appName} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
-                {appName}
-              </span>
-            ))}
-            {task.kpi_type && (
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-600">
-                {task.kpi_type}
-              </span>
-            )}
-          </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
@@ -748,7 +741,6 @@ export function TaskCard({
             >
               {task.title}
             </button>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">#{task.id.slice(0, 4)}</span>
           </div>
 
           {summaryText && (
