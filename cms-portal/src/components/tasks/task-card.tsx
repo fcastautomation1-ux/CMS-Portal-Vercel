@@ -28,7 +28,7 @@ import {
   sendTaskToDepartmentQueueAction,
   convertTaskToMultiAssignmentAction,
   updateSingleTaskDueDateAction,
-  updateMaAssigneeDueDateAction,
+  updateAssignmentStepAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -57,7 +57,7 @@ type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
   | { type: 'single-due-date' }
-  | { type: 'ma-due-date'; assigneeUsername: string }
+  | { type: 'step-edit'; assigneeUsername: string }
   | { type: 'queue-assign' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
@@ -121,7 +121,26 @@ function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | 
     return task.username || null
   }
 
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    const exists = task.multi_assignment.assignees.some((entry) => (entry.username || '').trim().toLowerCase() === target)
+    if (exists && task.multi_assignment.created_by) {
+      return task.multi_assignment.created_by
+    }
+  }
+
   return null
+}
+
+function getAssignmentStepNote(task: Todo, assigneeUsername: string): string {
+  const target = String(assigneeUsername || '').trim().toLowerCase()
+  if (!target) return ''
+  for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
+    const entry = task.assignment_chain[i]
+    if ((entry.next_user || '').trim().toLowerCase() === target) {
+      return entry.feedback?.trim() || ''
+    }
+  }
+  return ''
 }
 
 const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = {
@@ -208,6 +227,8 @@ type WorkflowRailNode = {
   avatarUrl?: string | null
   title: string
   subtitle?: string
+  focusTarget?: string
+  connectorLabel?: string
 }
 
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
@@ -229,24 +250,30 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: 'user',
       avatarUrl: task.participant_avatars?.[task.username] ?? null,
       title: `Created by ${task.username}`,
-      subtitle: 'Task creator',
+      subtitle: 'Created here',
+      focusTarget: task.username,
+      connectorLabel: undefined,
     })
   }
 
   ;(task.assignment_chain || []).forEach((entry, index) => {
     if (entry.next_user) {
       const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
+      const actor = String(entry.user || '').trim()
+      const target = String(entry.next_user || '').trim()
       pushNode({
         key: `${index}:${entry.role}:${entry.next_user}`,
-        label: entry.next_user,
+        label: target,
         tone: isDepartmentStep ? 'department' : 'user',
-        avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[entry.next_user] ?? null),
+        avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[target] ?? null),
         title: isDepartmentStep
-          ? `${entry.user} routed to ${entry.next_user}`
-          : `${entry.user} assigned to ${entry.next_user}`,
+          ? `${actor} routed to ${target}`
+          : `${actor} assigned to ${target}`,
         subtitle: isDepartmentStep
-          ? `${entry.user} -> ${entry.next_user}`
-          : `${entry.user} -> ${entry.next_user}`,
+          ? `Queue from ${actor}`
+          : `From ${actor}`,
+        focusTarget: target,
+        connectorLabel: isDepartmentStep ? 'route' : 'handoff',
       })
     }
   })
@@ -258,6 +285,8 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: 'department',
       title: `Queued in ${task.queue_department}`,
       subtitle: 'Waiting in department queue',
+      focusTarget: task.queue_department,
+      connectorLabel: 'queue',
     })
   }
 
@@ -269,6 +298,8 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
       subtitle: task.task_status === 'in_progress' ? 'Current active owner' : 'Current assignee',
+      focusTarget: task.assigned_to,
+      connectorLabel: 'active',
     })
   }
 
@@ -280,7 +311,9 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
         tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `Multi-user step: ${entry.username}`,
+        subtitle: `From ${getAssignmentStepOwner(task, entry.username) || task.assigned_to || task.username}`,
+        focusTarget: entry.username,
+        connectorLabel: 'split',
       })
     })
   }
@@ -292,11 +325,11 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   if (nodes.length === 0) return null
 
   return (
-    <div className="hidden w-[72px] shrink-0 md:flex md:justify-center">
-      <div className="relative flex w-full justify-center">
-        <div className="absolute left-1/2 top-5 bottom-5 w-px -translate-x-1/2 bg-slate-200" />
-        <div className="relative z-10 flex flex-col items-center gap-3 py-3">
-          {nodes.map((node) => {
+    <div className="hidden w-[156px] shrink-0 md:flex">
+      <div className="relative w-full py-3">
+        <div className="absolute left-5 top-5 bottom-5 w-px bg-slate-200" />
+        <div className="relative z-10 flex flex-col gap-3">
+          {nodes.map((node, index) => {
             const ringCls =
               node.tone === 'active'
                 ? 'ring-2 ring-blue-200'
@@ -307,29 +340,70 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                     : 'ring-2 ring-white'
 
             return (
-              <div key={node.key} className="group/rail relative flex flex-col items-center" title={node.title}>
-                <button type="button" onClick={() => onNodeClick(node)} className="flex flex-col items-center">
+              <div key={node.key} className="group/rail relative" title={node.title}>
+                {index > 0 && (
+                  <div className="pointer-events-none absolute left-5 -top-3 z-0 flex w-[92px] -translate-x-1/2 justify-center">
+                    <span className={cn(
+                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]',
+                      node.connectorLabel === 'split'
+                        ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                        : node.connectorLabel === 'route' || node.connectorLabel === 'queue'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : node.connectorLabel === 'active'
+                            ? 'border-blue-200 bg-blue-50 text-blue-700'
+                            : 'border-violet-200 bg-violet-50 text-violet-700'
+                    )}>
+                      {node.connectorLabel === 'active'
+                        ? 'now'
+                        : node.connectorLabel === 'split'
+                          ? 'many'
+                          : node.connectorLabel === 'route'
+                            ? 'send'
+                            : node.connectorLabel === 'queue'
+                              ? 'wait'
+                              : 'next'}
+                    </span>
+                  </div>
+                )}
+                {index > 0 && (
+                  <div className={cn(
+                    'pointer-events-none absolute left-5 -top-3 h-3 w-px',
+                    node.connectorLabel === 'split'
+                      ? 'bg-cyan-300'
+                      : node.connectorLabel === 'route' || node.connectorLabel === 'queue'
+                        ? 'bg-emerald-300'
+                        : node.connectorLabel === 'active'
+                          ? 'bg-blue-300'
+                          : 'bg-violet-300'
+                  )} />
+                )}
+                <button type="button" onClick={() => onNodeClick(node)} className="flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-slate-50">
                   <UserAvatar
                     username={node.label}
                     avatarUrl={node.avatarUrl}
                     size="sm"
                     className={cn(
-                      'shadow-sm transition-transform group-hover/rail:scale-105',
+                      'shrink-0 shadow-sm transition-transform group-hover/rail:scale-105',
                       node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
                       node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
                       node.tone === 'active' && 'bg-blue-100 text-blue-700',
                       ringCls
                     )}
                   />
-                  <span className="mt-1 max-w-[64px] truncate text-center text-[10px] font-semibold text-slate-400">
-                    {node.label}
+                  <span className="min-w-0">
+                    <span className="block truncate text-[11px] font-semibold text-slate-600">
+                      {node.label}
+                    </span>
+                    {node.subtitle && (
+                      <span className="block truncate text-[10px] uppercase tracking-[0.08em] text-slate-350 text-slate-400">
+                        {node.subtitle}
+                      </span>
+                    )}
                   </span>
                 </button>
                 <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
                   <div className="text-xs font-semibold text-slate-900">{node.title}</div>
-                  {node.subtitle && (
-                    <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>
-                  )}
+                  {node.subtitle && <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>}
                 </div>
               </div>
             )
@@ -437,7 +511,7 @@ export function TaskCard({
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem(TASK_WORKFLOW_FOCUS_KEY, JSON.stringify({
         taskId: task.id,
-        target: node.label,
+        target: node.focusTarget || node.label,
       }))
     }
     onViewDetail(task)
@@ -473,9 +547,9 @@ export function TaskCard({
         doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()))
         closeTaskDialog()
         return
-      case 'ma-due-date':
+      case 'step-edit':
         if (!dialogValue.trim()) return
-        doAction(() => updateMaAssigneeDueDateAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()))
+        doAction(() => updateAssignmentStepAction(task.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
       case 'queue-assign':
@@ -640,12 +714,13 @@ export function TaskCard({
               {showSingleDueDateBtn && (
                 <ActBtn
                   onClick={() => {
-                    openTaskDialog({ type: 'single-due-date' })
+                    openTaskDialog({ type: 'step-edit', assigneeUsername: task.assigned_to! })
                     setDialogValue(task.actual_due_date ? task.actual_due_date.slice(0, 16) : '')
+                    setDialogExtraValue(getAssignmentStepNote(task, task.assigned_to!))
                   }}
                   color="teal"
                 >
-                  {task.actual_due_date ? 'Update Due Date' : 'Set Due Date'}
+                  Edit Assignee
                 </ActBtn>
               )}
               {showQueueAssignBtn && (
@@ -820,12 +895,13 @@ export function TaskCard({
                           {((getAssignmentStepOwner(task, assignee.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
                             <button
                               onClick={() => {
-                                openTaskDialog({ type: 'ma-due-date', assigneeUsername: assignee.username })
+                                openTaskDialog({ type: 'step-edit', assigneeUsername: assignee.username })
                                 setDialogValue(assignee.actual_due_date ? assignee.actual_due_date.slice(0, 16) : '')
+                                setDialogExtraValue(getAssignmentStepNote(task, assignee.username))
                               }}
                               className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
                             >
-                              {assignee.actual_due_date ? 'Update Due Date' : 'Set Due Date'}
+                              Edit
                             </button>
                           )}
                           {isCreator && assignee.status === 'completed' && (
@@ -1051,36 +1127,41 @@ export function TaskCard({
     </div>
     {taskDialog && (
       <ActionDialog
-        title={
-          taskDialog.type === 'complete' ? 'Submit completion feedback' :
-          taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
-          taskDialog.type === 'ma-due-date' ? 'Set assignee due date' :
-          taskDialog.type === 'queue-assign' ? 'Assign queued task' :
+          title={
+            taskDialog.type === 'complete' ? 'Submit completion feedback' :
+            taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
+          taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
+            taskDialog.type === 'queue-assign' ? 'Assign queued task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
           taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Send feedback' :
           'Add summary'
         }
-        description={
-          taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
-          taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
-          taskDialog.type === 'ma-due-date' ? 'Set the working due date for this assigned person only.' :
-          taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
+          description={
+            taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+            taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
+          taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
+            taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
           taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'ma-due-date' ? 'Save due date' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
       >
         {taskDialog.type === 'complete' ? (
           <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
-        ) : taskDialog.type === 'single-due-date' || taskDialog.type === 'ma-due-date' ? (
+        ) : taskDialog.type === 'single-due-date' ? (
           <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+        ) : taskDialog.type === 'step-edit' ? (
+          <div className="space-y-3">
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
+          </div>
         ) : taskDialog.type === 'queue-assign' ? (
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-slate-700">Team Member</span>
