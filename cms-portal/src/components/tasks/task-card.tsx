@@ -734,7 +734,6 @@ export function TaskCard({
                 {task.kpi_type}
               </span>
             )}
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">#{task.id.slice(0, 4)}</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -749,6 +748,7 @@ export function TaskCard({
             >
               {task.title}
             </button>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">#{task.id.slice(0, 4)}</span>
           </div>
 
           {summaryText && (
@@ -903,26 +903,6 @@ export function TaskCard({
                   <p className="mt-2 text-xs font-medium text-slate-600">
                     {maProgress}% complete across assigned users
                   </p>
-                  {earliestMaDue && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={cn(
-                        'inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
-                        earliestMaDueOverdue
-                          ? 'border-red-200 bg-red-50 text-red-600'
-                          : 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                      )}>
-                        Earliest due {fmtShort(earliestMaDue)}
-                      </span>
-                      <span className={cn(
-                        'inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium',
-                        earliestMaDueOverdue
-                          ? 'border-red-200 bg-white text-red-500'
-                          : 'border-slate-200 bg-white text-slate-500'
-                      )}>
-                        {fmtTime(earliestMaDue)}
-                      </span>
-                    </div>
-                  )}
                 </div>
                 {showMa ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
               </button>
