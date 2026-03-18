@@ -82,7 +82,6 @@ type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const MAX_PARALLEL_UPLOADS = 3
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
-const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
@@ -356,26 +355,6 @@ export function TaskDetailPage({
   const appNames = splitTaskMeta(details.app_name)
   const packageNames = splitTaskMeta(details.package_name)
   const latestHandoffNote = [...(details.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
-  const routingFocusTarget =
-    details.multi_assignment?.enabled
-      ? 'multi'
-      : details.queue_status === 'queued'
-        ? 'department'
-        : details.assigned_to
-          ? 'manager'
-          : 'self'
-
-  const openRoutingEdit = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
-        taskId: details.id,
-        section: 'routing',
-        route: routingFocusTarget,
-      }))
-    }
-    setEditTask(details)
-  }, [details, routingFocusTarget])
-
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
     if (!updated) {
@@ -1248,9 +1227,16 @@ export function TaskDetailPage({
                                   <div className="min-w-0 flex-1">
                                     <p className="truncate text-sm font-semibold text-slate-800">{assignee.username}</p>
                                     <p className="text-xs capitalize text-slate-500">{assignee.status ?? 'pending'}</p>
-                                    <p className="text-[11px] text-slate-400">
-                                      Due {getAssigneeDueDate(t, assignee.username) ? formatPakistanDate(getAssigneeDueDate(t, assignee.username) as string) : '-'}
-                                    </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                                      {getAssignmentStepOwner(t, assignee.username) && (
+                                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                                          By {getAssignmentStepOwner(t, assignee.username)}
+                                        </span>
+                                      )}
+                                      <span className="text-[11px] text-slate-400">
+                                        Due {getAssigneeDueDate(t, assignee.username) ? formatPakistanDate(getAssigneeDueDate(t, assignee.username) as string) : '-'}
+                                      </span>
+                                    </div>
                                   </div>
                                   <span className="text-xs font-semibold text-slate-600">{pct}%</span>
                                 </div>

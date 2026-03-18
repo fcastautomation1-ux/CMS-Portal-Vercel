@@ -77,7 +77,6 @@ import {
 
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
-const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 
 interface TaskDetailModalProps {
   taskId: string
@@ -353,27 +352,6 @@ export function TaskDetailModal({
   const appNames = splitTaskMeta(details?.app_name)
   const packageNames = splitTaskMeta(details?.package_name)
   const latestHandoffNote = [...(details?.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
-  const routingFocusTarget =
-    details?.multi_assignment?.enabled
-      ? 'multi'
-      : details?.queue_status === 'queued'
-        ? 'department'
-        : details?.assigned_to
-          ? 'manager'
-          : 'self'
-
-  const openRoutingEdit = () => {
-    if (!details) return
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
-        taskId: details.id,
-        section: 'routing',
-        route: routingFocusTarget,
-      }))
-    }
-    onEdit(details)
-  }
-
   useEffect(() => {
     setLoading(detailsQuery.isLoading && !detailsQuery.data)
   }, [detailsQuery.data, detailsQuery.isLoading])
@@ -1135,9 +1113,16 @@ export function TaskDetailModal({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-slate-800">{a.username}</p>
                           <p className="text-xs text-slate-500 capitalize">{a.status ?? 'pending'}</p>
-                          <p className="text-[11px] text-slate-400">
-                            Due {getAssigneeDueDate(t, a.username) ? formatPakistanDate(getAssigneeDueDate(t, a.username) as string) : '—'}
-                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            {getAssignmentStepOwner(t, a.username) && (
+                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                                By {getAssignmentStepOwner(t, a.username)}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-400">
+                              Due {getAssigneeDueDate(t, a.username) ? formatPakistanDate(getAssigneeDueDate(t, a.username) as string) : '—'}
+                            </span>
+                          </div>
                         </div>
                         <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
                           <div className={cn('h-full rounded-full transition-all', done ? 'bg-green-500' : 'bg-blue-500')} style={{ width: `${pct}%` }} />

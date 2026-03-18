@@ -211,7 +211,6 @@ type WorkflowRailNode = {
 }
 
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
-const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 
 function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
   const nodes: WorkflowRailNode[] = []
@@ -427,15 +426,6 @@ export function TaskCard({
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
   const latestHandoffNote = [...(task.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
-  const routingFocusTarget =
-    task.multi_assignment?.enabled
-      ? 'multi'
-      : task.queue_status === 'queued'
-        ? 'department'
-        : task.assigned_to
-          ? 'manager'
-          : 'self'
-
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
       const result = await fn()
@@ -451,17 +441,6 @@ export function TaskCard({
       }))
     }
     onViewDetail(task)
-  }
-
-  const openRoutingEdit = () => {
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
-        taskId: task.id,
-        section: 'routing',
-        route: routingFocusTarget,
-      }))
-    }
-    onEdit(task)
   }
 
   const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>) => {
@@ -809,6 +788,11 @@ export function TaskCard({
                           <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
                           <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {getAssignmentStepOwner(task, assignee.username) && (
+                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                                By {getAssignmentStepOwner(task, assignee.username)}
+                              </span>
+                            )}
                             <span className={cn(
                               'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold',
                               assigneeOverdue
