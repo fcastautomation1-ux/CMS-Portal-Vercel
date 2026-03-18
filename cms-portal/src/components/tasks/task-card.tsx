@@ -728,6 +728,16 @@ export function TaskCard({
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
             {appNames.map((appName) => (
+              <span key={appName} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
+                {appName}
+              </span>
+            ))}
+            {task.kpi_type && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-600">
+                {task.kpi_type}
+              </span>
+            )}
+          </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
