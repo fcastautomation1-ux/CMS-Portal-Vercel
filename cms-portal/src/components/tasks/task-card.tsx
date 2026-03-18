@@ -353,7 +353,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   if (nodes.length === 0) return null
   const rows = flattenWorkflowTree(nodes).slice(0, 8)
   const indent = 28
-  const lineOffset = 16
+  const lineOffset = 22
 
   return (
     <div className="hidden w-[190px] shrink-0 md:flex">
@@ -368,10 +368,12 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                   ? 'ring-2 ring-cyan-100'
                   : 'ring-2 ring-white'
           const centerX = lineOffset + depth * indent
+          const parentCenterX = centerX - indent
+          const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : pathHasNext
 
           return (
             <div key={node.key} className="group/rail relative min-h-[56px]" title={node.title}>
-              {pathHasNext.map((hasNext, level) =>
+              {ancestorGuides.map((hasNext, level) =>
                 hasNext ? (
                   <div
                     key={`${node.key}-guide-${level}`}
@@ -384,17 +386,17 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                 <>
                   <div
                     className="pointer-events-none absolute top-0 h-1/2 w-px bg-slate-300"
-                    style={{ left: `${centerX}px` }}
+                    style={{ left: `${parentCenterX}px` }}
                   />
                   {!isLast && (
                     <div
                       className="pointer-events-none absolute top-1/2 bottom-0 w-px bg-slate-300"
-                      style={{ left: `${centerX}px` }}
+                      style={{ left: `${parentCenterX}px` }}
                     />
                   )}
                   <div
                     className="pointer-events-none absolute top-1/2 h-px bg-slate-300"
-                    style={{ left: `${centerX - indent + 1}px`, width: `${indent}px` }}
+                    style={{ left: `${parentCenterX}px`, width: `${indent}px` }}
                   />
                 </>
               )}
