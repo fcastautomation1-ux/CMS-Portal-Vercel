@@ -764,6 +764,17 @@ export function TaskDetailModal({
   const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
   const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
+  
+  // Multi-level Complete button logic
+  const stepOwner = t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
+  const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
+  const currentAssigneeApproved = (t.approval_status === 'approved' || !t.approval_status) && !!t.completed_by
+  
+  const showCompleteBtn = !t.completed && !isPendingApproval && (
+    (isAssignee && !maEnabled && t.task_status === 'in_progress') || 
+    (isStepOwner && currentAssigneeApproved)
+  )
+
   const singleStepOwner = !maEnabled && t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
   const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && !!t.assigned_to && (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const maProgress = (() => {
@@ -1181,10 +1192,10 @@ export function TaskDetailModal({
               Edit Assignee
               </button>
           )}
-          {!isCompleted && !isPendingApproval && (((isAssignee && !maEnabled) || canCreatorControlSingleFlow)) && t.task_status !== 'backlog' && (
+          {showCompleteBtn && (
             <PrimaryBtn
               icon={<CheckCircle2 size={14}/>}
-              label={isCreator ? 'Mark Complete' : 'Submit for Approval'}
+              label={isCreator ? 'Mark Complete' : 'Submit Completion'}
               color="green"
               onClick={() => {
                 if (isCreator) {
@@ -1196,6 +1207,17 @@ export function TaskDetailModal({
               loading={isPending}
             />
           )}
+
+          {/* Multi-level Assignment button (Assign to next person) */}
+          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && !maEnabled && (
+            <button 
+              onClick={() => openTaskDialog({ type: 'reassign' })}
+              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+            >
+              {isCreator ? 'Reassign' : 'Assign to next'}
+            </button>
+          )}
+
           {isCreator && isCompleted && (
             <PrimaryBtn
               icon={<RotateCcw size={14}/>}

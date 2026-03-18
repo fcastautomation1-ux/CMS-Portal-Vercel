@@ -107,33 +107,22 @@ function deriveApprovalUserOrder(task: Record<string, unknown>, completedBy: str
   const completedByLower = completedBy.toLowerCase()
   const creator = normalizeApprovalUser(task.username)
   const immediateOwner = findAssignmentStepOwner(task, completedBy)
-  const historyChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
-  const dedup: string[] = []
-  const seen = new Set<string>()
-
+  
+  // If we have an immediate owner, that owner is the ONLY approver for this submission.
+  // Once they approve, they will get a "Complete" button to submit to their OWN assigner.
   if (immediateOwner) {
     const ownerLower = immediateOwner.toLowerCase()
-    if (ownerLower !== completedByLower && !seen.has(ownerLower)) {
-      seen.add(ownerLower)
-      dedup.push(immediateOwner)
+    if (ownerLower !== completedByLower) {
+      return [immediateOwner]
     }
   }
 
-  for (let i = historyChain.length - 1; i >= 0; i -= 1) {
-    const candidate = normalizeApprovalUser(historyChain[i]?.user)
-    if (!candidate) continue
-    const lower = candidate.toLowerCase()
-    if (lower === completedByLower) continue
-    if (seen.has(lower)) continue
-    seen.add(lower)
-    dedup.push(candidate)
+  // Fallback to creator if no owner found (initial step)
+  if (creator && creator.toLowerCase() !== completedByLower) {
+    return [creator]
   }
 
-  if (creator && !seen.has(creator.toLowerCase()) && creator.toLowerCase() !== completedByLower) {
-    dedup.push(creator)
-  }
-
-  return dedup
+  return []
 }
 
 function buildPendingApprovalChain(task: Record<string, unknown>, completedBy: string, now: string): ApprovalChainEntry[] {

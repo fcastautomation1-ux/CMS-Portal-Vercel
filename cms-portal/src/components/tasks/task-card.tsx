@@ -499,7 +499,18 @@ export function TaskCard({
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
-  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee && !maEnabled) && task.task_status === 'in_progress'
+  
+  // A user can "Complete" if they are the assignee AND it's not MA
+  // OR if they are a step owner whose direct assignee has been approved.
+  const stepOwner = task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
+  const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
+  const currentAssigneeApproved = (task.approval_status === 'approved' || !task.approval_status) && !!task.completed_by
+  
+  const showCompleteBtn = !isCompleted && !isPendingApproval && (
+    ((isAssignee && !maEnabled) && task.task_status === 'in_progress') || 
+    (isStepOwner && currentAssigneeApproved)
+  )
+
   const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
@@ -508,7 +519,11 @@ export function TaskCard({
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
-  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!task.assigned_to && !maEnabled
+
+  // ANY user in the chain can "Assign/Reassign" if they are the current assignee
+  // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
+  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled
+
   const singleStepOwner = !maEnabled && task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
   const hasSingleStepChain = !maEnabled && !!task.assigned_to && (task.assignment_chain || []).some((entry) => (entry.next_user || '').toLowerCase() === task.assigned_to!.toLowerCase())
   const canEditSingleDueDate =

@@ -782,6 +782,17 @@ export function TaskDetailPage({
         ? Math.round((ma.assignees.filter((entry) => entry.status === 'accepted' || entry.status === 'completed').length / ma.assignees.length) * 100)
         : 0
     ))
+  
+  // Multi-level Complete button logic
+  const stepOwner = t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
+  const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
+  const currentAssigneeApproved = (t.approval_status === 'approved' || !t.approval_status) && !!t.completed_by
+  
+  const showCompleteBtn = !t.completed && !isPendingApproval && (
+    (isAssignee && !maEnabled && t.task_status === 'in_progress') || 
+    (isStepOwner && currentAssigneeApproved)
+  )
+
   const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
   const delegatedOwner = ma?.assignees?.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
   const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
@@ -1248,20 +1259,20 @@ export function TaskDetailPage({
                   Edit Assignee
                 </button>
               )}
-              {!isCompleted && !isPendingApproval && (((isAssignee && !maEnabled) || canCreatorControlSingleFlow)) && t.task_status !== 'backlog' && (
+              {showCompleteBtn && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
-                  label={isCreator ? 'Mark Complete' : 'Submit For Approval'}
+                  label={isCreator ? 'Mark Complete' : 'Submit Completion'}
                   color="green"
-              onClick={() => {
-                if (isCreator) {
-                  setShowCreatorCompleteConfirm(true)
-                  return
-                }
+                  onClick={() => {
+                    if (isCreator) {
+                      setShowCreatorCompleteConfirm(true)
+                      return
+                    }
                     openTaskDialog({ type: 'complete' })
-              }}
-              loading={isPending}
-            />
+                  }}
+                  loading={isPending}
+                />
               )}
               {isCreator && isCompleted && (
                 <PrimaryBtn
@@ -1314,6 +1325,17 @@ export function TaskDetailPage({
                   Sub Submit
                 </button>
               )}
+
+              {/* Multi-level Assignment button (Assign to next person) */}
+              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && !maEnabled && (
+                <button 
+                  onClick={() => openTaskDialog({ type: 'reassign' })}
+                  className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                  {isCreator ? 'Reassign' : 'Assign to next'}
+                </button>
+              )}
+
               {isCreator && !isCompleted && (
                 <>
                   <button onClick={() => setEditTask(t)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50">
