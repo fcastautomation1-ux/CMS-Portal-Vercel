@@ -283,6 +283,206 @@ function getAssignmentStepNote(task: TodoDetails, assigneeUsername: string): str
   return ''
 }
 
+type WorkflowTreeNode = {
+  key: string
+  label: string
+  tone: 'user' | 'department' | 'multi' | 'active'
+  avatarUrl?: string | null
+  title: string
+  subtitle?: string
+  focusTarget?: string
+  children?: WorkflowTreeNode[]
+}
+
+type WorkflowTreeRow = {
+  node: WorkflowTreeNode
+  depth: number
+  pathHasNext: boolean[]
+  isLast: boolean
+}
+
+function buildWorkflowTree(task: TodoDetails): WorkflowTreeNode[] {
+  const creator = String(task.username || '').trim()
+  if (!creator) return []
+
+  const root: WorkflowTreeNode = {
+    key: `creator:${creator}`,
+    label: creator,
+    tone: 'user',
+    avatarUrl: task.participant_avatars?.[creator] ?? null,
+    title: `Created by ${creator}`,
+    subtitle: 'Created here',
+    focusTarget: creator,
+    children: [],
+  }
+
+  const childrenByKey = new Map<string, WorkflowTreeNode[]>()
+  childrenByKey.set(root.key, root.children!)
+  const latestKeyByUser = new Map<string, string>()
+  latestKeyByUser.set(creator.toLowerCase(), root.key)
+  let fallbackParentKey = root.key
+
+  const addChild = (parentKey: string, node: WorkflowTreeNode) => {
+    if (!childrenByKey.has(parentKey)) childrenByKey.set(parentKey, [])
+    childrenByKey.get(parentKey)!.push(node)
+    node.children = []
+    childrenByKey.set(node.key, node.children)
+    latestKeyByUser.set(node.label.toLowerCase(), node.key)
+  }
+
+  ;(task.assignment_chain || []).forEach((entry, index) => {
+    const target = String(entry.next_user || '').trim()
+    if (!target) return
+    const actor = String(entry.user || '').trim()
+    const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
+    const parentKey = latestKeyByUser.get(actor.toLowerCase()) || fallbackParentKey
+    addChild(parentKey, {
+      key: `step:${index}:${target}`,
+      label: target,
+      tone: isDepartmentStep ? 'department' : 'user',
+      avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[target] ?? null),
+      title: isDepartmentStep ? `${actor} routed to ${target}` : `${actor} assigned to ${target}`,
+      subtitle: isDepartmentStep ? `Sent by ${actor}` : `From ${actor}`,
+      focusTarget: target,
+    })
+    fallbackParentKey = `step:${index}:${target}`
+  })
+
+  if (task.assigned_to && !latestKeyByUser.has(task.assigned_to.toLowerCase())) {
+    addChild(root.key, {
+      key: `assignee:${task.assigned_to}`,
+      label: task.assigned_to,
+      tone: task.task_status === 'in_progress' ? 'active' : 'user',
+      avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
+      title: `Currently assigned to ${task.assigned_to}`,
+      subtitle: 'Current owner',
+      focusTarget: task.assigned_to,
+    })
+  }
+
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    task.multi_assignment.assignees.forEach((entry, index) => {
+      if (latestKeyByUser.has(entry.username.toLowerCase())) return
+      const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
+      const parentKey = latestKeyByUser.get(owner.toLowerCase()) || root.key
+      addChild(parentKey, {
+        key: `multi:${index}:${entry.username}`,
+        label: entry.username,
+        tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+        avatarUrl: task.participant_avatars?.[entry.username] ?? null,
+        title: `Multi-assigned to ${entry.username}`,
+        subtitle: `From ${owner}`,
+        focusTarget: entry.username,
+      })
+    })
+  }
+
+  if (task.queue_status === 'queued' && task.queue_department && !latestKeyByUser.has(task.queue_department.toLowerCase())) {
+    addChild(fallbackParentKey, {
+      key: `queue:${task.queue_department}`,
+      label: task.queue_department,
+      tone: 'department',
+      title: `Queued in ${task.queue_department}`,
+      subtitle: 'Waiting here',
+      focusTarget: task.queue_department,
+    })
+  }
+
+  return [root]
+}
+
+function flattenWorkflowTree(
+  nodes: WorkflowTreeNode[],
+  depth = 0,
+  pathHasNext: boolean[] = []
+): WorkflowTreeRow[] {
+  const rows: WorkflowTreeRow[] = []
+  nodes.forEach((node, index) => {
+    const isLast = index === nodes.length - 1
+    rows.push({ node, depth, pathHasNext, isLast })
+    if (node.children?.length) {
+      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLast]))
+    }
+  })
+  return rows
+}
+
+function WorkflowTree({
+  nodes,
+  onNodeClick,
+}: {
+  nodes: WorkflowTreeNode[]
+  onNodeClick: (node: WorkflowTreeNode) => void
+}) {
+  if (nodes.length === 0) return null
+  const rows = flattenWorkflowTree(nodes).slice(0, 10)
+  const indent = 28
+  const lineOffset = 16
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Assignment Flow</div>
+      <div className="relative">
+        {rows.map(({ node, depth, pathHasNext, isLast }) => {
+          const centerX = lineOffset + depth * indent
+          const ringCls =
+            node.tone === 'active'
+              ? 'ring-2 ring-blue-200'
+              : node.tone === 'department'
+                ? 'ring-2 ring-emerald-100'
+                : node.tone === 'multi'
+                  ? 'ring-2 ring-cyan-100'
+                  : 'ring-2 ring-white'
+
+          return (
+            <div key={node.key} className="group/flow relative min-h-[56px]">
+              {pathHasNext.map((hasNext, level) =>
+                hasNext ? (
+                  <div
+                    key={`${node.key}-guide-${level}`}
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-slate-200"
+                    style={{ left: `${lineOffset + level * indent}px` }}
+                  />
+                ) : null
+              )}
+              {depth > 0 && (
+                <>
+                  <div className="pointer-events-none absolute top-0 h-1/2 w-px bg-slate-300" style={{ left: `${centerX}px` }} />
+                  {!isLast && <div className="pointer-events-none absolute top-1/2 bottom-0 w-px bg-slate-300" style={{ left: `${centerX}px` }} />}
+                  <div className="pointer-events-none absolute top-1/2 h-px bg-slate-300" style={{ left: `${centerX - indent + 1}px`, width: `${indent}px` }} />
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => onNodeClick(node)}
+                className="flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-white"
+                style={{ marginLeft: `${depth * indent}px` }}
+              >
+                <UserAvatar
+                  username={node.label}
+                  avatarUrl={node.avatarUrl}
+                  size="sm"
+                  className={cn(
+                    'shrink-0 shadow-sm transition-transform group-hover/flow:scale-105',
+                    node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
+                    node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
+                    node.tone === 'active' && 'bg-blue-100 text-blue-700',
+                    ringCls
+                  )}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-[12px] font-semibold text-slate-700">{node.label}</span>
+                  {node.subtitle && <span className="block truncate text-[10px] text-slate-400">{node.subtitle}</span>}
+                </span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function renderCommentWithMentions(details: string) {
   const parts = details.split(/(@[a-zA-Z0-9._-]+)/g)
   return parts.map((part, index) => {
@@ -374,6 +574,7 @@ export function TaskDetailPage({
   const appNames = splitTaskMeta(details.app_name)
   const packageNames = splitTaskMeta(details.package_name)
   const latestHandoffNote = [...(details.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
+  const workflowTree = buildWorkflowTree(details)
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
     if (!updated) {
@@ -973,6 +1174,19 @@ export function TaskDetailPage({
     )
   }
 
+  const handleWorkflowNodeClick = useCallback((node: WorkflowTreeNode) => {
+    if (!node.focusTarget) return
+    if (details.multi_assignment?.assignees?.some((entry) => entry.username === node.focusTarget)) {
+      setHighlightedAssignee(node.focusTarget)
+      window.setTimeout(() => {
+        assigneeRefs.current[node.focusTarget!]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 80)
+      window.setTimeout(() => {
+        setHighlightedAssignee((current) => (current === node.focusTarget ? null : current))
+      }, 2600)
+    }
+  }, [details.multi_assignment])
+
   return (
     <>
       <div className="min-h-full bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.08),_transparent_30%),linear-gradient(180deg,#f8fbff_0%,#eef4fb_100%)] px-4 py-5 sm:px-6 lg:px-8">
@@ -1168,6 +1382,7 @@ export function TaskDetailPage({
 
               <div className="px-5 py-5 sm:px-6">
                 <div className={cn('space-y-6', activeTab === 'info' ? 'block' : 'hidden')}>
+                    <WorkflowTree nodes={workflowTree} onNodeClick={handleWorkflowNodeClick} />
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
                       <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
@@ -1581,6 +1796,12 @@ export function TaskDetailPage({
                   ))}
                 </div>
               </div>
+
+              {workflowTree.length > 0 && (
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <WorkflowTree nodes={workflowTree} onNodeClick={handleWorkflowNodeClick} />
+                </div>
+              )}
 
               <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
                 {comments.length === 0 ? (

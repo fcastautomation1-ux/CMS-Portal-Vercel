@@ -230,176 +230,210 @@ type WorkflowRailNode = {
   title: string
   subtitle?: string
   focusTarget?: string
-  connectorLabel?: string
+  children?: WorkflowRailNode[]
 }
 
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 
 function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
-  const nodes: WorkflowRailNode[] = []
-  const seen = new Set<string>()
+  const creator = String(task.username || '').trim()
+  if (!creator) return []
 
-  const pushNode = (node: WorkflowRailNode) => {
-    if (seen.has(node.key)) return
-    seen.add(node.key)
-    nodes.push(node)
+  const root: WorkflowRailNode = {
+    key: `creator:${creator}`,
+    label: creator,
+    tone: 'user',
+    avatarUrl: task.participant_avatars?.[creator] ?? null,
+    title: `Created by ${creator}`,
+    subtitle: 'Created here',
+    focusTarget: creator,
+    children: [],
   }
 
-  if (task.username) {
-    pushNode({
-      key: `creator:${task.username}`,
-      label: task.username,
-      tone: 'user',
-      avatarUrl: task.participant_avatars?.[task.username] ?? null,
-      title: `Created by ${task.username}`,
-      subtitle: 'Created here',
-      focusTarget: task.username,
-      connectorLabel: undefined,
-    })
+  const childrenByKey = new Map<string, WorkflowRailNode[]>()
+  childrenByKey.set(root.key, root.children!)
+  const latestKeyByUser = new Map<string, string>()
+  latestKeyByUser.set(creator.toLowerCase(), root.key)
+  let fallbackParentKey = root.key
+
+  const addChild = (parentKey: string, node: WorkflowRailNode) => {
+    if (!childrenByKey.has(parentKey)) childrenByKey.set(parentKey, [])
+    childrenByKey.get(parentKey)!.push(node)
+    node.children = []
+    childrenByKey.set(node.key, node.children)
+    latestKeyByUser.set(node.label.toLowerCase(), node.key)
   }
 
   ;(task.assignment_chain || []).forEach((entry, index) => {
-    if (entry.next_user) {
-      const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
-      const actor = String(entry.user || '').trim()
-      const target = String(entry.next_user || '').trim()
-      pushNode({
-        key: `${index}:${entry.role}:${entry.next_user}`,
-        label: target,
-        tone: isDepartmentStep ? 'department' : 'user',
-        avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[target] ?? null),
-        title: isDepartmentStep
-          ? `${actor} routed to ${target}`
-          : `${actor} assigned to ${target}`,
-        subtitle: isDepartmentStep
-          ? `Queue from ${actor}`
-          : `From ${actor}`,
-        focusTarget: target,
-        connectorLabel: isDepartmentStep ? 'route' : 'handoff',
-      })
+    const target = String(entry.next_user || '').trim()
+    if (!target) return
+    const actor = String(entry.user || '').trim()
+    const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
+    const parentKey = latestKeyByUser.get(actor.toLowerCase()) || fallbackParentKey
+    const node: WorkflowRailNode = {
+      key: `step:${index}:${target}`,
+      label: target,
+      tone: isDepartmentStep ? 'department' : 'user',
+      avatarUrl: isDepartmentStep ? null : (task.participant_avatars?.[target] ?? null),
+      title: isDepartmentStep ? `${actor} routed to ${target}` : `${actor} assigned to ${target}`,
+      subtitle: isDepartmentStep ? `Sent by ${actor}` : `From ${actor}`,
+      focusTarget: target,
     }
+    addChild(parentKey, node)
+    fallbackParentKey = node.key
   })
 
-  if (task.queue_status === 'queued' && task.queue_department) {
-    pushNode({
-      key: `queue:${task.queue_department}`,
-      label: task.queue_department,
-      tone: 'department',
-      title: `Queued in ${task.queue_department}`,
-      subtitle: 'Waiting in department queue',
-      focusTarget: task.queue_department,
-      connectorLabel: 'queue',
-    })
-  }
-
-  if (task.assigned_to) {
-    pushNode({
+  if (task.assigned_to && !latestKeyByUser.has(task.assigned_to.toLowerCase())) {
+    addChild(root.key, {
       key: `assignee:${task.assigned_to}`,
       label: task.assigned_to,
       tone: task.task_status === 'in_progress' ? 'active' : 'user',
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
-      subtitle: task.task_status === 'in_progress' ? 'Current active owner' : 'Current assignee',
+      subtitle: 'Current owner',
       focusTarget: task.assigned_to,
-      connectorLabel: 'active',
     })
   }
 
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
-    task.multi_assignment.assignees.forEach((entry) => {
-      pushNode({
-        key: `multi:${entry.username}`,
+    task.multi_assignment.assignees.forEach((entry, index) => {
+      if (latestKeyByUser.has(entry.username.toLowerCase())) return
+      const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
+      const parentKey = latestKeyByUser.get(owner.toLowerCase()) || root.key
+      addChild(parentKey, {
+        key: `multi:${index}:${entry.username}`,
         label: entry.username,
         tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `From ${getAssignmentStepOwner(task, entry.username) || task.assigned_to || task.username}`,
+        subtitle: `From ${owner}`,
         focusTarget: entry.username,
-        connectorLabel: 'split',
       })
     })
   }
 
-  return nodes.slice(0, 6)
+  if (task.queue_status === 'queued' && task.queue_department && !latestKeyByUser.has(task.queue_department.toLowerCase())) {
+    addChild(fallbackParentKey, {
+      key: `queue:${task.queue_department}`,
+      label: task.queue_department,
+      tone: 'department',
+      title: `Queued in ${task.queue_department}`,
+      subtitle: 'Waiting here',
+      focusTarget: task.queue_department,
+    })
+  }
+
+  return [root]
+}
+
+type WorkflowRailRow = {
+  node: WorkflowRailNode
+  depth: number
+  pathHasNext: boolean[]
+  isLast: boolean
+}
+
+function flattenWorkflowTree(
+  nodes: WorkflowRailNode[],
+  depth = 0,
+  pathHasNext: boolean[] = []
+): WorkflowRailRow[] {
+  const rows: WorkflowRailRow[] = []
+  nodes.forEach((node, index) => {
+    const isLast = index === nodes.length - 1
+    rows.push({ node, depth, pathHasNext, isLast })
+    if (node.children?.length) {
+      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLast]))
+    }
+  })
+  return rows
 }
 
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
+  const rows = flattenWorkflowTree(nodes).slice(0, 8)
+  const indent = 28
+  const lineOffset = 16
 
   return (
-    <div className="hidden w-[132px] shrink-0 md:flex">
-      <div className="relative w-full py-3">
-        <div className="absolute left-5 top-5 bottom-5 w-px bg-slate-200" />
-        <div className="relative z-10 flex flex-col gap-3">
-          {nodes.map((node, index) => {
-            const ringCls =
-              node.tone === 'active'
-                ? 'ring-2 ring-blue-200'
-                : node.tone === 'department'
-                  ? 'ring-2 ring-emerald-100'
-                  : node.tone === 'multi'
-                    ? 'ring-2 ring-cyan-100'
-                    : 'ring-2 ring-white'
+    <div className="hidden w-[190px] shrink-0 md:flex">
+      <div className="relative w-full py-2">
+        {rows.map(({ node, depth, pathHasNext, isLast }) => {
+          const ringCls =
+            node.tone === 'active'
+              ? 'ring-2 ring-blue-200'
+              : node.tone === 'department'
+                ? 'ring-2 ring-emerald-100'
+                : node.tone === 'multi'
+                  ? 'ring-2 ring-cyan-100'
+                  : 'ring-2 ring-white'
+          const centerX = lineOffset + depth * indent
 
-            return (
-              <div key={node.key} className="group/rail relative" title={node.title}>
-                {index > 0 && (
-                  <div className={cn(
-                    'pointer-events-none absolute left-5 -top-3 h-3 w-px',
-                    node.connectorLabel === 'split'
-                      ? 'bg-cyan-300'
-                      : node.connectorLabel === 'route' || node.connectorLabel === 'queue'
-                        ? 'bg-emerald-300'
-                        : node.connectorLabel === 'active'
-                          ? 'bg-blue-300'
-                          : 'bg-violet-300'
-                  )} />
-                )}
-                {index > 0 && (
-                  <div className="pointer-events-none absolute left-5 -top-[10px] z-0 -translate-x-1/2 bg-white px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-300">
-                    {node.connectorLabel === 'split'
-                      ? 'many'
-                      : node.connectorLabel === 'route'
-                        ? 'send'
-                        : node.connectorLabel === 'queue'
-                          ? 'wait'
-                          : node.connectorLabel === 'active'
-                            ? 'now'
-                            : 'next'}
-                  </div>
-                )}
-                <button type="button" onClick={() => onNodeClick(node)} className="flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-slate-50">
-                  <UserAvatar
-                    username={node.label}
-                    avatarUrl={node.avatarUrl}
-                    size="sm"
-                    className={cn(
-                      'shrink-0 shadow-sm transition-transform group-hover/rail:scale-105',
-                      node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
-                      node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
-                      node.tone === 'active' && 'bg-blue-100 text-blue-700',
-                      ringCls
-                    )}
+          return (
+            <div key={node.key} className="group/rail relative min-h-[56px]" title={node.title}>
+              {pathHasNext.map((hasNext, level) =>
+                hasNext ? (
+                  <div
+                    key={`${node.key}-guide-${level}`}
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-slate-200"
+                    style={{ left: `${lineOffset + level * indent}px` }}
                   />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[11px] font-semibold text-slate-600">
-                      {node.label}
-                    </span>
-                    {node.subtitle && (
-                      <span className="block truncate text-[10px] text-slate-400">
-                        {node.subtitle}
-                      </span>
-                    )}
+                ) : null
+              )}
+              {depth > 0 && (
+                <>
+                  <div
+                    className="pointer-events-none absolute top-0 h-1/2 w-px bg-slate-300"
+                    style={{ left: `${centerX}px` }}
+                  />
+                  {!isLast && (
+                    <div
+                      className="pointer-events-none absolute top-1/2 bottom-0 w-px bg-slate-300"
+                      style={{ left: `${centerX}px` }}
+                    />
+                  )}
+                  <div
+                    className="pointer-events-none absolute top-1/2 h-px bg-slate-300"
+                    style={{ left: `${centerX - indent + 1}px`, width: `${indent}px` }}
+                  />
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => onNodeClick(node)}
+                className="relative flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-slate-50"
+                style={{ marginLeft: `${depth * indent}px` }}
+              >
+                <UserAvatar
+                  username={node.label}
+                  avatarUrl={node.avatarUrl}
+                  size="sm"
+                  className={cn(
+                    'shrink-0 shadow-sm transition-transform group-hover/rail:scale-105',
+                    node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
+                    node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
+                    node.tone === 'active' && 'bg-blue-100 text-blue-700',
+                    ringCls
+                  )}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-[12px] font-semibold text-slate-700">
+                    {node.label}
                   </span>
-                </button>
-                <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
-                  <div className="text-xs font-semibold text-slate-900">{node.title}</div>
-                  {node.subtitle && <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>}
-                </div>
+                  {node.subtitle && (
+                    <span className="block truncate text-[10px] text-slate-400">
+                      {node.subtitle}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
+                <div className="text-xs font-semibold text-slate-900">{node.title}</div>
+                {node.subtitle && <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>}
               </div>
-            )
-          })}
-        </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -494,14 +528,29 @@ export function TaskCard({
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
   const latestHandoffNote = [...(task.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
-  const existingMaUsernames = new Set((task.multi_assignment?.assignees || []).map((entry) => entry.username.toLowerCase()))
+  const currentStepOwner =
+    taskDialog?.type === 'step-edit'
+      ? getAssignmentStepOwner(task, taskDialog.assigneeUsername)
+      : null
+  const existingOwnedUsers =
+    maEnabled && currentStepOwner
+      ? (task.multi_assignment?.assignees || []).filter(
+          (entry) => (getAssignmentStepOwner(task, entry.username) || '').toLowerCase() === currentStepOwner.toLowerCase()
+        )
+      : []
+  const existingOwnedUsernames = new Set(existingOwnedUsers.map((entry) => entry.username.toLowerCase()))
   const filteredAssignableUsers = assignableUsers.filter((entry) => {
     const lower = entry.username.toLowerCase()
-    if (existingMaUsernames.has(lower)) return false
     if (lower === currentUsername.toLowerCase()) return false
     if (!dialogSearch.trim()) return true
     const haystack = `${entry.username} ${entry.department || ''} ${entry.role || ''}`.toLowerCase()
     return haystack.includes(dialogSearch.trim().toLowerCase())
+  })
+  const dialogVisibleUsers = filteredAssignableUsers.sort((a, b) => {
+    const aExisting = existingOwnedUsernames.has(a.username.toLowerCase()) ? 0 : 1
+    const bExisting = existingOwnedUsernames.has(b.username.toLowerCase()) ? 0 : 1
+    if (aExisting !== bExisting) return aExisting - bExisting
+    return a.username.localeCompare(b.username)
   })
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
@@ -1204,7 +1253,7 @@ export function TaskCard({
             <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
             <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             {maEnabled && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="mb-2 text-sm font-semibold text-slate-700">Add more users</div>
                 <div className="mb-3 text-xs text-slate-500">If you forgot someone, add them under your step from here.</div>
                 <input
@@ -1213,17 +1262,23 @@ export function TaskCard({
                   placeholder="Search users..."
                   className="mb-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
-                <div className="max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2">
-                  {filteredAssignableUsers.length === 0 ? (
+                <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3">
+                  {dialogVisibleUsers.length === 0 ? (
                     <div className="px-2 py-3 text-xs text-slate-400">No more users to add.</div>
                   ) : (
-                    filteredAssignableUsers.map((user) => {
+                    dialogVisibleUsers.map((user) => {
+                      const lower = user.username.toLowerCase()
                       const selected = dialogSelectedUsers.some((entry) => entry.username === user.username)
+                      const alreadyAdded = existingOwnedUsernames.has(lower)
                       return (
-                        <label key={user.username} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+                        <label key={user.username} className={cn(
+                          'flex items-center gap-3 rounded-xl px-3 py-3',
+                          alreadyAdded ? 'bg-emerald-50/70' : 'hover:bg-slate-50'
+                        )}>
                           <input
                             type="checkbox"
-                            checked={selected}
+                            checked={alreadyAdded || selected}
+                            disabled={alreadyAdded}
                             onChange={(e) => toggleDialogSelectedUser(user.username, e.target.checked)}
                             className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           />
@@ -1233,6 +1288,11 @@ export function TaskCard({
                               {user.department || 'No department'}{user.role ? ` · ${user.role}` : ''}
                             </span>
                           </span>
+                          {alreadyAdded && (
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+                              Added
+                            </span>
+                          )}
                         </label>
                       )
                     })
