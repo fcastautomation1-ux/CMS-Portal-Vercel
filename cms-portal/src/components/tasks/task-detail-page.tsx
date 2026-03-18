@@ -573,7 +573,6 @@ export function TaskDetailPage({
   const details = detailsQuery.data ?? initialDetails
   const appNames = splitTaskMeta(details.app_name)
   const packageNames = splitTaskMeta(details.package_name)
-  const latestHandoffNote = [...(details.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
   const workflowTree = buildWorkflowTree(details)
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
@@ -1422,19 +1421,6 @@ export function TaskDetailPage({
                       </Section>
                     )}
 
-                    {latestHandoffNote?.feedback?.trim() && (
-                      <Section icon={<MessageCircle size={14} />} label="Latest Handoff Detail">
-                        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4">
-                          <div className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">
-                            Written By {latestHandoffNote.user}
-                          </div>
-                          <div className="mt-1 text-sm leading-6 text-amber-900">
-                            {latestHandoffNote.feedback.trim()}
-                          </div>
-                        </div>
-                      </Section>
-                    )}
-
                     {t.multi_assignment?.enabled && t.multi_assignment.assignees.length > 0 && (
                         <Section
                           icon={<Users size={14} />}
@@ -1796,12 +1782,6 @@ export function TaskDetailPage({
                   ))}
                 </div>
               </div>
-
-              {workflowTree.length > 0 && (
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <WorkflowTree nodes={workflowTree} onNodeClick={handleWorkflowNodeClick} />
-                </div>
-              )}
 
               <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
                 {comments.length === 0 ? (

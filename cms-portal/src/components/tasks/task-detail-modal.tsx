@@ -571,7 +571,6 @@ export function TaskDetailModal({
   const details = detailsQuery.data ?? null
   const appNames = splitTaskMeta(details?.app_name)
   const packageNames = splitTaskMeta(details?.package_name)
-  const latestHandoffNote = [...(details?.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
   const workflowTree = details ? buildWorkflowTree(details) : []
   useEffect(() => {
     setLoading(detailsQuery.isLoading && !detailsQuery.data)
@@ -1309,19 +1308,6 @@ export function TaskDetailModal({
             {t.notes && (
               <Section icon={<AlignLeft size={14} />} label="Notes">
                 <p className="text-sm text-slate-500 italic leading-relaxed">{t.notes}</p>
-              </Section>
-            )}
-
-            {latestHandoffNote?.feedback?.trim() && (
-              <Section icon={<MessageCircle size={14} />} label="Latest Handoff Detail">
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
-                    Written By {latestHandoffNote.user}
-                  </div>
-                  <div className="mt-1 text-sm leading-6 text-amber-900">
-                    {latestHandoffNote.feedback.trim()}
-                  </div>
-                </div>
               </Section>
             )}
 
