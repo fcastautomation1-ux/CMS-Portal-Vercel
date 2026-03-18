@@ -22,8 +22,8 @@ interface TaskHandoffDialogProps {
   currentUsername: string
   currentAssignee?: string | null
   onClose: () => void
-  onAssignDepartment: (department: string, dueDate: string, reason?: string) => void
-  onAssignMulti: (assignees: Array<{ username: string; actual_due_date: string }>) => void
+  onAssignDepartment: (department: string, dueDate: string, note?: string) => void
+  onAssignMulti: (assignees: Array<{ username: string; actual_due_date: string }>, note?: string) => void
 }
 
 export function TaskHandoffDialog({
@@ -39,7 +39,7 @@ export function TaskHandoffDialog({
   const [users, setUsers] = useState<AssignmentUser[]>([])
   const [selectedDepartment, setSelectedDepartment] = useState('')
   const [dueDate, setDueDate] = useState('')
-  const [reason, setReason] = useState('')
+  const [handoffNote, setHandoffNote] = useState('')
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
@@ -62,7 +62,7 @@ export function TaskHandoffDialog({
     setMode('department')
     setSelectedDepartment('')
     setDueDate('')
-    setReason('')
+    setHandoffNote('')
     setSearch('')
     setDeptFilter('')
     setSelectedUsers([])
@@ -118,7 +118,7 @@ export function TaskHandoffDialog({
     if (mode === 'department') {
       if (!selectedDepartment || !dueDate) return
       resetState()
-      onAssignDepartment(selectedDepartment, dueDate, reason.trim() || undefined)
+      onAssignDepartment(selectedDepartment, dueDate, handoffNote.trim() || undefined)
       return
     }
     if (selectedUsers.length === 0) return
@@ -128,7 +128,7 @@ export function TaskHandoffDialog({
     }))
     if (assignees.some((entry) => !entry.actual_due_date)) return
     resetState()
-    onAssignMulti(assignees)
+    onAssignMulti(assignees, handoffNote.trim() || undefined)
   }
 
   if (!open) return null
@@ -217,12 +217,12 @@ export function TaskHandoffDialog({
                   />
                 </label>
                 <label className="block md:col-span-2">
-                  <span className="mb-2 block text-sm font-semibold text-slate-700">Reason (optional)</span>
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">Handoff Details (optional)</span>
                   <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    rows={4}
-                    placeholder="Add routing notes for the next department..."
+                    value={handoffNote}
+                    onChange={(e) => setHandoffNote(e.target.value)}
+                    rows={6}
+                    placeholder="Write clear instructions for the next person or department. Explain what is done, what is pending, and what they should focus on next..."
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                 </label>
@@ -281,6 +281,17 @@ export function TaskHandoffDialog({
                   ))}
                 </div>
               )}
+
+              <label className="mb-4 block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Handoff Details (optional)</span>
+                <textarea
+                  value={handoffNote}
+                  onChange={(e) => setHandoffNote(e.target.value)}
+                  rows={5}
+                  placeholder="Write instructions or details for the selected users so they clearly know what to do next..."
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
+                />
+              </label>
 
               <div className="max-h-[320px] overflow-y-auto rounded-[20px] border border-slate-200">
                 {filteredUsers.length === 0 ? (

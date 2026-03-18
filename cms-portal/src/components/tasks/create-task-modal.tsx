@@ -80,6 +80,7 @@ type ImportProgress = {
 }
 
 const DRAFT_STORAGE_PREFIX = 'task-modal-draft-v3'
+const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const MAX_PARALLEL_UPLOADS = 3
 const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr><tr><td></td><td></td></tr></tbody></table>'
@@ -100,6 +101,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const goalRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importFileInputRef = useRef<HTMLInputElement>(null)
+  const routingSectionRef = useRef<HTMLElement>(null)
   const [isPending, startTransition] = useTransition()
 
   const [appNames, setAppNames] = useState<string[]>(
@@ -193,6 +195,22 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       goalRef.current.innerHTML = initialDraft?.ourGoal ?? editTask?.our_goal ?? ''
     }
   }, [editTask, initialDraft?.description, initialDraft?.ourGoal])
+
+  useEffect(() => {
+    if (!editTask || typeof window === 'undefined') return
+    const raw = window.sessionStorage.getItem(TASK_EDIT_FOCUS_KEY)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as { taskId?: string; section?: string }
+      if (parsed.taskId !== editTask.id || parsed.section !== 'routing') return
+      window.sessionStorage.removeItem(TASK_EDIT_FOCUS_KEY)
+      window.setTimeout(() => {
+        routingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 120)
+    } catch {
+      window.sessionStorage.removeItem(TASK_EDIT_FOCUS_KEY)
+    }
+  }, [editTask])
 
   useEffect(() => {
     const snapshot: DraftPayload = {
@@ -1058,6 +1076,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
               </Field>
             </SectionCard>
 
+            <section ref={routingSectionRef}>
             <SectionCard
               title="Timing & Routing"
               description="Choose urgency and decide where the task should flow next."
@@ -1245,6 +1264,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                 )}
               </div>
             </SectionCard>
+            </section>
 
             <SectionCard
               title="Notes & Files"

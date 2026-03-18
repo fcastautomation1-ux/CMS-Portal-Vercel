@@ -2428,7 +2428,7 @@ export async function sendTaskToDepartmentQueueAction(
   todoId: string,
   department: string,
   dueDate: string,
-  reason?: string
+  note?: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
@@ -2475,13 +2475,13 @@ export async function sendTaskToDepartmentQueueAction(
     role: 'routed_to_department_queue',
     assignedAt: now,
     next_user: targetDepartment,
-    feedback: reason?.trim() || undefined,
+    feedback: note?.trim() || undefined,
   })
 
   history.push({
     type: 'assigned',
     user: user.username,
-    details: `${user.username} routed task to ${targetDepartment} with due date ${dueIso}${reason?.trim() ? `. Reason: ${reason.trim()}` : ''}`,
+    details: `${user.username} routed task to ${targetDepartment} with due date ${dueIso}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
     timestamp: now,
     icon: '📤',
     title: 'Sent To Department Queue',
@@ -2524,6 +2524,7 @@ export async function sendTaskToDepartmentQueueAction(
 export async function convertTaskToMultiAssignmentAction(
   todoId: string,
   assignees: Array<{ username: string; actual_due_date?: string | null }>,
+  note?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
@@ -2574,6 +2575,7 @@ export async function convertTaskToMultiAssignmentAction(
   if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be split.' }
 
   const now = new Date().toISOString()
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
   const nextMa: MultiAssignment = {
     enabled: true,
     created_by: user.username,
@@ -2588,12 +2590,21 @@ export async function convertTaskToMultiAssignmentAction(
   }
   touchMultiAssignmentProgress(nextMa)
   const rolledDue = getMaxMaDueDate(nextMa)
+  normalizedAssignees.forEach((entry) => {
+    assignmentChain.push({
+      user: user.username,
+      role: 'multi_assign',
+      assignedAt: now,
+      next_user: entry.username,
+      feedback: note?.trim() || undefined,
+    })
+  })
 
   const history = parseJson<HistoryEntry[]>(task.history, [])
   history.push({
     type: 'assigned',
     user: user.username,
-    details: `${user.username} converted task to multi-assignment (${normalizedAssignees.length} assignees).`,
+    details: `${user.username} converted task to multi-assignment (${normalizedAssignees.length} assignees)${note?.trim() ? `. Note: ${note.trim()}` : ''}.`,
     timestamp: now,
     icon: '👥',
     title: 'Split Into Multi-Assignment',
@@ -2604,6 +2615,7 @@ export async function convertTaskToMultiAssignmentAction(
     task_status: 'in_progress',
     workflow_state: 'split_to_multi',
     ...(rolledDue ? { due_date: rolledDue, expected_due_date: rolledDue } : {}),
+    assignment_chain: JSON.stringify(assignmentChain),
     history: JSON.stringify(history),
     pending_approver: null,
     approval_chain: JSON.stringify([]),
@@ -2623,6 +2635,72 @@ export async function convertTaskToMultiAssignmentAction(
     },
     user.username,
   )
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+export async function updateSingleTaskDueDateAction(
+  todoId: string,
+  dueDate: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const nextDueDate = String(dueDate || '').trim()
+  if (!nextDueDate) return { success: false, error: 'Due date is required.' }
+  if (isPastPakistanDate(nextDueDate)) return { success: false, error: 'Due date must be an upcoming Pakistan time.' }
+
+  const parsedDueDate = new Date(nextDueDate)
+  if (Number.isNaN(parsedDueDate.getTime())) return { success: false, error: 'Invalid due date.' }
+  const dueIso = parsedDueDate.toISOString()
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,title,completed,approval_status,multi_assignment,history,expected_due_date')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const isCreator = String(task.username || '').toLowerCase() === user.username.toLowerCase()
+  const isAssignee = String(task.assigned_to || '').toLowerCase() === user.username.toLowerCase()
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+
+  if (!isAssignee && !isCreator && !isAdmin) {
+    return { success: false, error: 'Only the current assignee, creator, or admin can update the due date.' }
+  }
+  if ((task.completed as boolean) === true) return { success: false, error: 'Completed tasks cannot be updated.' }
+  if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be updated right now.' }
+
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (multiAssignment?.enabled) return { success: false, error: 'Use assignee due dates for multi-assignment tasks.' }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'edit',
+    user: user.username,
+    details: `${user.username} updated the assignee due date to ${dueIso}${task.expected_due_date ? ` (expected remains ${String(task.expected_due_date)})` : ''}`,
+    timestamp: now,
+    icon: '📅',
+    title: 'Due Date Updated',
+  })
+
+  await supabase.from('todos').update({
+    actual_due_date: dueIso,
+    due_date: dueIso,
+    history: JSON.stringify(history),
+    updated_at: now,
+  }).eq('id', todoId)
+
+  await notifyUsers(supabase, [String(task.username || '')], {
+    type: 'task_assigned',
+    title: 'Task Due Date Updated',
+    body: `${user.username} updated the due date for "${task.title}" to ${dueIso}.`,
+    relatedId: todoId,
+  }, user.username)
 
   revalidatePath('/dashboard/tasks')
   return { success: true }

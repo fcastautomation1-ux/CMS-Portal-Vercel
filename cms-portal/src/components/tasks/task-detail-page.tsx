@@ -74,16 +74,19 @@ import {
   unshareTodoAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
+  updateSingleTaskDueDateAction,
 } from '@/app/dashboard/tasks/actions'
 
 type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
 const MAX_PARALLEL_UPLOADS = 3
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
+const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'single-due-date' }
   | { type: 'reassign' }
   | { type: 'split-multi' }
   | { type: 'delegate' }
@@ -326,6 +329,17 @@ export function TaskDetailPage({
   const details = detailsQuery.data ?? initialDetails
   const appNames = splitTaskMeta(details.app_name)
   const packageNames = splitTaskMeta(details.package_name)
+  const latestHandoffNote = [...(details.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
+
+  const openRoutingEdit = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
+        taskId: details.id,
+        section: 'routing',
+      }))
+    }
+    setEditTask(details)
+  }, [details])
 
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
@@ -526,6 +540,7 @@ export function TaskDetailPage({
   const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
   const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
+  const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && isAssignee && !!t.assigned_to
   const maProgress = t.completed
     ? 100
     : (ma?.completion_percentage ?? (
@@ -604,6 +619,14 @@ export function TaskDetailPage({
           return
         }
         void doAction(() => toggleTodoCompleteAction(t.id, true, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'single-due-date':
+        if (!dialogValue.trim()) {
+          setActionError('Due date is required.')
+          return
+        }
+        void doAction(() => updateSingleTaskDueDateAction(t.id, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'split-multi': {
@@ -958,7 +981,18 @@ export function TaskDetailPage({
                   Assign To Next
                 </button>
               )}
-              {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && t.task_status !== 'backlog' && (
+              {showSingleDueDateBtn && (
+                <button
+                  onClick={() => {
+                    setDialogValue(t.actual_due_date ? t.actual_due_date.slice(0, 16) : '')
+                    openTaskDialog({ type: 'single-due-date' })
+                  }}
+                  className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100"
+                >
+                  {t.actual_due_date ? 'Update Due Date' : 'Set Due Date'}
+                </button>
+              )}
+              {!isCompleted && !isPendingApproval && (((isAssignee && !maEnabled) || canCreatorControlSingleFlow)) && t.task_status !== 'backlog' && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
                   label={isCreator ? 'Mark Complete' : 'Submit For Approval'}
@@ -1130,8 +1164,32 @@ export function TaskDetailPage({
                       </Section>
                     )}
 
+                    {latestHandoffNote?.feedback?.trim() && (
+                      <Section icon={<MessageCircle size={14} />} label="Latest Handoff Detail">
+                        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4">
+                          <div className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">
+                            Written By {latestHandoffNote.user}
+                          </div>
+                          <div className="mt-1 text-sm leading-6 text-amber-900">
+                            {latestHandoffNote.feedback.trim()}
+                          </div>
+                        </div>
+                      </Section>
+                    )}
+
                     {t.multi_assignment?.enabled && t.multi_assignment.assignees.length > 0 && (
-                      <Section icon={<Users size={14} />} label="Multi-Assignment">
+                      <Section
+                        icon={<Users size={14} />}
+                        label="Multi-Assignment"
+                        action={isCreator && !isCompleted ? (
+                          <button
+                            onClick={openRoutingEdit}
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition-colors hover:bg-slate-50"
+                          >
+                            Edit
+                          </button>
+                        ) : undefined}
+                      >
                         <div className="grid gap-3">
                           {t.multi_assignment.assignees.map((assignee) => {
                             const pct = maProgress
@@ -1590,6 +1648,7 @@ export function TaskDetailPage({
         <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
+            taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
             taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -1600,6 +1659,7 @@ export function TaskDetailPage({
           }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+            taskDialog.type === 'single-due-date' ? 'Set the assignee due date for this single task.' :
             taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -1608,7 +1668,7 @@ export function TaskDetailPage({
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' ? 'Save due date' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -1619,6 +1679,8 @@ export function TaskDetailPage({
               onChange={setDialogValue}
               placeholder="What work was completed? Add summary or handoff notes."
             />
+          ) : taskDialog.type === 'single-due-date' ? (
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
           ) : taskDialog.type === 'split-multi' ? (
             <DialogTextarea
               label="Assignees"
@@ -1655,13 +1717,13 @@ export function TaskDetailPage({
         currentUsername={currentUsername}
         currentAssignee={t.assigned_to}
         onClose={() => setShowHandoffDialog(false)}
-        onAssignDepartment={(department, dueDate, reason) => {
+        onAssignDepartment={(department, dueDate, note) => {
           setShowHandoffDialog(false)
-          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, reason))
+          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, note))
         }}
-        onAssignMulti={(assignees) => {
+        onAssignMulti={(assignees, note) => {
           setShowHandoffDialog(false)
-          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees))
+          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
         }}
       />
 
@@ -1804,12 +1866,15 @@ function MetaCard({
   )
 }
 
-function Section({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
+function Section({ icon, label, action, children }: { icon: ReactNode; label: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section>
-      <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {icon}
-        {label}
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          {icon}
+          {label}
+        </div>
+        {action}
       </div>
       {children}
     </section>

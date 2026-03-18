@@ -27,6 +27,7 @@ import {
   assignQueuedTaskToTeamMemberAction,
   sendTaskToDepartmentQueueAction,
   convertTaskToMultiAssignmentAction,
+  updateSingleTaskDueDateAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -54,6 +55,7 @@ interface TaskCardProps {
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'single-due-date' }
   | { type: 'queue-assign' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
@@ -183,6 +185,7 @@ type WorkflowRailNode = {
 }
 
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
+const TASK_EDIT_FOCUS_KEY = 'cms-task-edit-focus'
 
 function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
   const nodes: WorkflowRailNode[] = []
@@ -365,7 +368,7 @@ export function TaskCard({
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
-  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && task.task_status === 'in_progress'
+  const showCompleteBtn = !isCompleted && !isPendingApproval && (((isAssignee && !maEnabled) || canCreatorControlSingleFlow)) && task.task_status === 'in_progress'
   const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
@@ -375,13 +378,14 @@ export function TaskCard({
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
   const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!task.assigned_to && !maEnabled
+  const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && isAssignee && !!task.assigned_to
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
   const showMaDelegateBtn = !!myMaEntry && !isCompleted
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
@@ -394,6 +398,7 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
+  const latestHandoffNote = [...(task.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
 
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
@@ -410,6 +415,16 @@ export function TaskCard({
       }))
     }
     onViewDetail(task)
+  }
+
+  const openRoutingEdit = () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
+        taskId: task.id,
+        section: 'routing',
+      }))
+    }
+    onEdit(task)
   }
 
   const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>) => {
@@ -435,6 +450,11 @@ export function TaskCard({
       case 'complete':
         if (!dialogValue.trim()) return
         doAction(() => toggleTodoCompleteAction(task.id, true, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'single-due-date':
+        if (!dialogValue.trim()) return
+        doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'queue-assign':
@@ -558,6 +578,14 @@ export function TaskCard({
               {summaryText}
             </p>
           )}
+          {latestHandoffNote?.feedback?.trim() && (
+            <div className="mt-3 max-w-3xl rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3">
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                Handoff Detail By {latestHandoffNote.user}
+              </div>
+              <p className="mt-1 text-sm leading-6 text-amber-900">{latestHandoffNote.feedback.trim()}</p>
+            </div>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2.5">
             {task.username && (
@@ -586,6 +614,17 @@ export function TaskCard({
                   color="indigo"
                 >
                   Assign To Next
+                </ActBtn>
+              )}
+              {showSingleDueDateBtn && (
+                <ActBtn
+                  onClick={() => {
+                    openTaskDialog({ type: 'single-due-date' })
+                    setDialogValue(task.actual_due_date ? task.actual_due_date.slice(0, 16) : '')
+                  }}
+                  color="teal"
+                >
+                  {task.actual_due_date ? 'Update Due Date' : 'Set Due Date'}
                 </ActBtn>
               )}
               {showQueueAssignBtn && (
@@ -752,6 +791,14 @@ export function TaskCard({
                           {MA_LABEL[status] ?? status}
                         </span>
                         <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                          {isCreator && !isCompleted && (
+                            <button
+                              onClick={openRoutingEdit}
+                              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                            >
+                              Edit
+                            </button>
+                          )}
                           {isCreator && assignee.status === 'completed' && (
                             <>
                               <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
@@ -977,6 +1024,7 @@ export function TaskCard({
       <ActionDialog
         title={
           taskDialog.type === 'complete' ? 'Submit completion feedback' :
+          taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
           taskDialog.type === 'queue-assign' ? 'Assign queued task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -986,6 +1034,7 @@ export function TaskCard({
         }
         description={
           taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+          taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
           taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -993,12 +1042,14 @@ export function TaskCard({
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' ? 'Save due date' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
       >
         {taskDialog.type === 'complete' ? (
           <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
+        ) : taskDialog.type === 'single-due-date' ? (
+          <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
         ) : taskDialog.type === 'queue-assign' ? (
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold text-slate-700">Team Member</span>
@@ -1042,13 +1093,13 @@ export function TaskCard({
       currentUsername={currentUsername}
       currentAssignee={task.assigned_to}
       onClose={() => setShowHandoffDialog(false)}
-      onAssignDepartment={(department, dueDate, reason) => {
+      onAssignDepartment={(department, dueDate, note) => {
         setShowHandoffDialog(false)
-        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, reason))
+        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note))
       }}
-      onAssignMulti={(assignees) => {
+      onAssignMulti={(assignees, note) => {
         setShowHandoffDialog(false)
-        doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees))
+        doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note))
       }}
     />
     <ConfirmDialog
