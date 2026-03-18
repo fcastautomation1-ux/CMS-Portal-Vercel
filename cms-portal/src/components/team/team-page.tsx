@@ -273,7 +273,6 @@ export function TeamPage({ members, tasks, user }: Props) {
                       onEdit={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onViewDetail={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onShare={() => undefined}
-                      onDecline={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onRefresh={() => router.refresh()}
                     />
                   ))}

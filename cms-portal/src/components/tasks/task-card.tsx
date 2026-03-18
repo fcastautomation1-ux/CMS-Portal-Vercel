@@ -21,6 +21,7 @@ import {
   deleteTodoAction,
   archiveTodoAction,
   approveTodoAction,
+  declineTodoAction,
   acknowledgeTaskAction,
   duplicateTodoAction,
   claimQueuedTaskAction,
@@ -50,7 +51,6 @@ interface TaskCardProps {
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
-  onDecline: (task: Todo) => void
   onRefresh: () => void
   compact?: boolean
 }
@@ -58,6 +58,7 @@ interface TaskCardProps {
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'decline-approval' }
   | { type: 'single-due-date' }
   | { type: 'step-edit'; assigneeUsername: string }
   | { type: 'queue-assign' }
@@ -450,7 +451,6 @@ export function TaskCard({
   currentUserTeamMembers = [],
   onEdit,
   onViewDetail,
-  onDecline,
   onRefresh,
   compact = false,
 }: TaskCardProps) {
@@ -499,7 +499,7 @@ export function TaskCard({
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
-  const showCompleteBtn = !isCompleted && !isPendingApproval && (((isAssignee && !maEnabled) || canCreatorControlSingleFlow)) && task.task_status === 'in_progress'
+  const showCompleteBtn = !isCompleted && !isPendingApproval && (isAssignee && !maEnabled) && task.task_status === 'in_progress'
   const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
@@ -510,7 +510,15 @@ export function TaskCard({
   const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
   const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!task.assigned_to && !maEnabled
   const singleStepOwner = !maEnabled && task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
-  const canEditSingleDueDate = !maEnabled && !isCompleted && !isPendingApproval && !!task.assigned_to && (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase()
+  const hasSingleStepChain = !maEnabled && !!task.assigned_to && (task.assignment_chain || []).some((entry) => (entry.next_user || '').toLowerCase() === task.assigned_to!.toLowerCase())
+  const canEditSingleDueDate =
+    !maEnabled &&
+    !isCompleted &&
+    !isPendingApproval &&
+    !!task.assigned_to &&
+    hasSingleStepChain &&
+    (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase() &&
+    (singleStepOwner || '').toLowerCase() !== task.assigned_to.toLowerCase()
   const showSingleDueDateBtn = canEditSingleDueDate
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
@@ -531,7 +539,6 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
-  const latestHandoffNote = [...(task.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
   const currentStepOwner =
     taskDialog?.type === 'step-edit'
       ? getAssignmentStepOwner(task, taskDialog.assigneeUsername)
@@ -612,6 +619,11 @@ export function TaskCard({
       case 'complete':
         if (!dialogValue.trim()) return
         doAction(() => toggleTodoCompleteAction(task.id, true, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'decline-approval':
+        if (!dialogValue.trim()) return
+        doAction(() => declineTodoAction(task.id, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'single-due-date':
@@ -758,15 +770,6 @@ export function TaskCard({
               {summaryText}
             </p>
           )}
-          {latestHandoffNote?.feedback?.trim() && (
-            <div className="mt-3 max-w-3xl rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3">
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
-                Handoff Detail By {latestHandoffNote.user}
-              </div>
-              <p className="mt-1 text-sm leading-6 text-amber-900">{latestHandoffNote.feedback.trim()}</p>
-            </div>
-          )}
-
           <div className="mt-4 flex flex-wrap items-center gap-2.5">
             {task.username && (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
@@ -877,7 +880,7 @@ export function TaskCard({
               {showApproveBtn && (
                 <>
                   <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green">Approve</ActBtn>
-                  <ActBtn onClick={() => onDecline(task)} color="red">Decline</ActBtn>
+                  <ActBtn onClick={() => openTaskDialog({ type: 'decline-approval' })} color="red">Decline</ActBtn>
                 </>
               )}
             </div>
@@ -912,6 +915,8 @@ export function TaskCard({
                 <div className="space-y-2 border-t border-slate-200/80 px-3 pb-3 pt-2">
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
                     const status = isCompleted ? 'accepted' : (assignee.status || 'pending')
+                    const assigneeStepOwner = (getAssignmentStepOwner(task, assignee.username) || '').toLowerCase()
+                    const canReviewAssignee = assigneeStepOwner === currentUsername.toLowerCase() || isCreator
                     const assigneeDueDate = assignee.actual_due_date || null
                     const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
                     const assigneeOverdue =
@@ -979,7 +984,7 @@ export function TaskCard({
                               Edit
                             </button>
                           )}
-                          {isCreator && assignee.status === 'completed' && (
+                          {canReviewAssignee && assignee.status === 'completed' && (
                             <>
                               <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
                               <button
@@ -992,7 +997,7 @@ export function TaskCard({
                               </button>
                             </>
                           )}
-                          {isCreator && assignee.status === 'accepted' && (
+                          {canReviewAssignee && assignee.status === 'accepted' && (
                             <button
                               onClick={() => {
                                 openTaskDialog({ type: 'reopen-assignee', assigneeUsername: assignee.username })
@@ -1204,6 +1209,7 @@ export function TaskCard({
       <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
+            taskDialog.type === 'decline-approval' ? 'Decline completion request' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
           taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
             taskDialog.type === 'queue-assign' ? 'Assign queued task' :
@@ -1215,6 +1221,7 @@ export function TaskCard({
         }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+            taskDialog.type === 'decline-approval' ? 'Explain why this completion is declined so assignee can fix it.' :
             taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
           taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
             taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
@@ -1224,12 +1231,14 @@ export function TaskCard({
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
       >
         {taskDialog.type === 'complete' ? (
           <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
+        ) : taskDialog.type === 'decline-approval' ? (
+          <DialogTextarea label="Decline Reason" value={dialogValue} onChange={setDialogValue} placeholder="Tell assignee what to fix before re-submitting." />
         ) : taskDialog.type === 'single-due-date' ? (
           <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
         ) : taskDialog.type === 'step-edit' ? (

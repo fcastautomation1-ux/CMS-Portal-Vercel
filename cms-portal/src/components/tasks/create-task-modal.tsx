@@ -88,11 +88,22 @@ const EMPTY_TABLE_HTML = '<table><tbody><tr><th>Column 1</th><th>Column 2</th></
 interface CreateTaskModalProps {
   editTask?: Todo | null
   ownerUsername?: string
+  initialPackages?: Package[]
+  initialUsers?: User[]
+  initialDepartments?: string[]
   onClose: () => void
   onSaved: () => void
 }
 
-export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: CreateTaskModalProps) {
+export function CreateTaskModal({
+  editTask,
+  ownerUsername,
+  initialPackages,
+  initialUsers,
+  initialDepartments,
+  onClose,
+  onSaved,
+}: CreateTaskModalProps) {
   const isEdit = !!editTask
   const draftKey = `${DRAFT_STORAGE_PREFIX}:${editTask?.id ?? 'new'}`
   const initialDraft = readDraft(draftKey)
@@ -154,16 +165,19 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   })
   const [sheetImportPending, setSheetImportPending] = useState(false)
   const [error, setError] = useState('')
+  const [errorField, setErrorField] = useState<string | null>(null)
   const [showTableDialog, setShowTableDialog] = useState(false)
   const [tableRows, setTableRows] = useState('2')
   const [tableCols, setTableCols] = useState('2')
   const minDueDate = pakistanNowInputValue()
 
-  const [packages, setPackages] = useState<Package[]>([])
-  const [users, setUsers] = useState<User[]>([])
-  const [departments, setDepartments] = useState<string[]>([])
+  const [packages, setPackages] = useState<Package[]>(initialPackages ?? [])
+  const [users, setUsers] = useState<User[]>(initialUsers ?? [])
+  const [departments, setDepartments] = useState<string[]>(initialDepartments ?? [])
 
   useEffect(() => {
+    if (packages.length > 0 && users.length > 0 && departments.length > 0) return
+
     Promise.all([
       getPackagesForTaskForm(),
       getUsersForAssignment(),
@@ -173,7 +187,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       setUsers(usrs ?? [])
       setDepartments(depts ?? [])
     })
-  }, [])
+  }, [departments.length, packages.length, users.length])
 
   useEffect(() => {
     if (!isPending) return
@@ -475,6 +489,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     const oversized = files.find((file) => file.size > MAX_ATTACHMENT_SIZE)
     if (oversized) {
       setError(`${oversized.name} is larger than 1 GB.`)
+      setErrorField('attachments')
       event.target.value = ''
       return
     }
@@ -592,6 +607,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     const context = getSelectedTableContext(descriptionRef.current)
     if (!context?.row) {
       setError('Place the cursor inside a description table first.')
+      setErrorField('description')
       return
     }
 
@@ -609,6 +625,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     const context = getSelectedTableContext(descriptionRef.current)
     if (!context?.table || !context.cell) {
       setError('Place the cursor inside a description table first.')
+      setErrorField('description')
       return
     }
 
@@ -636,6 +653,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
 
   const importSpreadsheetFile = async (file: File) => {
     setError('')
+    setErrorField(null)
     updateImportProgress(`Uploading ${file.name}`, 5)
 
     try {
@@ -667,6 +685,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     } catch (importError) {
       setDescriptionImport({ active: false, label: '', progress: 0 })
       setError(importError instanceof Error ? importError.message : 'Import failed.')
+      setErrorField('description')
     }
   }
 
@@ -680,10 +699,12 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const handleGoogleSheetImport = async () => {
     if (!googleSheetUrl.trim()) {
       setError('Paste a Google Sheet URL first.')
+      setErrorField('description')
       return
     }
 
     setError('')
+    setErrorField(null)
     setSheetImportPending(true)
     let progress = 12
     updateImportProgress('Fetching Google Sheet', progress)
@@ -719,53 +740,59 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
       window.clearInterval(timer)
       setDescriptionImport({ active: false, label: '', progress: 0 })
       setError(importError instanceof Error ? importError.message : 'Unable to import the Google Sheet.')
+      setErrorField('description')
     } finally {
       setSheetImportPending(false)
     }
   }
 
   const validate = () => {
-    if (!kpiType) return 'Please select a KPI type.'
-    if (!title.trim()) return 'Please enter a task title.'
-    if (title.trim().length < 3) return 'Title must be at least 3 characters.'
-    if (packageNames.length === 0) return 'Please select at least one package.'
+    if (!kpiType) return { message: 'Please select a KPI type.', field: 'kpi' }
+    if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
+    if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
+    if (packageNames.length === 0) return { message: 'Please select at least one package.', field: 'package' }
     if (routing !== 'self' && routing !== 'multi' && !dueDate) {
-      return 'Please set a due date for this task.'
+      return { message: 'Please set a due date for this task.', field: 'dueDate' }
     }
     if (dueDate && isPastPakistanDate(dueDate)) {
-      return 'Due date must be an upcoming Pakistan time.'
+      return { message: 'Due date must be an upcoming Pakistan time.', field: 'dueDate' }
     }
     if (routing === 'department' && !deptRoutingDept) {
-      return 'Please select a department for routing.'
+      return { message: 'Please select a department for routing.', field: 'department' }
     }
     if (routing === 'manager' && !assignedManager) {
-      return 'Please select a manager.'
+      return { message: 'Please select a manager.', field: 'manager' }
     }
     if (routing === 'multi' && multiAssignees.length === 0) {
-      return 'Please select at least one user for multi-assignment.'
+      return { message: 'Please select at least one user for multi-assignment.', field: 'multi' }
     }
     if (routing === 'multi') {
       const missing = multiAssignees.filter((entry) => !entry.actual_due_date)
       if (missing.length) {
-        return `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`
+        return {
+          message: `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`,
+          field: 'multi',
+        }
       }
       const invalid = multiAssignees.find((entry) => entry.actual_due_date && isPastPakistanDate(entry.actual_due_date))
       if (invalid) {
-        return `Deadline for ${invalid.username} must be an upcoming Pakistan time.`
+        return { message: `Deadline for ${invalid.username} must be an upcoming Pakistan time.`, field: 'multi' }
       }
     }
-    return ''
+    return null
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     const nextError = validate()
     if (nextError) {
-      setError(nextError)
+      setError(nextError.message)
+      setErrorField(nextError.field)
       return
     }
 
     setError('')
+    setErrorField(null)
     const descriptionHtml = sanitizeTaskDescriptionHtml(descriptionRef.current?.innerHTML ?? description)
     const ourGoalHtml = goalRef.current?.innerHTML ?? ''
 
@@ -797,6 +824,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
 
       if (!result.success || !result.id) {
         setError(result.error ?? 'Failed to save task.')
+        setErrorField('submit')
         return
       }
 
@@ -808,6 +836,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
             ? attachmentError.message
             : 'Task saved but attachment upload failed.'
         )
+        setErrorField('attachments')
         return
       }
 
@@ -851,12 +880,6 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-slate-50/60">
           <div className="space-y-5 px-6 py-5">
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
             <SectionCard
               title="Task Basics"
               description="Core task details, package binding, and the shared goal text."
@@ -1105,13 +1128,18 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
 
                 {routing !== 'multi' && (
                   <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
-                    <input
-                      type="datetime-local"
-                      value={dueDate}
-                      onChange={(event) => setDueDate(event.target.value)}
-                      min={minDueDate}
-                      className={inputCls}
-                    />
+                    <>
+                      <input
+                        type="datetime-local"
+                        value={dueDate}
+                        onChange={(event) => setDueDate(event.target.value)}
+                        min={minDueDate}
+                        className={inputCls}
+                      />
+                      {error && errorField === 'dueDate' && (
+                        <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                      )}
+                    </>
                   </Field>
                 )}
               </div>
@@ -1162,18 +1190,23 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                 {routing === 'department' && (
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <Field label="Department">
-                      <select
-                        value={deptRoutingDept}
-                        onChange={(event) => setDeptRoutingDept(event.target.value)}
-                        className={cn(selectCls, 'bg-white')}
-                      >
-                        <option value="">Choose department...</option>
-                        {departments.map((dept) => (
-                          <option key={dept} value={dept}>
-                            {dept}
-                          </option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={deptRoutingDept}
+                          onChange={(event) => setDeptRoutingDept(event.target.value)}
+                          className={cn(selectCls, 'bg-white')}
+                        >
+                          <option value="">Choose department...</option>
+                          {departments.map((dept) => (
+                            <option key={dept} value={dept}>
+                              {dept}
+                            </option>
+                          ))}
+                        </select>
+                        {error && errorField === 'department' && (
+                          <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                        )}
+                      </>
                     </Field>
                   </div>
                 )}
@@ -1181,19 +1214,24 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                 {routing === 'manager' && (
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <Field label="Assign To">
-                      <select
-                        value={assignedManager}
-                        onChange={(event) => setAssignedManager(event.target.value)}
-                        className={cn(selectCls, 'bg-white')}
-                      >
-                        <option value="">Select manager...</option>
-                        {managerUsers.map((user) => (
-                          <option key={user.username} value={user.username}>
-                            {user.username}
-                            {user.department ? ` - ${user.department}` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={assignedManager}
+                          onChange={(event) => setAssignedManager(event.target.value)}
+                          className={cn(selectCls, 'bg-white')}
+                        >
+                          <option value="">Select manager...</option>
+                          {managerUsers.map((user) => (
+                            <option key={user.username} value={user.username}>
+                              {user.username}
+                              {user.department ? ` - ${user.department}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {error && errorField === 'manager' && (
+                          <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                        )}
+                      </>
                     </Field>
                   </div>
                 )}
@@ -1271,6 +1309,9 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                           ))}
                         </div>
                       </div>
+                    )}
+                    {error && errorField === 'multi' && (
+                      <p className="mt-2 text-xs font-medium text-red-600">{error}</p>
                     )}
                   </div>
                 )}
@@ -1351,6 +1392,11 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
           </div>
 
           <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+            {error && !['dueDate', 'department', 'manager', 'multi'].includes(errorField || '') && (
+              <div className="mr-auto rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                {error}
+              </div>
+            )}
             <button
               type="button"
               onClick={onClose}

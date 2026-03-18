@@ -36,6 +36,9 @@ import {
   deleteTodoAction,
   archiveTodoAction,
   getMyOverdueApprovalsAction,
+  getPackagesForTaskForm,
+  getUsersForAssignment,
+  getDepartmentsForTaskForm,
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
@@ -104,7 +107,6 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   const [showCreate, setShowCreate] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [, setShareTask] = useState<Todo | null>(null)
-  const [, setDeclineTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
 
@@ -126,6 +128,26 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     gcTime: 5 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+  })
+
+  const taskFormDataQuery = useQuery({
+    queryKey: ['task-form-data'],
+    queryFn: async () => {
+      const [packages, users, departments] = await Promise.all([
+        getPackagesForTaskForm(),
+        getUsersForAssignment(),
+        getDepartmentsForTaskForm(),
+      ])
+      return {
+        packages: packages ?? [],
+        users: users ?? [],
+        departments: departments ?? [],
+      }
+    },
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
   })
 
   const tasks = tasksQuery.data ?? initialTasks
@@ -446,7 +468,6 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),
-    onDecline: (t: Todo) => setDeclineTask(t),
     onRefresh: refresh,
   })
 
@@ -692,7 +713,15 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
       </div>
 
       {(showCreate || editTask) && (
-        <CreateTaskModal ownerUsername={currentUsername} editTask={editTask} onClose={() => { setShowCreate(false); setEditTask(null) }} onSaved={refresh} />
+        <CreateTaskModal
+          ownerUsername={currentUsername}
+          editTask={editTask}
+          initialPackages={taskFormDataQuery.data?.packages}
+          initialUsers={taskFormDataQuery.data?.users}
+          initialDepartments={taskFormDataQuery.data?.departments}
+          onClose={() => { setShowCreate(false); setEditTask(null) }}
+          onSaved={refresh}
+        />
       )}
     </div>
   )

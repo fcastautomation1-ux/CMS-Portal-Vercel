@@ -106,9 +106,18 @@ function getApprovalChainFromTask(task: Record<string, unknown>): ApprovalChainE
 function deriveApprovalUserOrder(task: Record<string, unknown>, completedBy: string): string[] {
   const completedByLower = completedBy.toLowerCase()
   const creator = normalizeApprovalUser(task.username)
+  const immediateOwner = findAssignmentStepOwner(task, completedBy)
   const historyChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
   const dedup: string[] = []
   const seen = new Set<string>()
+
+  if (immediateOwner) {
+    const ownerLower = immediateOwner.toLowerCase()
+    if (ownerLower !== completedByLower && !seen.has(ownerLower)) {
+      seen.add(ownerLower)
+      dedup.push(immediateOwner)
+    }
+  }
 
   for (let i = historyChain.length - 1; i >= 0; i -= 1) {
     const candidate = normalizeApprovalUser(historyChain[i]?.user)
@@ -3015,8 +3024,12 @@ export async function extendMultiAssignmentStepAction(
     return { success: false, error: 'This task is not using multi-assignment.' }
   }
 
-  if ((normalizeChainUsername(multiAssignment.created_by)).toLowerCase() !== user.username.toLowerCase()) {
-    return { success: false, error: 'Only the person who created this multi-assignment step can add more users.' }
+  const userOwnsAnyExistingStep = multiAssignment.assignees.some(
+    (entry) => (findAssignmentStepOwner(task, entry.username) || '').toLowerCase() === user.username.toLowerCase(),
+  )
+  const isOriginalCreator = (normalizeChainUsername(multiAssignment.created_by)).toLowerCase() === user.username.toLowerCase()
+  if (!userOwnsAnyExistingStep && !isOriginalCreator) {
+    return { success: false, error: 'Only the step owner can add more users in this branch.' }
   }
 
   const existingUsers = new Set(multiAssignment.assignees.map((entry) => normalizeChainUsername(entry.username).toLowerCase()))
@@ -3142,15 +3155,19 @@ export async function updateMaAssigneeStatusAction(
     updated_at: now,
   }).eq('id', todoId)
 
-  // Notify task creator if submitted
-  if (newStatus === 'completed' && (task.username as string) && (task.username as string) !== user.username) {
-    await createNotification(supabase, {
-      userId: task.username as string,
-      type: 'task_assigned',
-      title: 'MA: Work Submitted for Review',
-      body: `${user.username} submitted their work for task "${task.title}"`,
-      relatedId: todoId,
-    })
+  // Notify immediate step owner first so approval follows assignment chain.
+  if (newStatus === 'completed') {
+    const stepOwner = findAssignmentStepOwner(task, user.username)
+    const reviewOwner = normalizeChainUsername(stepOwner) || normalizeChainUsername(task.username)
+    if (reviewOwner && reviewOwner.toLowerCase() !== user.username.toLowerCase()) {
+      await createNotification(supabase, {
+        userId: reviewOwner,
+        type: 'task_assigned',
+        title: 'MA: Work Submitted for Review',
+        body: `${user.username} submitted their work for task "${task.title}"`,
+        relatedId: todoId,
+      })
+    }
   }
 
   revalidatePath('/dashboard/tasks')
@@ -3175,11 +3192,11 @@ export async function acceptMaAssigneeAction(
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  const isCreator = (task.username as string) === user.username
-  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const stepOwner = findAssignmentStepOwner(task, assigneeUsername)
+  const isStepOwner = (stepOwner || '').toLowerCase() === user.username.toLowerCase()
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
-  if (!isCreator && !isCurrentAssignee && !isAdmin)
-    return { success: false, error: 'Only task owner, current assignee, or admin can accept work.' }
+  if (!isStepOwner && !isAdmin)
+    return { success: false, error: 'Only the person who assigned this step (or admin) can accept work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -3279,10 +3296,10 @@ export async function rejectMaAssigneeAction(
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  const isCreator = (task.username as string) === user.username
-  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const stepOwner = findAssignmentStepOwner(task, assigneeUsername)
+  const isStepOwner = (stepOwner || '').toLowerCase() === user.username.toLowerCase()
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
-  if (!isCreator && !isCurrentAssignee && !isAdmin) return { success: false, error: 'Only task owner, current assignee, or admin can reject work.' }
+  if (!isStepOwner && !isAdmin) return { success: false, error: 'Only the person who assigned this step (or admin) can reject work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -3362,10 +3379,10 @@ export async function reopenMaAssigneeAction(
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  const isCreator = (task.username as string) === user.username
-  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const stepOwner = findAssignmentStepOwner(task, assigneeUsername)
+  const isStepOwner = (stepOwner || '').toLowerCase() === user.username.toLowerCase()
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
-  if (!isCreator && !isCurrentAssignee && !isAdmin) return { success: false, error: 'Only task owner, current assignee, or admin can reopen accepted work.' }
+  if (!isStepOwner && !isAdmin) return { success: false, error: 'Only the person who assigned this step (or admin) can reopen accepted work.' }
 
   const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
   if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
@@ -3548,7 +3565,7 @@ export async function updateMaSubAssigneeStatusAction(
   }).eq('id', todoId)
 
   if (newStatus === 'completed') {
-    await notifyUsers(supabase, [delegatorUsername, task.username as string], {
+    await notifyUsers(supabase, [delegatorUsername], {
       type: 'task_assigned',
       title: 'Delegated Work Submitted',
       body: `${user.username} submitted delegated work on "${task.title}" for ${delegatorUsername}.`,
