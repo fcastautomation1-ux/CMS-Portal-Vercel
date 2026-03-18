@@ -1139,10 +1139,20 @@ export function TaskDetailModal({
                                 By {getAssignmentStepOwner(t, a.username)}
                               </span>
                             )}
+                            {getAssignmentStepNote(t, a.username) && (
+                              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                                Note by {getAssignmentStepOwner(t, a.username) || 'User'}
+                              </span>
+                            )}
                             <span className="text-[11px] text-slate-400">
                               Due {getAssigneeDueDate(t, a.username) ? formatPakistanDate(getAssigneeDueDate(t, a.username) as string) : '—'}
                             </span>
                           </div>
+                          {getAssignmentStepNote(t, a.username) && (
+                            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                              {getAssignmentStepNote(t, a.username)}
+                            </div>
+                          )}
                         </div>
                         <div className="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
                           <div className={cn('h-full rounded-full transition-all', done ? 'bg-green-500' : 'bg-blue-500')} style={{ width: `${pct}%` }} />

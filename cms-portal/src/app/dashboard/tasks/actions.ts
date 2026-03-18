@@ -2969,6 +2969,123 @@ export async function updateAssignmentStepAction(
   return { success: true }
 }
 
+export async function extendMultiAssignmentStepAction(
+  todoId: string,
+  assignees: Array<{ username: string; actual_due_date?: string | null }>,
+  note?: string,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  if (!Array.isArray(assignees) || assignees.length === 0) {
+    return { success: false, error: 'Select at least one user.' }
+  }
+
+  const normalizedAssignees = assignees
+    .map((entry) => ({
+      username: String(entry.username || '').trim(),
+      actual_due_date: entry.actual_due_date || null,
+    }))
+    .filter((entry) => Boolean(entry.username))
+
+  if (normalizedAssignees.length === 0) {
+    return { success: false, error: 'Invalid assignee payload.' }
+  }
+  if (normalizedAssignees.some((entry) => !entry.actual_due_date)) {
+    return { success: false, error: 'Each added user must have a due date.' }
+  }
+  if (normalizedAssignees.some((entry) => Number.isNaN(new Date(String(entry.actual_due_date)).getTime()))) {
+    return { success: false, error: 'One or more due dates are invalid.' }
+  }
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,title,completed,approval_status,multi_assignment,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.completed as boolean) === true) return { success: false, error: 'Completed tasks cannot be updated.' }
+  if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be updated right now.' }
+
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) {
+    return { success: false, error: 'This task is not using multi-assignment.' }
+  }
+
+  if ((normalizeChainUsername(multiAssignment.created_by)).toLowerCase() !== user.username.toLowerCase()) {
+    return { success: false, error: 'Only the person who created this multi-assignment step can add more users.' }
+  }
+
+  const existingUsers = new Set(multiAssignment.assignees.map((entry) => normalizeChainUsername(entry.username).toLowerCase()))
+  if (normalizedAssignees.some((entry) => existingUsers.has(entry.username.toLowerCase()))) {
+    return { success: false, error: 'One or more selected users are already assigned.' }
+  }
+
+  const now = new Date().toISOString()
+  normalizedAssignees.forEach((entry) => {
+    multiAssignment.assignees.push({
+      username: entry.username,
+      status: 'pending',
+      assigned_at: now,
+      actual_due_date: entry.actual_due_date || undefined,
+    })
+  })
+  touchMultiAssignmentProgress(multiAssignment)
+
+  const chain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+  normalizedAssignees.forEach((entry) => {
+    chain.push({
+      user: user.username,
+      role: 'multi_assign',
+      assignedAt: now,
+      next_user: entry.username,
+      feedback: note?.trim() || undefined,
+    })
+  })
+
+  const rolledDue = getMaxMaDueDate(multiAssignment)
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} added ${normalizedAssignees.length} more user(s) to multi-assignment${note?.trim() ? `. Note: ${note.trim()}` : ''}.`,
+    timestamp: now,
+    icon: '👥',
+    title: 'More Users Added',
+  })
+
+  const updatePayload: Record<string, unknown> = {
+    multi_assignment: JSON.stringify(multiAssignment),
+    assignment_chain: JSON.stringify(chain),
+    history: JSON.stringify(history),
+    updated_at: now,
+  }
+  if (rolledDue) {
+    updatePayload.due_date = rolledDue
+    updatePayload.expected_due_date = rolledDue
+  }
+
+  await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+  await notifyUsers(
+    supabase,
+    normalizedAssignees.map((entry) => entry.username),
+    {
+      type: 'task_assigned',
+      title: 'You were added to a task',
+      body: `${user.username} added you to "${task.title}".`,
+      relatedId: todoId,
+    },
+    user.username,
+  )
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
 // ── Update multi-assignment per-assignee status ───────────────────────────────
 
 export async function updateMaAssigneeStatusAction(

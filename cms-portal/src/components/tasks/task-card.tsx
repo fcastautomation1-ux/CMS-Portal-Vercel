@@ -29,6 +29,7 @@ import {
   convertTaskToMultiAssignmentAction,
   updateSingleTaskDueDateAction,
   updateAssignmentStepAction,
+  extendMultiAssignmentStepAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -38,6 +39,7 @@ import {
   acceptMaSubAssigneeAction,
   rejectMaSubAssigneeAction,
   removeMaDelegationAction,
+  getUsersForAssignment,
 } from '@/app/dashboard/tasks/actions'
 
 interface TaskCardProps {
@@ -325,7 +327,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   if (nodes.length === 0) return null
 
   return (
-    <div className="hidden w-[156px] shrink-0 md:flex">
+    <div className="hidden w-[132px] shrink-0 md:flex">
       <div className="relative w-full py-3">
         <div className="absolute left-5 top-5 bottom-5 w-px bg-slate-200" />
         <div className="relative z-10 flex flex-col gap-3">
@@ -342,30 +344,6 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
             return (
               <div key={node.key} className="group/rail relative" title={node.title}>
                 {index > 0 && (
-                  <div className="pointer-events-none absolute left-5 -top-3 z-0 flex w-[92px] -translate-x-1/2 justify-center">
-                    <span className={cn(
-                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]',
-                      node.connectorLabel === 'split'
-                        ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                        : node.connectorLabel === 'route' || node.connectorLabel === 'queue'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : node.connectorLabel === 'active'
-                            ? 'border-blue-200 bg-blue-50 text-blue-700'
-                            : 'border-violet-200 bg-violet-50 text-violet-700'
-                    )}>
-                      {node.connectorLabel === 'active'
-                        ? 'now'
-                        : node.connectorLabel === 'split'
-                          ? 'many'
-                          : node.connectorLabel === 'route'
-                            ? 'send'
-                            : node.connectorLabel === 'queue'
-                              ? 'wait'
-                              : 'next'}
-                    </span>
-                  </div>
-                )}
-                {index > 0 && (
                   <div className={cn(
                     'pointer-events-none absolute left-5 -top-3 h-3 w-px',
                     node.connectorLabel === 'split'
@@ -376,6 +354,19 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                           ? 'bg-blue-300'
                           : 'bg-violet-300'
                   )} />
+                )}
+                {index > 0 && (
+                  <div className="pointer-events-none absolute left-5 -top-[10px] z-0 -translate-x-1/2 bg-white px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+                    {node.connectorLabel === 'split'
+                      ? 'many'
+                      : node.connectorLabel === 'route'
+                        ? 'send'
+                        : node.connectorLabel === 'queue'
+                          ? 'wait'
+                          : node.connectorLabel === 'active'
+                            ? 'now'
+                            : 'next'}
+                  </div>
                 )}
                 <button type="button" onClick={() => onNodeClick(node)} className="flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-slate-50">
                   <UserAvatar
@@ -395,7 +386,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                       {node.label}
                     </span>
                     {node.subtitle && (
-                      <span className="block truncate text-[10px] uppercase tracking-[0.08em] text-slate-350 text-slate-400">
+                      <span className="block truncate text-[10px] text-slate-400">
                         {node.subtitle}
                       </span>
                     )}
@@ -433,6 +424,9 @@ export function TaskCard({
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
+  const [dialogSearch, setDialogSearch] = useState('')
+  const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -500,6 +494,15 @@ export function TaskCard({
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
   const latestHandoffNote = [...(task.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
+  const existingMaUsernames = new Set((task.multi_assignment?.assignees || []).map((entry) => entry.username.toLowerCase()))
+  const filteredAssignableUsers = assignableUsers.filter((entry) => {
+    const lower = entry.username.toLowerCase()
+    if (existingMaUsernames.has(lower)) return false
+    if (lower === currentUsername.toLowerCase()) return false
+    if (!dialogSearch.trim()) return true
+    const haystack = `${entry.username} ${entry.department || ''} ${entry.role || ''}`.toLowerCase()
+    return haystack.includes(dialogSearch.trim().toLowerCase())
+  })
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
     startTransition(async () => {
       const result = await fn()
@@ -521,12 +524,28 @@ export function TaskCard({
     setTaskDialog(dialog)
     setDialogValue('')
     setDialogExtraValue('')
+    setDialogSearch('')
+    setDialogSelectedUsers([])
+    if (dialog.type === 'step-edit' && maEnabled) {
+      void getUsersForAssignment().then((users) => {
+        setAssignableUsers(users)
+      })
+    }
   }
 
   const closeTaskDialog = () => {
     setTaskDialog(null)
     setDialogValue('')
     setDialogExtraValue('')
+    setDialogSearch('')
+    setDialogSelectedUsers([])
+  }
+
+  const toggleDialogSelectedUser = (username: string, checked: boolean) => {
+    setDialogSelectedUsers((current) => {
+      if (checked) return [...current, { username, dueDate: '' }]
+      return current.filter((entry) => entry.username !== username)
+    })
   }
 
   const submitTaskDialog = () => {
@@ -549,8 +568,21 @@ export function TaskCard({
         return
       case 'step-edit':
         if (!dialogValue.trim()) return
-        doAction(() => updateAssignmentStepAction(task.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined))
-        closeTaskDialog()
+        if (dialogSelectedUsers.some((entry) => !entry.dueDate.trim())) return
+        startTransition(async () => {
+          const first = await updateAssignmentStepAction(task.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined)
+          if (!first.success) return
+          if (dialogSelectedUsers.length > 0) {
+            const second = await extendMultiAssignmentStepAction(
+              task.id,
+              dialogSelectedUsers.map((entry) => ({ username: entry.username, actual_due_date: entry.dueDate })),
+              dialogExtraValue.trim() || undefined,
+            )
+            if (!second.success) return
+          }
+          closeTaskDialog()
+          onRefresh()
+        })
         return
       case 'queue-assign':
         if (!dialogValue.trim()) return
@@ -868,6 +900,11 @@ export function TaskCard({
                                 By {getAssignmentStepOwner(task, assignee.username)}
                               </span>
                             )}
+                            {getAssignmentStepNote(task, assignee.username) && (
+                              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                                Note by {getAssignmentStepOwner(task, assignee.username) || 'User'}
+                              </span>
+                            )}
                             <span className={cn(
                               'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold',
                               assigneeOverdue
@@ -887,6 +924,11 @@ export function TaskCard({
                               </span>
                             )}
                           </div>
+                          {getAssignmentStepNote(task, assignee.username) && (
+                            <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-900">
+                              {getAssignmentStepNote(task, assignee.username)}
+                            </div>
+                          )}
                         </div>
                         <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
                           {MA_LABEL[status] ?? status}
@@ -1161,6 +1203,59 @@ export function TaskCard({
           <div className="space-y-3">
             <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
             <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
+            {maEnabled && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="mb-2 text-sm font-semibold text-slate-700">Add more users</div>
+                <div className="mb-3 text-xs text-slate-500">If you forgot someone, add them under your step from here.</div>
+                <input
+                  value={dialogSearch}
+                  onChange={(e) => setDialogSearch(e.target.value)}
+                  placeholder="Search users..."
+                  className="mb-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+                <div className="max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2">
+                  {filteredAssignableUsers.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-slate-400">No more users to add.</div>
+                  ) : (
+                    filteredAssignableUsers.map((user) => {
+                      const selected = dialogSelectedUsers.some((entry) => entry.username === user.username)
+                      return (
+                        <label key={user.username} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(e) => toggleDialogSelectedUser(user.username, e.target.checked)}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-slate-700">{user.username}</span>
+                            <span className="block truncate text-[11px] text-slate-400">
+                              {user.department || 'No department'}{user.role ? ` · ${user.role}` : ''}
+                            </span>
+                          </span>
+                        </label>
+                      )
+                    })
+                  )}
+                </div>
+                {dialogSelectedUsers.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {dialogSelectedUsers.map((entry) => (
+                      <div key={entry.username} className="rounded-2xl border border-slate-200 bg-white p-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{entry.username}</div>
+                        <DialogInput
+                          label="Due Date"
+                          value={entry.dueDate}
+                          onChange={(value) => setDialogSelectedUsers((current) => current.map((item) => item.username === entry.username ? { ...item, dueDate: value } : item))}
+                          type="datetime-local"
+                          min={new Date().toISOString().slice(0, 16)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : taskDialog.type === 'queue-assign' ? (
           <label className="block">
