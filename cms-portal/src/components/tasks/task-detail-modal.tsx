@@ -69,6 +69,7 @@ import {
   markTaskCommentsReadAction,
   archiveTodoAction,
   sendTaskToDepartmentQueueAction,
+  updateMaAssigneeDueDateAction,
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
   updateSingleTaskDueDateAction,
@@ -91,6 +92,7 @@ type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
   | { type: 'single-due-date' }
+  | { type: 'ma-due-date'; assigneeUsername: string }
   | { type: 'reassign' }
   | { type: 'split-multi' }
   | { type: 'delegate' }
@@ -216,6 +218,30 @@ function getAssigneeDueDate(task: TodoDetails, username: string) {
   return assignee?.actual_due_date ?? task.due_date ?? task.expected_due_date ?? null
 }
 
+function getAssignmentStepOwner(task: TodoDetails, assigneeUsername: string): string | null {
+  const target = String(assigneeUsername || '').trim().toLowerCase()
+  if (!target) return null
+
+  for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
+    const entry = task.assignment_chain[i]
+    if ((entry.next_user || '').trim().toLowerCase() === target && entry.user?.trim()) {
+      return entry.user.trim()
+    }
+  }
+
+  if ((task.assigned_to || '').trim().toLowerCase() === target) {
+    for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
+      const entry = task.assignment_chain[i]
+      if ((entry.role || '').trim() === 'claimed_from_department' && (entry.user || '').trim().toLowerCase() === target) {
+        return entry.user.trim()
+      }
+    }
+    return task.username || null
+  }
+
+  return null
+}
+
 function getTaskParticipants(task: TodoDetails) {
   const seen = new Map<string, { username: string; role: string; avatarUrl: string | null }>()
 
@@ -327,6 +353,14 @@ export function TaskDetailModal({
   const appNames = splitTaskMeta(details?.app_name)
   const packageNames = splitTaskMeta(details?.package_name)
   const latestHandoffNote = [...(details?.assignment_chain || [])].reverse().find((entry) => entry.feedback?.trim())
+  const routingFocusTarget =
+    details?.multi_assignment?.enabled
+      ? 'multi'
+      : details?.queue_status === 'queued'
+        ? 'department'
+        : details?.assigned_to
+          ? 'manager'
+          : 'self'
 
   const openRoutingEdit = () => {
     if (!details) return
@@ -334,6 +368,7 @@ export function TaskDetailModal({
       window.sessionStorage.setItem(TASK_EDIT_FOCUS_KEY, JSON.stringify({
         taskId: details.id,
         section: 'routing',
+        route: routingFocusTarget,
       }))
     }
     onEdit(details)
@@ -531,7 +566,8 @@ export function TaskDetailModal({
   const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
   const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
-  const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && isAssignee && !!t.assigned_to
+  const singleStepOwner = !maEnabled && t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
+  const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && !!t.assigned_to && (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const maProgress = (() => {
     if (!ma?.enabled || !Array.isArray(ma.assignees) || ma.assignees.length === 0) return t.completed ? 100 : 0
     if (t.completed) return 100
@@ -614,6 +650,14 @@ export function TaskDetailModal({
           return
         }
         void doAction(() => updateSingleTaskDueDateAction(t.id, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'ma-due-date':
+        if (!dialogValue.trim()) {
+          setActionError('Due date is required.')
+          return
+        }
+        void doAction(() => updateMaAssigneeDueDateAction(t.id, taskDialog.assigneeUsername, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'split-multi': {
@@ -1067,14 +1111,6 @@ export function TaskDetailModal({
               <Section
                 icon={<User size={14} />}
                 label="Multi-Assignment"
-                action={isCreator && !isCompleted ? (
-                  <button
-                    onClick={openRoutingEdit}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition-colors hover:bg-slate-50"
-                  >
-                    Edit
-                  </button>
-                ) : undefined}
               >
                 <div className="space-y-2">
                   {t.multi_assignment.assignees.map((a) => {
@@ -1109,6 +1145,17 @@ export function TaskDetailModal({
                         <span className="text-xs font-semibold text-slate-600 w-8 text-right">{pct}%</span>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
+                        {((getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
+                          <button
+                            onClick={() => {
+                              setDialogValue(a.actual_due_date ? a.actual_due_date.slice(0, 16) : '')
+                              openTaskDialog({ type: 'ma-due-date', assigneeUsername: a.username })
+                            }}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                          >
+                            {a.actual_due_date ? 'Update Due Date' : 'Set Due Date'}
+                          </button>
+                        )}
                         {isCreator && a.status === 'completed' && (
                           <>
                             <button onClick={() => void doAction(() => acceptMaAssigneeAction(t.id, a.username))} className="rounded-xl bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">
@@ -1494,6 +1541,7 @@ export function TaskDetailModal({
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
+            taskDialog.type === 'ma-due-date' ? 'Set assignee due date' :
             taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
@@ -1505,6 +1553,7 @@ export function TaskDetailModal({
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
             taskDialog.type === 'single-due-date' ? 'Set the assignee due date for this single task.' :
+            taskDialog.type === 'ma-due-date' ? 'Set the assignee due date for this assigned person only.' :
             taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
@@ -1513,7 +1562,7 @@ export function TaskDetailModal({
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' ? 'Save due date' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'ma-due-date' ? 'Save due date' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -1524,7 +1573,7 @@ export function TaskDetailModal({
               onChange={setDialogValue}
               placeholder="What work was completed? Add summary or handoff notes."
             />
-          ) : taskDialog.type === 'single-due-date' ? (
+          ) : taskDialog.type === 'single-due-date' || taskDialog.type === 'ma-due-date' ? (
             <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
           ) : taskDialog.type === 'split-multi' ? (
             <DialogTextarea

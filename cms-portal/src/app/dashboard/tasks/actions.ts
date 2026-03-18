@@ -153,6 +153,47 @@ function getMaxMaDueDate(ma: MultiAssignment | null): string | null {
   return maxIso
 }
 
+function normalizeChainUsername(value: unknown): string {
+  return String(value || '').trim()
+}
+
+function findAssignmentStepOwner(
+  task: Record<string, unknown>,
+  assigneeUsername: string
+): string | null {
+  const target = normalizeChainUsername(assigneeUsername)
+  if (!target) return null
+
+  const targetLower = target.toLowerCase()
+  const chain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    const entry = chain[i]
+    const nextUser = normalizeChainUsername(entry?.next_user)
+    const actor = normalizeChainUsername(entry?.user)
+    if (nextUser && nextUser.toLowerCase() === targetLower && actor) {
+      return actor
+    }
+  }
+
+  const assignedTo = normalizeChainUsername(task.assigned_to)
+  if (assignedTo && assignedTo.toLowerCase() === targetLower) {
+    for (let i = chain.length - 1; i >= 0; i -= 1) {
+      const entry = chain[i]
+      const role = normalizeChainUsername(entry?.role)
+      const actor = normalizeChainUsername(entry?.user)
+      if (role === 'claimed_from_department' && actor.toLowerCase() === targetLower) {
+        return actor
+      }
+    }
+
+    const creator = normalizeChainUsername(task.username)
+    if (creator) return creator
+  }
+
+  return null
+}
+
 function isUserInManagerList(managerIdField: string | null, username: string): boolean {
   if (!managerIdField || !username) return false
   return managerIdField
@@ -795,9 +836,10 @@ export async function saveTodoAction(
     const assignmentChain: AssignmentChainEntry[] = []
     if (assignedTo) {
       assignmentChain.push({
-        user: assignedTo,
+        user: user.username,
         role: 'assignee',
         assignedAt: now,
+        next_user: assignedTo,
       })
     }
     if (managerId && managerId !== assignedTo) {
@@ -2298,7 +2340,7 @@ export async function assignQueuedTaskToTeamMemberAction(
     title: 'Queued Task Assigned',
   })
   assignmentChain.push({
-    user: target,
+    user: user.username,
     role: 'assigned_from_department_queue',
     assignedAt: now,
     next_user: target,
@@ -2375,7 +2417,7 @@ export async function reassignTaskAction(
   const fromUser = String(task.assigned_to || user.username)
 
   assignmentChain.push({
-    user: target,
+    user: user.username,
     role: 'reassigned',
     assignedAt: now,
     next_user: target,
@@ -2658,18 +2700,15 @@ export async function updateSingleTaskDueDateAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,title,completed,approval_status,multi_assignment,history,expected_due_date')
+    .select('username,assigned_to,title,completed,approval_status,multi_assignment,history,expected_due_date,assignment_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
-  const isCreator = String(task.username || '').toLowerCase() === user.username.toLowerCase()
-  const isAssignee = String(task.assigned_to || '').toLowerCase() === user.username.toLowerCase()
-  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
-
-  if (!isAssignee && !isCreator && !isAdmin) {
-    return { success: false, error: 'Only the current assignee, creator, or admin can update the due date.' }
+  const stepOwner = findAssignmentStepOwner(task, String(task.assigned_to || ''))
+  if (!stepOwner || stepOwner.toLowerCase() !== user.username.toLowerCase()) {
+    return { success: false, error: 'Only the person who assigned this step can update its due date.' }
   }
   if ((task.completed as boolean) === true) return { success: false, error: 'Completed tasks cannot be updated.' }
   if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be updated right now.' }
@@ -2701,6 +2740,99 @@ export async function updateSingleTaskDueDateAction(
     body: `${user.username} updated the due date for "${task.title}" to ${dueIso}.`,
     relatedId: todoId,
   }, user.username)
+
+  revalidatePath('/dashboard/tasks')
+  return { success: true }
+}
+
+export async function updateMaAssigneeDueDateAction(
+  todoId: string,
+  assigneeUsername: string,
+  dueDate: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const targetAssignee = String(assigneeUsername || '').trim()
+  if (!targetAssignee) return { success: false, error: 'Assignee is required.' }
+
+  const nextDueDate = String(dueDate || '').trim()
+  if (!nextDueDate) return { success: false, error: 'Due date is required.' }
+  if (isPastPakistanDate(nextDueDate)) return { success: false, error: 'Due date must be an upcoming Pakistan time.' }
+
+  const parsedDueDate = new Date(nextDueDate)
+  if (Number.isNaN(parsedDueDate.getTime())) return { success: false, error: 'Invalid due date.' }
+  const dueIso = parsedDueDate.toISOString()
+
+  const supabase = createServerClient()
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,title,completed,approval_status,multi_assignment,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.completed as boolean) === true) return { success: false, error: 'Completed tasks cannot be updated.' }
+  if ((task.approval_status as string) === 'pending_approval') return { success: false, error: 'Task is pending approval and cannot be updated right now.' }
+
+  const stepOwner = findAssignmentStepOwner(task, targetAssignee)
+  if (!stepOwner || stepOwner.toLowerCase() !== user.username.toLowerCase()) {
+    return { success: false, error: 'Only the person who assigned this step can update its due date.' }
+  }
+
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) {
+    return { success: false, error: 'This task is not using multi-assignment.' }
+  }
+
+  const assigneeIndex = multiAssignment.assignees.findIndex(
+    (entry) => String(entry.username || '').toLowerCase() === targetAssignee.toLowerCase()
+  )
+  if (assigneeIndex === -1) return { success: false, error: 'Assignee not found.' }
+
+  multiAssignment.assignees[assigneeIndex] = {
+    ...multiAssignment.assignees[assigneeIndex],
+    actual_due_date: dueIso,
+  }
+  touchMultiAssignmentProgress(multiAssignment)
+  const rolledDue = getMaxMaDueDate(multiAssignment)
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  history.push({
+    type: 'edit',
+    user: user.username,
+    details: `${user.username} updated ${targetAssignee}'s assignee due date to ${dueIso}`,
+    timestamp: now,
+    icon: '📅',
+    title: 'Multi-Assignment Due Date Updated',
+  })
+
+  const updatePayload: Record<string, unknown> = {
+    multi_assignment: JSON.stringify(multiAssignment),
+    history: JSON.stringify(history),
+    updated_at: now,
+  }
+
+  if (rolledDue) {
+    updatePayload.due_date = rolledDue
+    updatePayload.expected_due_date = rolledDue
+  }
+
+  await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+  await notifyUsers(
+    supabase,
+    [targetAssignee, String(task.username || '')],
+    {
+      type: 'task_assigned',
+      title: 'Assignee Due Date Updated',
+      body: `${user.username} updated ${targetAssignee}'s due date for "${task.title}" to ${dueIso}.`,
+      relatedId: todoId,
+    },
+    user.username,
+  )
 
   revalidatePath('/dashboard/tasks')
   return { success: true }

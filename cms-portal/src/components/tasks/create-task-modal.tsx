@@ -103,6 +103,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
   const importFileInputRef = useRef<HTMLInputElement>(null)
   const routingSectionRef = useRef<HTMLElement>(null)
   const [isPending, startTransition] = useTransition()
+  const [highlightedRouting, setHighlightedRouting] = useState<TaskRouting | null>(null)
 
   const [appNames, setAppNames] = useState<string[]>(
     initialDraft?.appNames ?? splitTaskMeta(editTask?.app_name)
@@ -201,12 +202,19 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
     const raw = window.sessionStorage.getItem(TASK_EDIT_FOCUS_KEY)
     if (!raw) return
     try {
-      const parsed = JSON.parse(raw) as { taskId?: string; section?: string }
+      const parsed = JSON.parse(raw) as { taskId?: string; section?: string; route?: TaskRouting }
       if (parsed.taskId !== editTask.id || parsed.section !== 'routing') return
       window.sessionStorage.removeItem(TASK_EDIT_FOCUS_KEY)
+      const route = (parsed.route as TaskRouting | undefined) ?? null
+      if (route) setHighlightedRouting(route)
       window.setTimeout(() => {
         routingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 120)
+      if (route) {
+        window.setTimeout(() => {
+          setHighlightedRouting((current) => (current === route ? null : current))
+        }, 2600)
+      }
     } catch {
       window.sessionStorage.removeItem(TASK_EDIT_FOCUS_KEY)
     }
@@ -1115,6 +1123,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                 <div className="grid gap-3 md:grid-cols-2">
                   <RoutingCard
                     selected={routing === 'self'}
+                    highlighted={highlightedRouting === 'self'}
                     onClick={() => setRouting('self')}
                     color="yellow"
                     emoji="Self"
@@ -1123,6 +1132,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                   />
                   <RoutingCard
                     selected={routing === 'department'}
+                    highlighted={highlightedRouting === 'department'}
                     onClick={() => setRouting('department')}
                     color="green"
                     emoji="Dept"
@@ -1131,6 +1141,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                   />
                   <RoutingCard
                     selected={routing === 'manager'}
+                    highlighted={highlightedRouting === 'manager'}
                     onClick={() => setRouting('manager')}
                     color="purple"
                     emoji="Mgr"
@@ -1139,6 +1150,7 @@ export function CreateTaskModal({ editTask, ownerUsername, onClose, onSaved }: C
                   />
                   <RoutingCard
                     selected={routing === 'multi'}
+                    highlighted={highlightedRouting === 'multi'}
                     onClick={() => setRouting('multi')}
                     color="cyan"
                     emoji="Team"
@@ -1575,6 +1587,7 @@ function MultiSearchableDropdown({
 
 function RoutingCard({
   selected,
+  highlighted,
   onClick,
   color,
   emoji,
@@ -1582,6 +1595,7 @@ function RoutingCard({
   desc,
 }: {
   selected: boolean
+  highlighted?: boolean
   onClick: () => void
   color: 'yellow' | 'green' | 'purple' | 'cyan'
   emoji: string
@@ -1615,7 +1629,8 @@ function RoutingCard({
         'rounded-xl border p-4 text-left transition-all',
         selected
           ? palette[color].selected
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50',
+        highlighted && 'animate-pulse ring-4 ring-blue-200/70 border-blue-300 shadow-[0_0_0_6px_rgba(59,130,246,0.10)]'
       )}
     >
       <div className="flex items-start justify-between gap-3">
