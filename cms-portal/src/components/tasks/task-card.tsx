@@ -878,7 +878,7 @@ export function TaskCard({
                     <line x1="3.5" y1="8.2" x2="3.5" y2="10" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.25" />
                   </svg>
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Chain</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Queue Task Chain</span>
               </div>
               {showRail
                 ? <ChevronUp size={12} className="text-slate-400" />
@@ -1075,94 +1075,8 @@ export function TaskCard({
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
                           <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {getAssignmentStepOwner(task, assignee.username) && (
-                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                                By {getAssignmentStepOwner(task, assignee.username)}
-                              </span>
-                            )}
-                            {assigneeNote && (
-                              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
-                                Note by {getAssignmentStepOwner(task, assignee.username) || 'User'}
-                              </span>
-                            )}
-                            <span className={cn(
-                              'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold',
-                              assigneeOverdue
-                                ? 'border-red-200 bg-red-50 text-red-600'
-                                : 'border-slate-200 bg-slate-50 text-slate-600'
-                            )}>
-                              Due {fmtMaDue(assigneeDueDate)}
-                            </span>
-                            {assigneeDueTime && (
-                              <span className={cn(
-                                'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium',
-                                assigneeOverdue
-                                  ? 'border-red-200 bg-red-50 text-red-500'
-                                  : 'border-slate-200 bg-white text-slate-500'
-                              )}>
-                                {assigneeDueTime}
-                              </span>
-                            )}
-                          </div>
-                          {assigneeNote && (
-                            <div className="mt-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleAssigneeNote(assignee.username)}
-                                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700 transition-colors hover:bg-amber-100"
-                              >
-                                {noteExpanded ? 'Hide Comment' : 'Show Comment'}
-                              </button>
-                              {noteExpanded && (
-                                <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-900">
-                                  {assigneeNote}
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </div>
-                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
-                          {MA_LABEL[status] ?? status}
-                        </span>
-                        <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                          {((getAssignmentStepOwner(task, assignee.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
-                            <button
-                              onClick={() => {
-                                openTaskDialog({ type: 'step-edit', assigneeUsername: assignee.username })
-                                setDialogValue(assignee.actual_due_date ? assignee.actual_due_date.slice(0, 16) : '')
-                                setDialogExtraValue(getAssignmentStepNote(task, assignee.username))
-                              }}
-                              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {canReviewAssignee && assignee.status === 'completed' && (
-                            <>
-                              <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
-                              <button
-                                onClick={() => {
-                                  openTaskDialog({ type: 'reject-assignee', assigneeUsername: assignee.username })
-                                }}
-                                className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
-                              >
-                                Reject
-                              </button>
-                            </>
-                          )}
-                          {canReviewAssignee && assignee.status === 'accepted' && (
-                            <button
-                              onClick={() => {
-                                openTaskDialog({ type: 'reopen-assignee', assigneeUsername: assignee.username })
-                              }}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100"
-                            >
-                              Reopen
-                            </button>
-                          )}
-                          <button onClick={() => onViewDetail(task)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
-                        </div>
+
                         {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (
                           <div className="w-full rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">

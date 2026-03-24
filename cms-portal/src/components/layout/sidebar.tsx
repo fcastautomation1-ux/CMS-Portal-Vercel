@@ -168,7 +168,7 @@ export function Sidebar({
   })
   const [tasksOpen, setTasksOpen] = useState(true)
   const [taskGroupsOpen, setTaskGroupsOpen] = useState<Record<string, boolean>>({
-    my_assign_task: true,
+    my_assign_task: false,
     assign_to_me: true,
   })
   const [teamOpen, setTeamOpen] = useState(true)
@@ -284,13 +284,13 @@ export function Sidebar({
     () => ([
       {
         id: 'my_assign_task',
-        label: 'My assign task',
+        label: 'My Created task',
         scope: 'created_by_me',
         counts: buildStatusCounts(createdByMeTasks),
       },
       {
         id: 'assign_to_me',
-        label: 'Assign to me',
+        label: 'Assign to me tasks',
         scope: 'assigned_to_me',
         counts: buildStatusCounts(assignedToMeTasks),
       },
