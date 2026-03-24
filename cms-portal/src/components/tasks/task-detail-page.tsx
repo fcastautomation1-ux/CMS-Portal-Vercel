@@ -360,8 +360,31 @@ function buildWorkflowTree(task: TodoDetails): WorkflowTreeNode[] {
         : isDepartmentStep
           ? 'pending'
           : 'assigned'
-    const parentKey = latestKeyByUser.get(actor.toLowerCase()) || fallbackParentKey
-    addChild(parentKey, {
+
+    // If actor is not yet in the tree (their initial assignment was stored in task.assigned_to
+    // rather than in assignment_chain), auto-insert the actor as a bridge node so their target
+    // becomes actor's child — matching the outer Queue Task Chain display.
+    let parentKey = latestKeyByUser.get(actor.toLowerCase())
+    if (!parentKey && actor && actor.toLowerCase() !== creator.toLowerCase()) {
+      const autoKey = `auto-actor:${actor}`
+      const isCurrentOwner = actor.toLowerCase() === (task.assigned_to || '').toLowerCase()
+      addChild(fallbackParentKey, {
+        key: autoKey,
+        label: actor,
+        tone: isCurrentOwner && task.task_status === 'in_progress' ? 'active' : 'user',
+        status: isCurrentOwner ? (task.task_status === 'in_progress' ? 'claimed' : 'assigned') : 'assigned',
+        timestamp: null,
+        avatarUrl: task.participant_avatars?.[actor] ?? null,
+        title: `Assigned to ${actor}`,
+        subtitle: isCurrentOwner ? `Current owner · From ${creator}` : `From ${creator}`,
+        focusTarget: actor,
+      })
+      fallbackParentKey = autoKey
+      parentKey = autoKey
+    }
+
+    const resolvedParentKey = parentKey ?? fallbackParentKey
+    addChild(resolvedParentKey, {
       key: `step:${index}:${target}`,
       label: target,
       tone: isDepartmentStep ? 'department' : 'user',
