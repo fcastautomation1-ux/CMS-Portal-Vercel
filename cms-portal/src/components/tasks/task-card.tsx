@@ -400,7 +400,7 @@ function flattenWorkflowTree(
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
   const rows = flattenWorkflowTree(nodes).slice(0, 9)
-  const INDENT = 14 // px per depth level
+  const INDENT = 24
 
   function nodeCfg(tone: WorkflowRailNode['tone'], depth: number, subtitle?: string) {
     const isOwner = subtitle?.toLowerCase().includes('owner')
@@ -442,13 +442,11 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_4px_16px_rgba(20,30,50,0.03)]">
-      {/* Top accent bar */}
-      <div className="h-[2px] w-full bg-blue-500" />
-      <div className="px-2.5 pt-2.5 pb-2">
+    <div className="w-full rounded-[24px] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+      <div className="h-[2px] w-full rounded-full bg-blue-500" />
+      <div className="pt-3">
         {rows.map(({ node, depth, pathHasNext, isLastSib }) => {
           const cfg = nodeCfg(node.tone, depth, node.subtitle)
-          const INDENT = 24
           const indentPx = depth * INDENT
 
           return (
@@ -458,7 +456,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                  <div
                     key={`line-${level}`}
                     className="absolute top-0 bottom-0 w-px bg-slate-200 pointer-events-none"
-                    style={{ left: `${(level * INDENT) + 28}px` }} 
+                    style={{ left: `${(level * INDENT) + 31}px` }} 
                  />
               ) : null)}
 
@@ -469,21 +467,21 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                   <div
                     className="absolute top-0 w-px bg-slate-200 pointer-events-none"
                     style={{ 
-                      left: `${((depth - 1) * INDENT) + 28}px`,
-                      bottom: isLastSib ? '50%' : '0' 
+                      left: `${((depth - 1) * INDENT) + 31}px`,
+                      bottom: isLastSib ? '24px' : '0' 
                     }}
                   />
                   {/* Horizontal branch to child */}
                   <div
                     className="absolute top-1/2 h-px bg-slate-200 pointer-events-none flex items-center justify-end"
                     style={{ 
-                      left: `${((depth - 1) * INDENT) + 28}px`,
-                      width: `${INDENT - 16}px`,
+                      left: `${((depth - 1) * INDENT) + 31}px`,
+                      width: `${INDENT - 8}px`,
                     }}
                   >
                     {/* Tiny arrow head */}
-                    <svg width="4" height="6" viewBox="0 0 4 6" fill="none" className="-mr-0.5">
-                      <path d="M1 1L3 3L1 5" stroke="#e2e8f0" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="5" height="7" viewBox="0 0 5 7" fill="none" className="-mr-[1px]">
+                      <path d="M1 1L4 3.5L1 6" stroke="#d7dee9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                 </>
@@ -494,12 +492,12 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
                 type="button"
                 onClick={() => onNodeClick(node)}
                 title={node.title}
-                className="flex w-full items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition-all hover:bg-slate-50/80"
-                style={{ paddingLeft: `${indentPx + 6}px` }}
+                className="flex w-full items-center gap-3 rounded-[16px] px-2 py-2 text-left transition-all hover:bg-slate-50/80"
+                style={{ paddingLeft: `${indentPx + 10}px` }}
               >
                 {/* Avatar circle */}
                 <div className={cn(
-                  'relative h-8 w-8 shrink-0 overflow-hidden rounded-full border-2 transition-transform duration-150 group-hover/n:scale-105',
+                  'relative h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 bg-white transition-transform duration-150 group-hover/n:scale-105',
                   cfg.ring, cfg.glow
                 )}>
                   <UserAvatar
@@ -517,11 +515,11 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
 
                 {/* Name + subtitle */}
                 <div className="min-w-0 flex-1">
-                  <p className={cn('truncate text-[11px] font-bold leading-tight', cfg.name)}>
+                  <p className={cn('truncate text-[12px] font-bold leading-tight', cfg.name)}>
                     {node.label}
                   </p>
                   {node.subtitle && (
-                    <p className="truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
+                    <p className="truncate text-[11px] leading-tight text-slate-400">{node.subtitle}</p>
                   )}
                 </div>
               </button>
@@ -866,25 +864,25 @@ export function TaskCard({
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         {workflowNodes.length > 0 && (
-          <div className="hidden w-[220px] shrink-0 self-start md:block">
+          <div className="hidden w-[208px] shrink-0 self-start md:block">
             <button
               type="button"
               onClick={() => setShowRail((v) => !v)}
-              className="mb-2.5 flex w-full items-center justify-between mx-auto rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-left shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all hover:bg-slate-50"
+              className="mb-3 flex w-full items-center justify-between rounded-full border border-slate-200 bg-white px-4 py-2 text-left shadow-[0_2px_10px_rgba(15,23,42,0.04)] transition-all hover:bg-slate-50"
             >
               <div className="flex items-center gap-2">
-                <span className="flex items-center justify-center text-slate-400 opacity-80">
-                  <svg width="6" height="14" viewBox="0 0 6 14" fill="none">
-                    <circle cx="3" cy="2.5" r="1.5" fill="currentColor"/>
-                    <line x1="3" y1="5" x2="3" y2="9" stroke="currentColor" strokeWidth="1" strokeOpacity="0.5"/>
-                    <circle cx="3" cy="11.5" r="1.5" fill="currentColor"/>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-slate-400 opacity-80">
+                  <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                    <circle cx="3" cy="2" r="1.25" fill="currentColor"/>
+                    <line x1="3" y1="4" x2="3" y2="8" stroke="currentColor" strokeWidth="1" strokeOpacity="0.45"/>
+                    <circle cx="3" cy="10" r="1.25" fill="currentColor"/>
                   </svg>
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">Queue Task Chain</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Queue Task Chain</span>
               </div>
               {showRail
-                ? <ChevronUp size={14} className="text-slate-400" />
-                : <ChevronDown size={14} className="text-slate-400" />}
+                ? <ChevronUp size={13} className="text-slate-400" />
+                : <ChevronDown size={13} className="text-slate-400" />}
             </button>
             {showRail && <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />}
           </div>
