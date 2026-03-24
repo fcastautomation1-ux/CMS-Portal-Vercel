@@ -3,8 +3,6 @@ import { getTodoDetails } from '../actions'
 import { getSession } from '@/lib/auth'
 import { TaskDetailPage } from '@/components/tasks/task-detail-page'
 
-export const dynamic = 'force-dynamic'
-
 export default async function TaskDetailRoute({
   params,
 }: {
