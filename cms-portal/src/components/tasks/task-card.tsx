@@ -374,89 +374,106 @@ function flattenWorkflowTree(
 
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
-  const rows = flattenWorkflowTree(nodes).slice(0, 8)
-  const indent = 30
-  const lineOffset = 18
+  const rows = flattenWorkflowTree(nodes).slice(0, 9)
+  const INDENT = 16
+
+  function toneStyles(tone: WorkflowRailNode['tone'], depth: number) {
+    if (tone === 'active')     return { accent: 'border-l-blue-500',    grad: 'from-blue-50/70',     dot: 'bg-blue-500',    ring: 'ring-blue-300/60',    av: 'bg-blue-100 text-blue-700'    }
+    if (tone === 'department') return { accent: 'border-l-emerald-500', grad: 'from-emerald-50/60',  dot: 'bg-emerald-400', ring: 'ring-emerald-300/50', av: 'bg-emerald-100 text-emerald-700' }
+    if (tone === 'multi')      return { accent: 'border-l-cyan-400',    grad: 'from-cyan-50/60',     dot: 'bg-cyan-400',    ring: 'ring-cyan-300/50',    av: 'bg-cyan-100 text-cyan-700'    }
+    if (depth === 0)           return { accent: 'border-l-slate-400',   grad: 'from-slate-100/70',   dot: 'bg-slate-400',   ring: 'ring-slate-300/50',   av: ''                             }
+    return                            { accent: 'border-l-indigo-400',  grad: 'from-indigo-50/50',   dot: 'bg-indigo-400',  ring: 'ring-indigo-300/50',  av: 'bg-indigo-50 text-indigo-700' }
+  }
 
   return (
-    <div className="w-full">
-      <div className="relative w-full rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fdfefe_100%)] px-2 py-2">
-        {rows.map(({ node, depth, pathHasNext, isLast }) => {
-          const ringCls =
-            node.tone === 'active'
-              ? 'ring-2 ring-blue-500/20'
-              : node.tone === 'department'
-                ? 'ring-2 ring-emerald-500/20'
-                : node.tone === 'multi'
-                  ? 'ring-2 ring-cyan-500/20'
-                  : 'ring-2 ring-white/50'
-          const centerX = lineOffset + depth * indent
-          const parentCenterX = centerX - indent
-          const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : pathHasNext
+    <div className="w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_4px_16px_rgba(15,23,42,0.07)]">
+      {/* Thin top accent bar */}
+      <div className="h-0.5 w-full bg-gradient-to-r from-slate-300 via-indigo-300 to-blue-300" />
+      <div className="px-2.5 py-2.5 space-y-0.5">
+        {rows.map(({ node, depth, pathHasNext, isLast }, idx) => {
+          const isLastRow = idx === rows.length - 1
+          const s = toneStyles(node.tone, depth)
+          const ml = depth * INDENT
+          const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : []
 
           return (
-            <div key={node.key} className="group/rail relative min-h-[64px]" title={node.title}>
-              {ancestorGuides.map((hasNext, level) =>
+            <div key={node.key} className="group/n relative" style={{ minHeight: 46 }}>
+              {/* Ancestor guide lines for deeper nesting */}
+              {ancestorGuides.map((hasNext, lvl) =>
                 hasNext ? (
                   <div
-                    key={`${node.key}-guide-${level}`}
-                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-slate-200"
-                    style={{ left: `${lineOffset + level * indent}px` }}
+                    key={`ag-${lvl}`}
+                    className="pointer-events-none absolute inset-y-0 w-px bg-slate-200/80"
+                    style={{ left: `${ml - INDENT + lvl * INDENT + 14}px` }}
                   />
                 ) : null
               )}
+
+              {/* Branch elbow connector for child nodes */}
               {depth > 0 && (
                 <>
                   <div
-                    className="pointer-events-none absolute top-0 h-1/2 w-px bg-slate-300"
-                    style={{ left: `${parentCenterX}px` }}
+                    className="pointer-events-none absolute w-px bg-slate-200"
+                    style={{ left: `${ml - INDENT + 14}px`, top: 0, height: '55%' }}
                   />
                   {!isLast && (
                     <div
-                      className="pointer-events-none absolute top-1/2 bottom-0 w-px bg-slate-300"
-                      style={{ left: `${parentCenterX}px` }}
+                      className="pointer-events-none absolute w-px bg-slate-200"
+                      style={{ left: `${ml - INDENT + 14}px`, top: '55%', bottom: 0 }}
                     />
                   )}
                   <div
-                    className="pointer-events-none absolute top-1/2 h-px bg-slate-300"
-                    style={{ left: `${parentCenterX}px`, width: `${indent}px` }}
+                    className="pointer-events-none absolute h-px bg-slate-200"
+                    style={{ left: `${ml - INDENT + 14}px`, top: '55%', width: `${INDENT}px` }}
                   />
                 </>
               )}
+
+              {/* Vertical connector line from this node down to next (root‐level) */}
+              {depth === 0 && !isLastRow && (
+                <div
+                  className="pointer-events-none absolute w-0.5 rounded-b-full bg-gradient-to-b from-slate-200 to-transparent"
+                  style={{ left: `${ml + 14}px`, top: 40, height: 14 }}
+                />
+              )}
+
+              {/* NODE CARD */}
               <button
                 type="button"
                 onClick={() => onNodeClick(node)}
-                className="relative flex w-full items-center gap-3 rounded-2xl border border-transparent bg-white/70 px-2 py-2 text-left shadow-[0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-200 hover:bg-white"
-                style={{ marginLeft: `${depth * indent}px` }}
+                title={node.title}
+                className={cn(
+                  'group/btn relative flex w-full items-center gap-2.5 rounded-xl border border-l-[3px] py-2 pr-3 pl-2.5 text-left',
+                  'bg-gradient-to-r to-white border-slate-100/80 shadow-[0_1px_3px_rgba(15,23,42,0.04)]',
+                  'transition-all duration-150 hover:border-slate-200 hover:shadow-[0_4px_14px_rgba(15,23,42,0.09)] hover:-translate-y-px',
+                  s.accent, s.grad,
+                )}
+                style={{ marginLeft: `${ml}px` }}
               >
-                <div className="relative shrink-0">
+                {/* Avatar with coloured ring + status dot */}
+                <div className={cn('relative shrink-0 rounded-full ring-2 ring-offset-1', s.ring)}>
                   <UserAvatar
                     username={node.label}
                     avatarUrl={node.avatarUrl}
                     size="sm"
-                    className={cn(
-                      'shadow-sm transition-transform group-hover/rail:scale-105',
-                      node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
-                      node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
-                      node.tone === 'active' && 'bg-blue-100 text-blue-700',
-                      ringCls
-                    )}
+                    className={cn('transition-transform duration-150 group-hover/btn:scale-[1.07]', s.av)}
                   />
+                  <span className={cn('absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-white', s.dot)} />
                 </div>
+
+                {/* Name + subtitle */}
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-bold text-slate-800">
-                    {node.label}
-                  </div>
+                  <p className="truncate text-[11px] font-bold leading-tight text-slate-800">{node.label}</p>
                   {node.subtitle && (
-                    <div className="truncate text-[10px] leading-tight text-slate-400">
-                      {node.subtitle}
-                    </div>
+                    <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
                   )}
                 </div>
               </button>
-              <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
-                <div className="text-xs font-semibold text-slate-900">{node.title}</div>
-                {node.subtitle && <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>}
+
+              {/* Hover tooltip */}
+              <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-48 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.13)] group-hover/n:block">
+                <p className="text-xs font-semibold text-slate-800">{node.title}</p>
+                {node.subtitle && <p className="mt-0.5 text-[11px] text-slate-500">{node.subtitle}</p>}
               </div>
             </div>
           )
@@ -797,9 +814,19 @@ export function TaskCard({
             <button
               type="button"
               onClick={() => setShowRail((v) => !v)}
-              className="mb-1 flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-1.5 text-left transition-colors hover:bg-slate-100"
+              className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white px-3 py-1.5 text-left shadow-[0_1px_4px_rgba(15,23,42,0.05)] transition-all hover:border-slate-300 hover:shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
             >
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Chain</span>
+              <div className="flex items-center gap-2">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md bg-slate-100">
+                  <svg width="7" height="11" viewBox="0 0 7 11" fill="none" className="text-slate-500">
+                    <circle cx="3.5" cy="1.8" r="1.5" fill="currentColor" fillOpacity="0.55" />
+                    <line x1="3.5" y1="3.3" x2="3.5" y2="5.2" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.35" />
+                    <circle cx="3.5" cy="6.7" r="1.5" fill="currentColor" fillOpacity="0.75" />
+                    <line x1="3.5" y1="8.2" x2="3.5" y2="10" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.25" />
+                  </svg>
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Chain</span>
+              </div>
               {showRail
                 ? <ChevronUp size={12} className="text-slate-400" />
                 : <ChevronDown size={12} className="text-slate-400" />}
