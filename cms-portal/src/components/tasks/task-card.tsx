@@ -12,7 +12,7 @@ import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
-  ChevronDown, ChevronUp, MessageCircle,
+  ChevronDown, ChevronUp, MessageCircle, CircleCheckBig,
   Calendar, User, Clock,
 } from 'lucide-react'
 import {
@@ -554,6 +554,7 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
+  const completionLabel = task.completed_at ? `Completed ${fmtDate(task.completed_at)}` : 'Completed'
   const currentStepOwner =
     taskDialog?.type === 'step-edit'
       ? getAssignmentStepOwner(task, taskDialog.assigneeUsername)
@@ -709,7 +710,7 @@ export function TaskCard({
         className={cn(
           'overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition-all hover:border-blue-300 hover:shadow-sm cursor-pointer',
           isPending && 'pointer-events-none opacity-60',
-          isCompleted && 'opacity-60'
+          isCompleted && 'border-emerald-200 bg-[linear-gradient(180deg,#f3fbf6_0%,#ecfdf3_100%)] opacity-80 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]'
         )}
         onClick={() => onViewDetail(task)}
       >
@@ -735,6 +736,12 @@ export function TaskCard({
             <Calendar size={10} /> {fmtShort(task.due_date)}
           </p>
         )}
+        {isCompleted && (
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+            <CircleCheckBig size={11} />
+            Done
+          </div>
+        )}
       </div>
     )
   }
@@ -745,13 +752,21 @@ export function TaskCard({
       'group/row relative flex overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.06)] transition-all',
       'flex-col md:flex-row',
       isPending && 'pointer-events-none opacity-60',
-      isCompleted ? 'bg-slate-50/70' : 'hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
+      isCompleted
+        ? 'border-emerald-200/80 bg-[linear-gradient(180deg,#f7fcf8_0%,#eefaf2_100%)] shadow-[0_10px_24px_rgba(5,150,105,0.07),inset_0_0_0_1px_rgba(16,185,129,0.06)]'
+        : 'hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
     )}>
       <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
         <div className="min-w-0 flex-1">
+          {isCompleted && (
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700 shadow-sm">
+              <CircleCheckBig size={14} />
+              {completionLabel}
+            </div>
+          )}
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
             {appNames.map((appName) => (
@@ -909,7 +924,7 @@ export function TaskCard({
               >
                 <div className="min-w-0 flex-1 pr-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Multi Assignment</span>
+                    <span className={cn('text-xs font-semibold uppercase tracking-[0.14em]', isCompleted ? 'text-emerald-700' : 'text-slate-400')}>Multi Assignment</span>
                     <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">
                       {ma.assignees.length} Assignee{ma.assignees.length !== 1 ? 's' : ''}
                     </span>
@@ -1097,7 +1112,7 @@ export function TaskCard({
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-400">
+          <div className={cn('mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]', isCompleted ? 'text-slate-500' : 'text-slate-400')}>
             <span className="flex items-center gap-1">
               <Clock size={10} className="shrink-0" />
               {fmtDate(task.created_at)}
@@ -1121,16 +1136,21 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between">
+        <div className={cn(
+          'flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between',
+          isCompleted ? 'border-emerald-200 bg-emerald-50/80' : 'border-slate-200 bg-slate-50/80'
+        )}>
           {!maEnabled && (
             <div className="text-left md:text-right">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Expected</div>
-              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-700')}>
+              <div className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', isCompleted ? 'text-emerald-700' : 'text-slate-400')}>
+                {isCompleted ? 'Finished' : 'Expected'}
+              </div>
+              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-emerald-800' : 'text-slate-700')}>
                 {task.due_date ? fmtShort(task.due_date) : 'No date'}
               </div>
               {task.due_date && (
-                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-400')}>
-                  {fmtTime(task.due_date)}
+                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-emerald-700' : 'text-slate-400')}>
+                  {isCompleted && task.completed_at ? fmtDate(task.completed_at) : fmtTime(task.due_date)}
                 </div>
               )}
             </div>
