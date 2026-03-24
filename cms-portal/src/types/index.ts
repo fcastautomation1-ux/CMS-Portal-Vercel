@@ -201,12 +201,40 @@ export interface HistoryEntry {
   is_deleted?: boolean
 }
 
+/**
+ * Represents a single step in the task assignment chain.
+ *
+ * Supports BOTH formats:
+ *  - New Next.js format: { user (assigner), role, assignedAt, next_user (assignee), feedback }
+ *  - Legacy GAS format:  { user (assignee who acted), action, timestamp, level, status, review_status, feedback }
+ *
+ * Use `normalizeAssignmentChain()` from actions.ts to convert old → new format.
+ */
 export interface AssignmentChainEntry {
+  /** In new format: person who assigned. In old GAS format: person who completed the action. */
   user: string
-  role: string
-  assignedAt: string
+
+  // ── New Next.js format fields ─────────────────────────────────────────────
+  /** New: role type ('assignee', 'manager', 'claimed_from_department', 'routed_to_department_queue') */
+  role?: string
+  /** New: ISO timestamp when this assignment step was created */
+  assignedAt?: string
+  /** New: the user this step points to (the assignee receiving the work) */
   next_user?: string
+  /** Feedback/notes for this handoff step */
   feedback?: string
+
+  // ── Legacy fields written by the old Google Apps Script app ──────────────
+  /** Old GAS: the action performed (e.g. 'complete_final', 'assigned', 'submit') */
+  action?: string
+  /** Old GAS: ISO timestamp (functionally equivalent to assignedAt) */
+  timestamp?: string
+  /** Old GAS: sequential chain depth level */
+  level?: number
+  /** Old GAS: completion status recorded by the assignee ('completed', 'pending') */
+  status?: string
+  /** Old GAS: approval review status ('pending', 'approved', 'declined') */
+  review_status?: string
 }
 
 export interface ApprovalChainEntry {
