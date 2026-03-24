@@ -379,7 +379,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   const lineOffset = 18
 
   return (
-    <div className="hidden w-[220px] shrink-0 self-start md:flex">
+    <div className="w-full">
       <div className="relative w-full rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fdfefe_100%)] px-2 py-2">
         {rows.map(({ node, depth, pathHasNext, isLast }) => {
           const ringCls =
@@ -488,6 +488,7 @@ export function TaskCard({
   const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
   const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
   const [expandedAssigneeNotes, setExpandedAssigneeNotes] = useState<Set<string>>(() => new Set())
+  const [showRail, setShowRail] = useState(true)
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -564,7 +565,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
@@ -791,7 +792,21 @@ export function TaskCard({
       <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
-        <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
+        {workflowNodes.length > 0 && (
+          <div className="hidden w-[220px] shrink-0 self-start md:block">
+            <button
+              type="button"
+              onClick={() => setShowRail((v) => !v)}
+              className="mb-1 flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-1.5 text-left transition-colors hover:bg-slate-100"
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Chain</span>
+              {showRail
+                ? <ChevronUp size={12} className="text-slate-400" />
+                : <ChevronDown size={12} className="text-slate-400" />}
+            </button>
+            {showRail && <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
