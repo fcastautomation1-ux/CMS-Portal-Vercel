@@ -536,15 +536,16 @@ function WorkflowTree({
   const hasDragged = useRef(false)
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!draggingRef.current) return
-    const dx = e.clientX - draggingRef.current.startMouseX
-    const dy = e.clientY - draggingRef.current.startMouseY
+    const drag = draggingRef.current
+    if (!drag) return
+    const dx = e.clientX - drag.startMouseX
+    const dy = e.clientY - drag.startMouseY
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasDragged.current = true
     setDragOverrides((prev) => {
       const next = new Map(prev)
-      next.set(draggingRef.current!.key, {
-        x: Math.max(0, draggingRef.current!.origX + dx),
-        y: Math.max(0, draggingRef.current!.origY + dy),
+      next.set(drag.key, {
+        x: Math.max(0, drag.origX + dx),
+        y: Math.max(0, drag.origY + dy),
       })
       return next
     })
@@ -557,9 +558,13 @@ function WorkflowTree({
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
+    window.addEventListener('mouseleave', handleMouseUp)
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
+      window.removeEventListener('mouseleave', handleMouseUp)
     }
   }, [handleMouseMove, handleMouseUp])
 
