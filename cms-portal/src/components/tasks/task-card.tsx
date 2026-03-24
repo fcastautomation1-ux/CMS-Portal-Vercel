@@ -10,6 +10,7 @@ import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
+import { normalizeAssignmentChain } from '@/lib/task-chain'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
   ChevronDown, ChevronUp, MessageCircle, CircleCheckBig,
@@ -107,18 +108,19 @@ function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | 
   const target = String(assigneeUsername || '').trim().toLowerCase()
   if (!target) return null
 
-  for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
-    const entry = task.assignment_chain[i]
-    if ((entry.next_user || '').trim().toLowerCase() === target && entry.user?.trim()) {
-      return entry.user.trim()
+  const normalized = normalizeAssignmentChain(task)
+  for (let i = normalized.length - 1; i >= 0; i -= 1) {
+    const entry = normalized[i]
+    if (entry.target.toLowerCase() === target && entry.actor) {
+      return entry.actor
     }
   }
 
   if ((task.assigned_to || '').trim().toLowerCase() === target) {
-    for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
-      const entry = task.assignment_chain[i]
-      if ((entry.role || '').trim() === 'claimed_from_department' && (entry.user || '').trim().toLowerCase() === target) {
-        return entry.user.trim()
+    for (let i = normalized.length - 1; i >= 0; i -= 1) {
+      const entry = normalized[i]
+      if (entry.role === 'claimed_from_department' && entry.actor.toLowerCase() === target) {
+        return entry.actor
       }
     }
     return task.username || null
@@ -137,10 +139,11 @@ function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | 
 function getAssignmentStepNote(task: Todo, assigneeUsername: string): string {
   const target = String(assigneeUsername || '').trim().toLowerCase()
   if (!target) return ''
-  for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
-    const entry = task.assignment_chain[i]
-    if ((entry.next_user || '').trim().toLowerCase() === target) {
-      return entry.feedback?.trim() || ''
+  const normalized = normalizeAssignmentChain(task)
+  for (let i = normalized.length - 1; i >= 0; i -= 1) {
+    const entry = normalized[i]
+    if (entry.target.toLowerCase() === target) {
+      return entry.feedback || ''
     }
   }
   return ''
@@ -265,11 +268,13 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
     latestKeyByUser.set(node.label.toLowerCase(), node.key)
   }
 
-  ;(task.assignment_chain || []).forEach((entry, index) => {
-    const target = String(entry.next_user || '').trim()
+  const normalized = normalizeAssignmentChain(task)
+  normalized.forEach((entry) => {
+    const target = entry.target
     if (!target) return
-    const actor = String(entry.user || '').trim()
-    const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
+    const actor = entry.actor
+    const index = entry.originalIndex
+    const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(entry.role)
 
     let parentKey = latestKeyByUser.get(actor.toLowerCase())
 
