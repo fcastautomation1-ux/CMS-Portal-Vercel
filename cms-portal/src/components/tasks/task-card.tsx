@@ -270,7 +270,30 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
     if (!target) return
     const actor = String(entry.user || '').trim()
     const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
-    const parentKey = latestKeyByUser.get(actor.toLowerCase()) || fallbackParentKey
+
+    let parentKey = latestKeyByUser.get(actor.toLowerCase())
+
+    // If actor is not yet in the tree (i.e. the initial assignment creator→actor was stored in
+    // task.assigned_to rather than in assignment_chain), auto-insert the actor as a bridge node
+    // so that the target becomes actor's child, not creator's child.
+    if (!parentKey && actor && actor.toLowerCase() !== creator.toLowerCase()) {
+      const autoKey = `auto-actor:${actor}`
+      const isCurrentOwner = actor.toLowerCase() === (task.assigned_to || '').toLowerCase()
+      const actorNode: WorkflowRailNode = {
+        key: autoKey,
+        label: actor,
+        tone: isCurrentOwner && task.task_status === 'in_progress' ? 'active' : 'user',
+        avatarUrl: task.participant_avatars?.[actor] ?? null,
+        title: `Assigned to ${actor}`,
+        subtitle: isCurrentOwner ? `Current owner · From ${creator}` : `From ${creator}`,
+        focusTarget: actor,
+      }
+      addChild(fallbackParentKey, actorNode)
+      fallbackParentKey = autoKey
+      parentKey = autoKey
+    }
+
+    parentKey = parentKey ?? fallbackParentKey
     const node: WorkflowRailNode = {
       key: `step:${index}:${target}`,
       label: target,
@@ -291,7 +314,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: task.task_status === 'in_progress' ? 'active' : 'user',
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
-      subtitle: 'Current owner',
+      subtitle: `Current owner · From ${creator}`,
       focusTarget: task.assigned_to,
     })
   }
@@ -375,106 +398,136 @@ function flattenWorkflowTree(
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
   const rows = flattenWorkflowTree(nodes).slice(0, 9)
-  const INDENT = 16
+  const INDENT = 14 // px per depth level
 
-  function toneStyles(tone: WorkflowRailNode['tone'], depth: number) {
-    if (tone === 'active')     return { accent: 'border-l-blue-500',    grad: 'from-blue-50/70',     dot: 'bg-blue-500',    ring: 'ring-blue-300/60',    av: 'bg-blue-100 text-blue-700'    }
-    if (tone === 'department') return { accent: 'border-l-emerald-500', grad: 'from-emerald-50/60',  dot: 'bg-emerald-400', ring: 'ring-emerald-300/50', av: 'bg-emerald-100 text-emerald-700' }
-    if (tone === 'multi')      return { accent: 'border-l-cyan-400',    grad: 'from-cyan-50/60',     dot: 'bg-cyan-400',    ring: 'ring-cyan-300/50',    av: 'bg-cyan-100 text-cyan-700'    }
-    if (depth === 0)           return { accent: 'border-l-slate-400',   grad: 'from-slate-100/70',   dot: 'bg-slate-400',   ring: 'ring-slate-300/50',   av: ''                             }
-    return                            { accent: 'border-l-indigo-400',  grad: 'from-indigo-50/50',   dot: 'bg-indigo-400',  ring: 'ring-indigo-300/50',  av: 'bg-indigo-50 text-indigo-700' }
+  function nodeCfg(tone: WorkflowRailNode['tone'], depth: number, subtitle?: string) {
+    const isOwner = subtitle?.toLowerCase().includes('owner')
+    if (isOwner || tone === 'active') return {
+      ring:    'border-blue-400',
+      glow:    'shadow-[0_0_0_3px_rgba(59,130,246,0.15)]',
+      dot:     'bg-blue-500',
+      name:    'text-blue-700',
+      av:      'bg-blue-100 text-blue-700',
+      line:    '#93c5fd',
+    }
+    if (tone === 'department') return {
+      ring:    'border-emerald-400',
+      glow:    '',
+      dot:     'bg-emerald-400',
+      name:    'text-slate-800',
+      av:      'bg-emerald-100 text-emerald-700',
+      line:    '#6ee7b7',
+    }
+    if (tone === 'multi') return {
+      ring:    'border-cyan-400',
+      glow:    '',
+      dot:     'bg-cyan-400',
+      name:    'text-slate-800',
+      av:      'bg-cyan-100 text-cyan-700',
+      line:    '#67e8f9',
+    }
+    if (depth === 0) return {
+      ring:    'border-slate-300',
+      glow:    '',
+      dot:     'bg-slate-400',
+      name:    'text-slate-700',
+      av:      '',
+      line:    '#cbd5e1',
+    }
+    return {
+      ring:    'border-indigo-300',
+      glow:    '',
+      dot:     'bg-indigo-400',
+      name:    'text-slate-800',
+      av:      'bg-indigo-50 text-indigo-700',
+      line:    '#a5b4fc',
+    }
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_4px_16px_rgba(15,23,42,0.07)]">
-      {/* Thin top accent bar */}
-      <div className="h-0.5 w-full bg-gradient-to-r from-slate-300 via-indigo-300 to-blue-300" />
-      <div className="px-2.5 py-2.5 space-y-0.5">
-        {rows.map(({ node, depth, pathHasNext, isLast }, idx) => {
-          const isLastRow = idx === rows.length - 1
-          const s = toneStyles(node.tone, depth)
-          const ml = depth * INDENT
-          const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : []
+    <div className="w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_2px_12px_rgba(15,23,42,0.07)]">
+      {/* Top accent bar */}
+      <div className="h-0.5 w-full bg-gradient-to-r from-slate-300 via-indigo-300 to-blue-400" />
+      <div className="px-2.5 pt-2.5 pb-2">
+        {rows.map(({ node, depth }, rowIdx) => {
+          const isLastRow = rowIdx === rows.length - 1
+          const nextRow = rows[rowIdx + 1]
+          const cfg = nodeCfg(node.tone, depth, node.subtitle)
+          const indentPx = depth * INDENT
+          // connector goes from avatar center of current row down to next row's avatar
+          const connectorLeftPx = indentPx + 15 // 15 ≈ half of avatar(32px)/2 + padding(6px)
 
           return (
-            <div key={node.key} className="group/n relative" style={{ minHeight: 46 }}>
-              {/* Ancestor guide lines for deeper nesting */}
-              {ancestorGuides.map((hasNext, lvl) =>
-                hasNext ? (
-                  <div
-                    key={`ag-${lvl}`}
-                    className="pointer-events-none absolute inset-y-0 w-px bg-slate-200/80"
-                    style={{ left: `${ml - INDENT + lvl * INDENT + 14}px` }}
-                  />
-                ) : null
-              )}
-
-              {/* Branch elbow connector for child nodes */}
-              {depth > 0 && (
-                <>
-                  <div
-                    className="pointer-events-none absolute w-px bg-slate-200"
-                    style={{ left: `${ml - INDENT + 14}px`, top: 0, height: '55%' }}
-                  />
-                  {!isLast && (
-                    <div
-                      className="pointer-events-none absolute w-px bg-slate-200"
-                      style={{ left: `${ml - INDENT + 14}px`, top: '55%', bottom: 0 }}
+            <div key={node.key}>
+              {/* ── Avatar row ── */}
+              <div className="group/n relative">
+                <button
+                  type="button"
+                  onClick={() => onNodeClick(node)}
+                  title={node.title}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition-all hover:bg-slate-50/80"
+                  style={{ paddingLeft: `${indentPx + 6}px` }}
+                >
+                  {/* Avatar circle */}
+                  <div className={cn(
+                    'relative h-8 w-8 shrink-0 overflow-hidden rounded-full border-2 transition-transform duration-150 group-hover/n:scale-105',
+                    cfg.ring, cfg.glow
+                  )}>
+                    <UserAvatar
+                      username={node.label}
+                      avatarUrl={node.avatarUrl}
+                      size="sm"
+                      className={cn('h-full w-full', cfg.av)}
                     />
-                  )}
-                  <div
-                    className="pointer-events-none absolute h-px bg-slate-200"
-                    style={{ left: `${ml - INDENT + 14}px`, top: '55%', width: `${INDENT}px` }}
-                  />
-                </>
-              )}
+                    {/* Status dot */}
+                    <span className={cn(
+                      'absolute -bottom-px -right-px h-2 w-2 rounded-full border-[1.5px] border-white',
+                      cfg.dot
+                    )} />
+                  </div>
 
-              {/* Vertical connector line from this node down to next (root‐level) */}
-              {depth === 0 && !isLastRow && (
-                <div
-                  className="pointer-events-none absolute w-0.5 rounded-b-full bg-gradient-to-b from-slate-200 to-transparent"
-                  style={{ left: `${ml + 14}px`, top: 40, height: 14 }}
-                />
-              )}
+                  {/* Name + subtitle */}
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('truncate text-[11px] font-bold leading-tight', cfg.name)}>
+                      {node.label}
+                    </p>
+                    {node.subtitle && (
+                      <p className="truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
+                    )}
+                  </div>
+                </button>
 
-              {/* NODE CARD */}
-              <button
-                type="button"
-                onClick={() => onNodeClick(node)}
-                title={node.title}
-                className={cn(
-                  'group/btn relative flex w-full items-center gap-2.5 rounded-xl border border-l-[3px] py-2 pr-3 pl-2.5 text-left',
-                  'bg-gradient-to-r to-white border-slate-100/80 shadow-[0_1px_3px_rgba(15,23,42,0.04)]',
-                  'transition-all duration-150 hover:border-slate-200 hover:shadow-[0_4px_14px_rgba(15,23,42,0.09)] hover:-translate-y-px',
-                  s.accent, s.grad,
-                )}
-                style={{ marginLeft: `${ml}px` }}
-              >
-                {/* Avatar with coloured ring + status dot */}
-                <div className={cn('relative shrink-0 rounded-full ring-2 ring-offset-1', s.ring)}>
-                  <UserAvatar
-                    username={node.label}
-                    avatarUrl={node.avatarUrl}
-                    size="sm"
-                    className={cn('transition-transform duration-150 group-hover/btn:scale-[1.07]', s.av)}
-                  />
-                  <span className={cn('absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-white', s.dot)} />
+                {/* Hover tooltip */}
+                <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-44 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_28px_rgba(15,23,42,0.12)] group-hover/n:block">
+                  <p className="text-[11px] font-semibold text-slate-800">{node.title}</p>
+                  {node.subtitle && <p className="mt-0.5 text-[10px] text-slate-500">{node.subtitle}</p>}
                 </div>
-
-                {/* Name + subtitle */}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[11px] font-bold leading-tight text-slate-800">{node.label}</p>
-                  {node.subtitle && (
-                    <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
-                  )}
-                </div>
-              </button>
-
-              {/* Hover tooltip */}
-              <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-48 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.13)] group-hover/n:block">
-                <p className="text-xs font-semibold text-slate-800">{node.title}</p>
-                {node.subtitle && <p className="mt-0.5 text-[11px] text-slate-500">{node.subtitle}</p>}
               </div>
+
+              {/* ── Arrow connector to next node ── */}
+              {!isLastRow && (
+                <div className="relative flex items-center gap-1" style={{ paddingLeft: `${connectorLeftPx}px`, paddingTop: 2, paddingBottom: 2 }}>
+                  {/* Vertical line + arrowhead */}
+                  <div className="flex flex-col items-center">
+                    <div className="w-px bg-slate-200" style={{ height: 6 }} />
+                    <svg width="9" height="6" viewBox="0 0 9 6" fill="none">
+                      <path
+                        d="M0.5 0.5L4.5 5L8.5 0.5"
+                        stroke={nextRow ? nodeCfg(nextRow.node.tone, nextRow.depth, nextRow.node.subtitle).line : '#cbd5e1'}
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                  {/* "assigned" label only for parent→child steps */}
+                  {nextRow && nextRow.depth > depth && (
+                    <span className="text-[9px] font-semibold uppercase tracking-widest text-slate-300">
+                      assigned
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
