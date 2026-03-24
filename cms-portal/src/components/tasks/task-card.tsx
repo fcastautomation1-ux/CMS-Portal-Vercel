@@ -379,7 +379,7 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   const lineOffset = 18
 
   return (
-    <div className="hidden w-[220px] shrink-0 md:flex">
+    <div className="hidden w-[220px] shrink-0 self-start md:flex">
       <div className="relative w-full rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fdfefe_100%)] px-2 py-2">
         {rows.map(({ node, depth, pathHasNext, isLast }) => {
           const ringCls =
@@ -487,6 +487,7 @@ export function TaskCard({
   const [dialogSearch, setDialogSearch] = useState('')
   const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
   const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
+  const [expandedAssigneeNotes, setExpandedAssigneeNotes] = useState<Set<string>>(() => new Set())
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -726,6 +727,15 @@ export function TaskCard({
     }
   }
 
+  const toggleAssigneeNote = (username: string) => {
+    setExpandedAssigneeNotes((prev) => {
+      const next = new Set(prev)
+      if (next.has(username)) next.delete(username)
+      else next.add(username)
+      return next
+    })
+  }
+
   if (compact) {
     return (
       <div
@@ -952,6 +962,8 @@ export function TaskCard({
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
                     const status = isCompleted ? 'accepted' : (assignee.status || 'pending')
                     const assigneeStepOwner = (getAssignmentStepOwner(task, assignee.username) || '').toLowerCase()
+                    const assigneeNote = getAssignmentStepNote(task, assignee.username)
+                    const noteExpanded = expandedAssigneeNotes.has(assignee.username)
                     const canReviewAssignee = assigneeStepOwner === currentUsername.toLowerCase() || isCreator
                     const assigneeDueDate = assignee.actual_due_date || null
                     const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
@@ -974,7 +986,7 @@ export function TaskCard({
                                 By {getAssignmentStepOwner(task, assignee.username)}
                               </span>
                             )}
-                            {getAssignmentStepNote(task, assignee.username) && (
+                            {assigneeNote && (
                               <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
                                 Note by {getAssignmentStepOwner(task, assignee.username) || 'User'}
                               </span>
@@ -998,9 +1010,20 @@ export function TaskCard({
                               </span>
                             )}
                           </div>
-                          {getAssignmentStepNote(task, assignee.username) && (
-                            <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-900">
-                              {getAssignmentStepNote(task, assignee.username)}
+                          {assigneeNote && (
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleAssigneeNote(assignee.username)}
+                                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700 transition-colors hover:bg-amber-100"
+                              >
+                                {noteExpanded ? 'Hide Comment' : 'Show Comment'}
+                              </button>
+                              {noteExpanded && (
+                                <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-900">
+                                  {assigneeNote}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1220,7 +1243,7 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-row items-center justify-end gap-1.5 border-t border-slate-200/80 px-4 py-3 opacity-90 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-4 md:flex-col md:justify-center">
+        <div className="flex shrink-0 flex-row items-center justify-end gap-2 border-t border-slate-200/80 px-4 py-3 opacity-95 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:bg-slate-50/50 md:px-2 md:py-3 md:flex-col md:justify-center">
           {unread.length > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               <span className="relative inline-flex h-2.5 w-2.5">
@@ -1235,19 +1258,19 @@ export function TaskCard({
               <MessageCircle size={10} />{comments.length}
             </span>
           )}
-          <button onClick={() => onViewDetail(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-500" title="View">
+          <button onClick={() => onViewDetail(task)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600" title="View">
             <Eye size={14} />
           </button>
           {isCreator && (
-            <button onClick={() => onEdit(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Edit">
+            <button onClick={() => onEdit(task)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 hover:text-slate-800" title="Edit">
               <Edit3 size={13} />
             </button>
           )}
-          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Duplicate">
+          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 hover:text-slate-800" title="Duplicate">
             <Copy size={13} />
           </button>
           {isCreator && !isCompleted && (
-            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Delete">
+            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
               <Trash2 size={13} />
             </button>
           )}
