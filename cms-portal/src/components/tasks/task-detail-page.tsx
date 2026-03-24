@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -42,7 +42,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
-import type { Todo, TodoDetails, HistoryEntry } from '@/types'
+import type { Todo, TodoDetails, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import { CreateTaskModal } from './create-task-modal'
 import {
   acknowledgeTaskAction,
@@ -390,29 +390,59 @@ function buildWorkflowTree(task: TodoDetails): WorkflowTreeNode[] {
   }
 
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
-    task.multi_assignment.assignees.forEach((entry, index) => {
-      if (latestKeyByUser.has(entry.username.toLowerCase())) return
-      const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
-      const parentKey = latestKeyByUser.get(owner.toLowerCase()) || root.key
+    // Multi-pass: if the parent node is also in the assignee list but processed later,
+    // defer and retry so children are always placed under the correct parent.
+    const indexed = task.multi_assignment.assignees.map((entry, index) => ({ entry, index }))
+    let remaining = indexed.filter(({ entry }) => !latestKeyByUser.has(entry.username.toLowerCase()))
+    let passLimit = remaining.length + 1
+    while (remaining.length > 0 && passLimit-- > 0) {
+      const nextRound: Array<{ entry: MultiAssignmentEntry; index: number }> = []
+      for (const { entry, index } of remaining) {
+        const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
+        const parentKey = latestKeyByUser.get(owner.toLowerCase())
+        if (!parentKey) {
+          nextRound.push({ entry, index })
+          continue
+        }
+        const entryStatus = String(entry.status || '').toLowerCase()
+        const status: WorkflowTreeNode['status'] =
+          entryStatus === 'in_progress' || entryStatus === 'completed' || entryStatus === 'accepted'
+            ? 'claimed'
+            : entryStatus === 'pending' || entryStatus === 'rejected'
+              ? 'pending'
+              : 'assigned'
+        addChild(parentKey, {
+          key: `multi:${index}:${entry.username}`,
+          label: entry.username,
+          tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+          status,
+          timestamp: entry.assigned_at ?? entry.completed_at ?? null,
+          avatarUrl: task.participant_avatars?.[entry.username] ?? null,
+          title: `Multi-assigned to ${entry.username}`,
+          subtitle: `From ${owner}`,
+          focusTarget: entry.username,
+        })
+      }
+      remaining = nextRound
+    }
+    // Fallback: any still-unresolvable nodes (e.g. circular) go under root
+    for (const { entry, index } of remaining) {
       const entryStatus = String(entry.status || '').toLowerCase()
       const status: WorkflowTreeNode['status'] =
         entryStatus === 'in_progress' || entryStatus === 'completed' || entryStatus === 'accepted'
-          ? 'claimed'
-          : entryStatus === 'pending' || entryStatus === 'rejected'
-            ? 'pending'
-            : 'assigned'
-      addChild(parentKey, {
+          ? 'claimed' : 'assigned'
+      addChild(root.key, {
         key: `multi:${index}:${entry.username}`,
         label: entry.username,
-        tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+        tone: 'multi',
         status,
         timestamp: entry.assigned_at ?? entry.completed_at ?? null,
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `From ${owner}`,
+        subtitle: `From ${creator}`,
         focusTarget: entry.username,
       })
-    })
+    }
   }
 
   if (task.queue_status === 'queued' && task.queue_department && !latestKeyByUser.has(task.queue_department.toLowerCase())) {
@@ -465,25 +495,88 @@ function WorkflowTree({
   nodes: WorkflowTreeNode[]
   onNodeClick: (node: WorkflowTreeNode) => void
 }) {
-  if (nodes.length === 0) return null
-
-  const { layoutNodes, edges, maxDepth, maxRow } = buildWorkflowLayout(nodes)
-  const columns = maxDepth + 1
   const cardWidth = 224
   const cardHeight = 124
   const colGap = 124
   const rowGap = 36
   const leftPad = 22
   const topPad = 18
-  const width = leftPad * 2 + columns * cardWidth + Math.max(0, columns - 1) * colGap
-  const height = topPad * 2 + (maxRow + 1) * cardHeight + maxRow * rowGap
 
-  const nodePosition = new Map<string, { x: number; y: number }>()
-  layoutNodes.forEach((entry) => {
-    const x = leftPad + entry.depth * (cardWidth + colGap)
-    const y = topPad + entry.row * (cardHeight + rowGap)
-    nodePosition.set(entry.node.key, { x, y })
-  })
+  const { layoutNodes, edges } = useMemo(() => buildWorkflowLayout(nodes), [nodes])
+
+  const layoutPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>()
+    layoutNodes.forEach((entry) => {
+      map.set(entry.node.key, {
+        x: leftPad + entry.depth * (cardWidth + colGap),
+        y: topPad + entry.row * (cardHeight + rowGap),
+      })
+    })
+    return map
+  }, [layoutNodes])
+
+  const [dragOverrides, setDragOverrides] = useState<Map<string, { x: number; y: number }>>(() => new Map())
+
+  const prevKeysRef = useRef('')
+  useEffect(() => {
+    const keys = layoutNodes.map((n) => n.node.key).join(',')
+    if (keys !== prevKeysRef.current) {
+      prevKeysRef.current = keys
+      setDragOverrides(new Map())
+    }
+  }, [layoutNodes])
+
+  const draggingRef = useRef<{
+    key: string
+    startMouseX: number
+    startMouseY: number
+    origX: number
+    origY: number
+  } | null>(null)
+  const hasDragged = useRef(false)
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!draggingRef.current) return
+    const dx = e.clientX - draggingRef.current.startMouseX
+    const dy = e.clientY - draggingRef.current.startMouseY
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasDragged.current = true
+    setDragOverrides((prev) => {
+      const next = new Map(prev)
+      next.set(draggingRef.current!.key, {
+        x: Math.max(0, draggingRef.current!.origX + dx),
+        y: Math.max(0, draggingRef.current!.origY + dy),
+      })
+      return next
+    })
+  }, [])
+
+  const handleMouseUp = useCallback(() => {
+    draggingRef.current = null
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [handleMouseMove, handleMouseUp])
+
+  const { canvasWidth, canvasHeight } = useMemo(() => {
+    let maxX = 0
+    let maxY = 0
+    layoutNodes.forEach(({ node }) => {
+      const pos = dragOverrides.get(node.key) ?? layoutPositions.get(node.key)
+      if (pos) {
+        maxX = Math.max(maxX, pos.x + cardWidth + leftPad)
+        maxY = Math.max(maxY, pos.y + cardHeight + topPad)
+      }
+    })
+    return { canvasWidth: Math.max(maxX, 300), canvasHeight: Math.max(maxY, 160) }
+  }, [dragOverrides, layoutPositions, layoutNodes])
+
+  if (nodes.length === 0) return null
 
   const chipStyle: Record<WorkflowTreeNode['status'], string> = {
     start: 'bg-[#1137C8] text-white',
@@ -500,14 +593,17 @@ function WorkflowTree({
   }
 
   return (
-    <div className="rounded-[26px] border border-slate-200 bg-[#EEF1F6] p-4 md:p-5">
-      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Assignment Flow</div>
-      <div className="overflow-x-auto pb-2">
-        <div className="relative" style={{ width: `${width}px`, height: `${height}px` }}>
-          <svg className="pointer-events-none absolute inset-0" width={width} height={height}>
+    <div className="rounded-[26px] border border-slate-200 bg-[#EEF1F6] p-4 md:p-5 select-none">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Assignment Flow</span>
+        <span className="text-[10px] text-slate-400">· drag nodes to reposition</span>
+      </div>
+      <div className="overflow-auto pb-2">
+        <div className="relative" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
+          <svg className="pointer-events-none absolute inset-0" width={canvasWidth} height={canvasHeight}>
             {edges.map((edge) => {
-              const from = nodePosition.get(edge.from)
-              const to = nodePosition.get(edge.to)
+              const from = dragOverrides.get(edge.from) ?? layoutPositions.get(edge.from)
+              const to = dragOverrides.get(edge.to) ?? layoutPositions.get(edge.to)
               if (!from || !to) return null
               const startX = from.x + cardWidth
               const startY = from.y + cardHeight / 2
@@ -530,7 +626,7 @@ function WorkflowTree({
           </svg>
 
           {layoutNodes.map(({ node }) => {
-            const pos = nodePosition.get(node.key)
+            const pos = dragOverrides.get(node.key) ?? layoutPositions.get(node.key)
             if (!pos) return null
 
             const avatarTone =
@@ -543,18 +639,36 @@ function WorkflowTree({
                     : 'bg-white text-slate-700'
 
             return (
-              <button
+              <div
                 key={node.key}
-                type="button"
-                onClick={() => onNodeClick(node)}
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  'group absolute rounded-[20px] border bg-white px-4 py-3 text-left shadow-[0_10px_26px_rgba(16,24,40,0.08)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(16,24,40,0.12)]',
+                  'absolute rounded-[20px] border bg-white px-4 py-3 cursor-grab active:cursor-grabbing shadow-[0_10px_26px_rgba(16,24,40,0.08)] hover:shadow-[0_14px_34px_rgba(16,24,40,0.12)]',
                   node.status === 'start' ? 'border-[#1E48D9] ring-1 ring-[#C9D6FF]' : 'border-[#E5EAF2]',
                   node.status === 'claimed' && 'ring-1 ring-blue-100',
                   node.status === 'pending' && 'opacity-70'
                 )}
                 style={{ left: `${pos.x}px`, top: `${pos.y}px`, width: `${cardWidth}px`, minHeight: `${cardHeight}px` }}
-                title={node.title}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  const currentPos = dragOverrides.get(node.key) ?? layoutPositions.get(node.key)
+                  if (!currentPos) return
+                  hasDragged.current = false
+                  draggingRef.current = {
+                    key: node.key,
+                    startMouseX: e.clientX,
+                    startMouseY: e.clientY,
+                    origX: currentPos.x,
+                    origY: currentPos.y,
+                  }
+                }}
+                onClick={() => {
+                  if (!hasDragged.current) onNodeClick(node)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onNodeClick(node)
+                }}
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.11em]', chipStyle[node.status])}>
@@ -573,11 +687,11 @@ function WorkflowTree({
                     username={node.label}
                     avatarUrl={node.avatarUrl}
                     size="sm"
-                    className={cn('h-7 w-7 ring-1 ring-slate-200', avatarTone)}
+                    className={cn('h-7 w-7 ring-1 ring-slate-200 shrink-0', avatarTone)}
                   />
                   <span className="truncate text-[12px] text-slate-500">{node.title}</span>
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>
