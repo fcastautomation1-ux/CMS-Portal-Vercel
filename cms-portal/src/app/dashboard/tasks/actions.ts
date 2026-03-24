@@ -72,10 +72,91 @@ function getAttachmentStoragePath(row: Record<string, unknown>): string {
   return fileUrl
 }
 
+/**
+ * Normalizes assignment_chain entries from the old GAS format to the new Next.js format.
+ *
+ * Old GAS format:  { user (who completed), action, timestamp, level, status, review_status, feedback }
+ *                  - `user` is the ASSIGNEE who did the work, NOT the assigner
+ *                  - There is no `next_user` (chain direction is implicit)
+ *
+ * New format:      { user (assigner), role, assignedAt, next_user (assignee), feedback }
+ *                  - `user` assigns TO `next_user`
+ *
+ * Conversion strategy for old entries:
+ *  - If only one old entry exists: creator → assigned_to (single direct assignment)
+ *    → convert to: { user: creator, role: "assignee", assignedAt: timestamp, next_user: old.user }
+ *  - If multiple old entries: treat each as a sequential reassignment chain
+ *    → The chain was: creator → entry[0].user → entry[1].user → ...
+ *    → Each entry[i] was assigned BY entry[i-1].user (or creator for i=0)
+ */
+function normalizeAssignmentChain(
+  chain: AssignmentChainEntry[],
+  creatorUsername: string,
+  assignedTo: string | null,
+): AssignmentChainEntry[] {
+  if (!Array.isArray(chain) || chain.length === 0) return chain
+
+  // Check if any entry is in new format (has `next_user` or has no `action`)
+  const hasNewFormat = chain.some((entry) => entry.next_user !== undefined || (entry.role !== undefined && !entry.action))
+  if (hasNewFormat) {
+    // Already in new format (or mixed) — just ensure all entries have sane defaults
+    return chain.map((entry) => ({
+      ...entry,
+      assignedAt: entry.assignedAt ?? entry.timestamp ?? undefined,
+    }))
+  }
+
+  // All entries are in old GAS format — convert them
+  // Old entries: each entry.user is the person who took action (the assignee)
+  // Timestamps: use entry.timestamp (old field) as assignedAt
+  const normalized: AssignmentChainEntry[] = []
+
+  for (let i = 0; i < chain.length; i += 1) {
+    const entry = chain[i]
+    const actorUsername = String(entry.user || '').trim()
+    if (!actorUsername) continue
+
+    // The person who assigned this step = previous entry's actor, or creator for first step
+    const assignerUsername = i === 0 ? creatorUsername : String(chain[i - 1].user || '').trim() || creatorUsername
+
+    normalized.push({
+      user: assignerUsername,
+      role: 'assignee',
+      assignedAt: entry.timestamp ?? undefined,
+      next_user: actorUsername,
+      feedback: entry.feedback ?? undefined,
+      // Keep original legacy fields for reference
+      action: entry.action,
+      timestamp: entry.timestamp,
+      level: entry.level,
+      status: entry.status,
+      review_status: entry.review_status,
+    })
+  }
+
+  // If no old entries produced any assignee but assigned_to exists, add a synthetic entry
+  if (normalized.length === 0 && assignedTo && creatorUsername) {
+    normalized.push({
+      user: creatorUsername,
+      role: 'assignee',
+      assignedAt: undefined,
+      next_user: assignedTo,
+    })
+  }
+
+  return normalized
+}
+
 function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
   const t = raw as unknown as Todo
   t.history = parseJson<HistoryEntry[]>(raw.history, [])
-  t.assignment_chain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
+  const rawChain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
+  // Normalize the chain to ensure it's in the new format regardless of what was stored
+  t.assignment_chain = normalizeAssignmentChain(
+    rawChain,
+    String(raw.username || '').trim(),
+    raw.assigned_to ? String(raw.assigned_to).trim() : null,
+  )
   t.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
   t.approval_chain = parseJson<ApprovalChainEntry[]>(raw.approval_chain, [])
   if (!t.archived) t.archived = false
@@ -88,6 +169,7 @@ function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
   }
   return t
 }
+
 
 function addHoursIso(baseIso: string, hours: number): string {
   const base = new Date(baseIso)

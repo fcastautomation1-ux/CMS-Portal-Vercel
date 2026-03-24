@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   ChevronDown,
+  ChevronUp,
   CheckSquare,
   Square,
   Trash2,
@@ -22,6 +23,11 @@ import {
   CircleCheckBig,
   Hourglass,
   AlertTriangle,
+  MessageCircle,
+  Eye,
+  Edit3,
+  Copy,
+  Calendar,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
@@ -39,6 +45,7 @@ import {
   getPackagesForTaskForm,
   getUsersForAssignment,
   getDepartmentsForTaskForm,
+  duplicateTodoAction,
 } from '@/app/dashboard/tasks/actions'
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
@@ -91,7 +98,7 @@ interface TasksBoardProps {
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'my_all', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -109,6 +116,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   const [, setShareTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
+  const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(currentUsername),
@@ -172,7 +180,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     return isTaskAssignedToUser(task, username)
   }, [isTaskAssignedToUser])
 
-  // ── Active KPI (computed from filter state — syncs all filters) ──────────────
+  // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const activeKpi = useMemo(() => {
     if (statusFilter === 'all') return 'total'
     if (statusFilter === 'completed') return 'completed'
@@ -282,10 +290,15 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   }, [scopedTasksForKpis])
 
   const scopeLabel = useMemo(() => {
-    if (quickFilter === 'created_by_me') return 'My Assign Task'
-    if (quickFilter === 'assigned_to_me') return 'Assign To Me'
+    if (quickFilter === 'created_by_me') return 'My Created task'
+    if (quickFilter === 'assigned_to_me') return 'Assign to me tasks'
     return 'My Tasks'
   }, [quickFilter])
+
+  const dropdownScopeCounts = useMemo(() => ({
+    created_by_me: tasks.filter((t) => matchesPersonalScope(t, 'created_by_me', effectiveUser)).length,
+    assigned_to_me: tasks.filter((t) => matchesPersonalScope(t, 'assigned_to_me', effectiveUser)).length,
+  }), [tasks, matchesPersonalScope, effectiveUser])
 
   const filteredTasks = useMemo(() => {
     const now = new Date()
@@ -512,17 +525,47 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
         <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
             <div className="flex min-w-0 items-center">
-              <span className="text-sm font-semibold text-slate-400">{scopeLabel}</span>
-              {overdueApprovals.length > 0 && (
+              <div className="relative">
                 <button
-                  onClick={() => router.replace('/dashboard/tasks?scope=my_approval&status=all', { scroll: false })}
-                  className="ml-3 inline-flex items-center gap-1.5 rounded-full border border-[#FECDD3] bg-[#FFF1F2] px-3 py-1.5 text-xs font-semibold text-[#BE123C] transition hover:bg-[#ffe4e8]"
-                  title={`${overdueApprovals.length} approval SLA item(s) are overdue`}
+                  type="button"
+                  className="flex items-center gap-2 rounded-lg border border-[#d9e2f0] bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#c4d3ef] hover:bg-slate-50"
+                  onClick={() => setScopeDropdownOpen((v) => !v)}
                 >
-                  <AlertTriangle size={12} />
-                  {overdueApprovals.length} approval SLA overdue
+                  {scopeLabel}
+                  <ChevronDown size={14} className={cn('text-slate-400 transition-transform', scopeDropdownOpen && 'rotate-180')} />
                 </button>
-              )}
+                {scopeDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setScopeDropdownOpen(false)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 min-w-[230px] rounded-xl border border-[#d9e2f0] bg-white py-1 shadow-[0_8px_30px_rgba(25,42,89,0.12)]">
+                      {([
+                        { scope: 'assigned_to_me' as const, label: 'Assign to me tasks', count: dropdownScopeCounts.assigned_to_me },
+                        { scope: 'created_by_me' as const, label: 'My Created task', count: dropdownScopeCounts.created_by_me },
+                      ]).map((option) => (
+                        <button
+                          key={option.scope}
+                          onClick={() => {
+                            router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
+                            setScopeDropdownOpen(false)
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50',
+                            quickFilter === option.scope ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          <span className={cn(
+                            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                            quickFilter === option.scope ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                          )}>
+                            {option.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
             <div className="inline-flex items-center rounded-xl border border-[#d9e2f0] bg-white p-1 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
@@ -772,9 +815,9 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Todo[]; onTaskClick: (tas
   return (
     <div className="max-w-5xl px-1 py-4">
       <div className="mb-4 flex items-center gap-4">
-        <button onClick={prevMonth} className="rounded-lg p-1.5 text-lg font-bold text-slate-500 hover:bg-slate-100">‹</button>
+        <button onClick={prevMonth} className="rounded-lg p-1.5 text-lg font-bold text-slate-500 hover:bg-slate-100">\u2039</button>
         <span className="font-bold text-slate-800">{monthLabel}</span>
-        <button onClick={nextMonth} className="rounded-lg p-1.5 text-lg font-bold text-slate-500 hover:bg-slate-100">›</button>
+        <button onClick={nextMonth} className="rounded-lg p-1.5 text-lg font-bold text-slate-500 hover:bg-slate-100">\u203a</button>
         <button onClick={() => { setCalMonth(today.getMonth()); setCalYear(today.getFullYear()) }} className="ml-2 text-xs text-blue-600 hover:underline">Today</button>
       </div>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">

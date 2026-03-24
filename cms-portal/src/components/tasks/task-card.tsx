@@ -12,7 +12,7 @@ import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
-  ChevronDown, ChevronUp, MessageCircle,
+  ChevronDown, ChevronUp, MessageCircle, CircleCheckBig,
   Calendar, User, Clock,
 } from 'lucide-react'
 import {
@@ -270,7 +270,30 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
     if (!target) return
     const actor = String(entry.user || '').trim()
     const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
-    const parentKey = latestKeyByUser.get(actor.toLowerCase()) || fallbackParentKey
+
+    let parentKey = latestKeyByUser.get(actor.toLowerCase())
+
+    // If actor is not yet in the tree (i.e. the initial assignment creator→actor was stored in
+    // task.assigned_to rather than in assignment_chain), auto-insert the actor as a bridge node
+    // so that the target becomes actor's child, not creator's child.
+    if (!parentKey && actor && actor.toLowerCase() !== creator.toLowerCase()) {
+      const autoKey = `auto-actor:${actor}`
+      const isCurrentOwner = actor.toLowerCase() === (task.assigned_to || '').toLowerCase()
+      const actorNode: WorkflowRailNode = {
+        key: autoKey,
+        label: actor,
+        tone: isCurrentOwner && task.task_status === 'in_progress' ? 'active' : 'user',
+        avatarUrl: task.participant_avatars?.[actor] ?? null,
+        title: `Assigned to ${actor}`,
+        subtitle: isCurrentOwner ? `Current owner · From ${creator}` : `From ${creator}`,
+        focusTarget: actor,
+      }
+      addChild(fallbackParentKey, actorNode)
+      fallbackParentKey = autoKey
+      parentKey = autoKey
+    }
+
+    parentKey = parentKey ?? fallbackParentKey
     const node: WorkflowRailNode = {
       key: `step:${index}:${target}`,
       label: target,
@@ -291,26 +314,48 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: task.task_status === 'in_progress' ? 'active' : 'user',
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
-      subtitle: 'Current owner',
+      subtitle: `Current owner · From ${creator}`,
       focusTarget: task.assigned_to,
     })
   }
 
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
-    task.multi_assignment.assignees.forEach((entry, index) => {
-      if (latestKeyByUser.has(entry.username.toLowerCase())) return
-      const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
-      const parentKey = latestKeyByUser.get(owner.toLowerCase()) || root.key
-      addChild(parentKey, {
+    // Multi-pass: defer child nodes until their parent user node exists.
+    const indexed = task.multi_assignment.assignees.map((entry, index) => ({ entry, index }))
+    let remaining = indexed.filter(({ entry }) => !latestKeyByUser.has(entry.username.toLowerCase()))
+    let passLimit = remaining.length + 1
+    while (remaining.length > 0 && passLimit-- > 0) {
+      const nextRound: Array<{ entry: MultiAssignmentEntry; index: number }> = []
+      for (const { entry, index } of remaining) {
+        const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
+        const parentKey = latestKeyByUser.get(owner.toLowerCase())
+        if (!parentKey) {
+          nextRound.push({ entry, index })
+          continue
+        }
+        addChild(parentKey, {
+          key: `multi:${index}:${entry.username}`,
+          label: entry.username,
+          tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+          avatarUrl: task.participant_avatars?.[entry.username] ?? null,
+          title: `Multi-assigned to ${entry.username}`,
+          subtitle: `From ${owner}`,
+          focusTarget: entry.username,
+        })
+      }
+      remaining = nextRound
+    }
+    for (const { entry, index } of remaining) {
+      addChild(root.key, {
         key: `multi:${index}:${entry.username}`,
         label: entry.username,
-        tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+        tone: 'multi',
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `From ${owner}`,
+        subtitle: `From ${creator}`,
         focusTarget: entry.username,
       })
-    })
+    }
   }
 
   if (task.queue_status === 'queued' && task.queue_department && !latestKeyByUser.has(task.queue_department.toLowerCase())) {
@@ -338,13 +383,15 @@ function flattenWorkflowTree(
   nodes: WorkflowRailNode[],
   depth = 0,
   pathHasNext: boolean[] = []
-): WorkflowRailRow[] {
-  const rows: WorkflowRailRow[] = []
+): (WorkflowRailRow & { isLastSib: boolean })[] {
+  const rows: (WorkflowRailRow & { isLastSib: boolean })[] = []
   nodes.forEach((node, index) => {
-    const isLast = index === nodes.length - 1
-    rows.push({ node, depth, pathHasNext, isLast })
+    const isLastSib = index === nodes.length - 1
+    // pathHasNext stores whether ancestors have next siblings. 
+    // We add !isLastSib to pathHasNext for our children to know if we have a next sibling.
+    rows.push({ node, depth, pathHasNext: [...pathHasNext, !isLastSib], isLastSib, isLast: isLastSib })
     if (node.children?.length) {
-      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLast]))
+      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLastSib]))
     }
   })
   return rows
@@ -352,89 +399,135 @@ function flattenWorkflowTree(
 
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
-  const rows = flattenWorkflowTree(nodes).slice(0, 8)
-const indent = 30
-  const lineOffset = 18
+  const rows = flattenWorkflowTree(nodes).slice(0, 9)
+  const INDENT = 24
+
+  function nodeCfg(tone: WorkflowRailNode['tone'], depth: number, subtitle?: string) {
+    const isOwner = subtitle?.toLowerCase().includes('owner')
+    if (isOwner || tone === 'active') return {
+      ring:    'border-blue-500',
+      glow:    '',
+      dot:     'bg-blue-500',
+      name:    'text-blue-600',
+      av:      'bg-blue-50 text-blue-600',
+    }
+    if (tone === 'department') return {
+      ring:    'border-emerald-400',
+      glow:    '',
+      dot:     'bg-emerald-400',
+      name:    'text-slate-700',
+      av:      'bg-emerald-50 text-emerald-600',
+    }
+    if (tone === 'multi') return {
+      ring:    'border-cyan-400',
+      glow:    '',
+      dot:     'bg-cyan-400',
+      name:    'text-slate-700',
+      av:      'bg-cyan-50 text-cyan-600',
+    }
+    if (depth === 0) return {
+      ring:    'border-slate-300',
+      glow:    '',
+      dot:     'bg-slate-400',
+      name:    'text-slate-700',
+      av:      'bg-slate-100 text-slate-600',
+    }
+    return {
+      ring:    'border-cyan-400',
+      glow:    '',
+      dot:     'bg-cyan-400',
+      name:    'text-slate-800',
+      av:      'bg-cyan-50 text-cyan-600',
+    }
+  }
 
   return (
-    <div className="hidden w-[220px] shrink-0 md:flex">
-      <div className="relative w-full py-2">
-        {rows.map(({ node, depth, pathHasNext, isLast }) => {
-          const ringCls =
-            node.tone === 'active'
-              ? 'ring-2 ring-blue-500/20'
-              : node.tone === 'department'
-                ? 'ring-2 ring-emerald-500/20'
-                : node.tone === 'multi'
-                  ? 'ring-2 ring-cyan-500/20'
-                  : 'ring-2 ring-white/50'
-          const centerX = lineOffset + depth * indent
-          const parentCenterX = centerX - indent
-          const ancestorGuides = depth > 0 ? pathHasNext.slice(0, -1) : pathHasNext
+    <div className="w-full rounded-[24px] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+      <div className="h-[2px] w-full rounded-full bg-blue-500" />
+      <div className="pt-3">
+        {rows.map(({ node, depth, pathHasNext, isLastSib }) => {
+          const cfg = nodeCfg(node.tone, depth, node.subtitle)
+          const indentPx = depth * INDENT
 
           return (
-            <div key={node.key} className="group/rail relative min-h-[64px]" title={node.title}>
-              {ancestorGuides.map((hasNext, level) =>
-                hasNext ? (
-                  <div
-                    key={`${node.key}-guide-${level}`}
-                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-slate-200"
-                    style={{ left: `${lineOffset + level * indent}px` }}
-                  />
-                ) : null
-              )}
+            <div key={node.key} className="relative group/n">
+              {/* 1. Ancestor vertical lines passing through */}
+              {depth > 0 && pathHasNext.slice(0, -1).map((hasNext, level) => hasNext ? (
+                 <div
+                    key={`line-${level}`}
+                    className="absolute top-0 bottom-0 w-px bg-slate-200 pointer-events-none"
+                    style={{ left: `${(level * INDENT) + 31}px` }} 
+                 />
+              ) : null)}
+
+              {/* 2. Parent-to-child L-shape connector */}
               {depth > 0 && (
                 <>
+                  {/* Vertical stem from parent */}
                   <div
-                    className="pointer-events-none absolute top-0 h-1/2 w-px bg-slate-300"
-                    style={{ left: `${parentCenterX}px` }}
+                    className="absolute top-0 w-px bg-slate-200 pointer-events-none"
+                    style={{ 
+                      left: `${((depth - 1) * INDENT) + 31}px`,
+                      bottom: isLastSib ? '24px' : '0' 
+                    }}
                   />
-                  {!isLast && (
-                    <div
-                      className="pointer-events-none absolute top-1/2 bottom-0 w-px bg-slate-300"
-                      style={{ left: `${parentCenterX}px` }}
-                    />
-                  )}
+                  {/* Horizontal branch to child */}
                   <div
-                    className="pointer-events-none absolute top-1/2 h-px bg-slate-300"
-                    style={{ left: `${parentCenterX}px`, width: `${indent}px` }}
-                  />
+                    className="absolute top-1/2 h-px bg-slate-200 pointer-events-none flex items-center justify-end"
+                    style={{ 
+                      left: `${((depth - 1) * INDENT) + 31}px`,
+                      width: `${INDENT - 8}px`,
+                    }}
+                  >
+                    {/* Tiny arrow head */}
+                    <svg width="5" height="7" viewBox="0 0 5 7" fill="none" className="-mr-[1px]">
+                      <path d="M1 1L4 3.5L1 6" stroke="#d7dee9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
                 </>
               )}
+
+              {/* ── Avatar row button ── */}
               <button
                 type="button"
                 onClick={() => onNodeClick(node)}
-                className="relative flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-slate-50"
-                style={{ marginLeft: `${depth * indent}px` }}
+                title={node.title}
+                className="flex w-full items-center gap-3 rounded-[16px] px-2 py-2 text-left transition-all hover:bg-slate-50/80"
+                style={{ paddingLeft: `${indentPx + 10}px` }}
               >
-                <div className="relative shrink-0">
+                {/* Avatar circle */}
+                <div className={cn(
+                  'relative h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 bg-white transition-transform duration-150 group-hover/n:scale-105',
+                  cfg.ring, cfg.glow
+                )}>
                   <UserAvatar
                     username={node.label}
                     avatarUrl={node.avatarUrl}
                     size="sm"
-                    className={cn(
-                      'shadow-sm transition-transform group-hover/rail:scale-105',
-                      node.tone === 'department' && 'bg-emerald-100 text-emerald-700',
-                      node.tone === 'multi' && 'bg-cyan-100 text-cyan-700',
-                      node.tone === 'active' && 'bg-blue-100 text-blue-700',
-                      ringCls
-                    )}
+                    className={cn('h-full w-full', cfg.av)}
                   />
+                  {/* Status dot */}
+                  <span className={cn(
+                    'absolute -bottom-px -right-px h-2 w-2 rounded-full border-[1.5px] border-white',
+                    cfg.dot
+                  )} />
                 </div>
+
+                {/* Name + subtitle */}
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-bold text-slate-800">
+                  <p className={cn('truncate text-[12px] font-bold leading-tight', cfg.name)}>
                     {node.label}
-                  </div>
+                  </p>
                   {node.subtitle && (
-                    <div className="truncate text-[10px] leading-tight text-slate-400">
-                      {node.subtitle}
-                    </div>
+                    <p className="truncate text-[11px] leading-tight text-slate-400">{node.subtitle}</p>
                   )}
                 </div>
               </button>
-              <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden w-52 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)] group-hover/rail:block">
-                <div className="text-xs font-semibold text-slate-900">{node.title}</div>
-                {node.subtitle && <div className="mt-1 text-[11px] leading-5 text-slate-500">{node.subtitle}</div>}
+
+              {/* Hover tooltip */}
+              <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-44 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_28px_rgba(15,23,42,0.12)] group-hover/n:block">
+                <p className="text-[11px] font-semibold text-slate-800">{node.title}</p>
+                {node.subtitle && <p className="mt-0.5 text-[10px] text-slate-500">{node.subtitle}</p>}
               </div>
             </div>
           )
@@ -465,6 +558,8 @@ export function TaskCard({
   const [dialogSearch, setDialogSearch] = useState('')
   const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
   const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
+  const [expandedAssigneeNotes, setExpandedAssigneeNotes] = useState<Set<string>>(() => new Set())
+  const [showRail, setShowRail] = useState(true)
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -541,7 +636,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showReopenBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
@@ -554,6 +649,7 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
+  const completionLabel = task.completed_at ? `Completed ${fmtDate(task.completed_at)}` : 'Completed'
   const currentStepOwner =
     taskDialog?.type === 'step-edit'
       ? getAssignmentStepOwner(task, taskDialog.assigneeUsername)
@@ -703,13 +799,22 @@ export function TaskCard({
     }
   }
 
+  const toggleAssigneeNote = (username: string) => {
+    setExpandedAssigneeNotes((prev) => {
+      const next = new Set(prev)
+      if (next.has(username)) next.delete(username)
+      else next.add(username)
+      return next
+    })
+  }
+
   if (compact) {
     return (
       <div
         className={cn(
           'overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition-all hover:border-blue-300 hover:shadow-sm cursor-pointer',
           isPending && 'pointer-events-none opacity-60',
-          isCompleted && 'opacity-60'
+          isCompleted && 'border-green-200 bg-green-50 opacity-80'
         )}
         onClick={() => onViewDetail(task)}
       >
@@ -735,6 +840,12 @@ export function TaskCard({
             <Calendar size={10} /> {fmtShort(task.due_date)}
           </p>
         )}
+        {isCompleted && (
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-green-700">
+            <CircleCheckBig size={11} />
+            Done
+          </div>
+        )}
       </div>
     )
   }
@@ -745,12 +856,37 @@ export function TaskCard({
       'group/row relative flex overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.06)] transition-all',
       'flex-col md:flex-row',
       isPending && 'pointer-events-none opacity-60',
-      isCompleted ? 'bg-slate-50/70' : 'hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
+      isCompleted
+        ? 'border-green-200 bg-green-50/40 shadow-[0_12px_28px_rgba(15,23,42,0.06)]'
+        : 'hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)]'
     )}>
       <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
-        <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
+        {workflowNodes.length > 0 && (
+          <div className="hidden w-[208px] shrink-0 self-start md:block">
+            <button
+              type="button"
+              onClick={() => setShowRail((v) => !v)}
+              className="mb-3 flex w-full items-center justify-between rounded-full border border-slate-200 bg-white px-4 py-2 text-left shadow-[0_2px_10px_rgba(15,23,42,0.04)] transition-all hover:bg-slate-50"
+            >
+              <div className="flex items-center gap-2">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-slate-400 opacity-80">
+                  <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                    <circle cx="3" cy="2" r="1.25" fill="currentColor"/>
+                    <line x1="3" y1="4" x2="3" y2="8" stroke="currentColor" strokeWidth="1" strokeOpacity="0.45"/>
+                    <circle cx="3" cy="10" r="1.25" fill="currentColor"/>
+                  </svg>
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Queue Task Chain</span>
+              </div>
+              {showRail
+                ? <ChevronUp size={13} className="text-slate-400" />
+                : <ChevronDown size={13} className="text-slate-400" />}
+            </button>
+            {showRail && <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
@@ -882,16 +1018,6 @@ export function TaskCard({
                   Complete
                 </ActBtn>
               )}
-              {showReopenBtn && (
-                <ActBtn
-                  onClick={() => {
-                    setShowCreatorReopenConfirm(true)
-                  }}
-                  color="amber"
-                >
-                  Reopen Task
-                </ActBtn>
-              )}
               {showApproveBtn && (
                 <>
                   <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green">Approve</ActBtn>
@@ -909,7 +1035,7 @@ export function TaskCard({
               >
                 <div className="min-w-0 flex-1 pr-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Multi Assignment</span>
+                    <span className={cn('text-xs font-semibold uppercase tracking-[0.14em]', isCompleted ? 'text-green-700' : 'text-slate-400')}>Multi Assignment</span>
                     <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-700">
                       {ma.assignees.length} Assignee{ma.assignees.length !== 1 ? 's' : ''}
                     </span>
@@ -931,6 +1057,8 @@ export function TaskCard({
                   {ma.assignees.map((assignee: MultiAssignmentEntry, i: number) => {
                     const status = isCompleted ? 'accepted' : (assignee.status || 'pending')
                     const assigneeStepOwner = (getAssignmentStepOwner(task, assignee.username) || '').toLowerCase()
+                    const assigneeNote = getAssignmentStepNote(task, assignee.username)
+                    const noteExpanded = expandedAssigneeNotes.has(assignee.username)
                     const canReviewAssignee = assigneeStepOwner === currentUsername.toLowerCase() || isCreator
                     const assigneeDueDate = assignee.actual_due_date || null
                     const assigneeDueTime = assigneeDueDate ? fmtTime(assigneeDueDate) : ''
@@ -947,83 +1075,8 @@ export function TaskCard({
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
                           <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            {getAssignmentStepOwner(task, assignee.username) && (
-                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                                By {getAssignmentStepOwner(task, assignee.username)}
-                              </span>
-                            )}
-                            {getAssignmentStepNote(task, assignee.username) && (
-                              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
-                                Note by {getAssignmentStepOwner(task, assignee.username) || 'User'}
-                              </span>
-                            )}
-                            <span className={cn(
-                              'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold',
-                              assigneeOverdue
-                                ? 'border-red-200 bg-red-50 text-red-600'
-                                : 'border-slate-200 bg-slate-50 text-slate-600'
-                            )}>
-                              Due {fmtMaDue(assigneeDueDate)}
-                            </span>
-                            {assigneeDueTime && (
-                              <span className={cn(
-                                'inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium',
-                                assigneeOverdue
-                                  ? 'border-red-200 bg-red-50 text-red-500'
-                                  : 'border-slate-200 bg-white text-slate-500'
-                              )}>
-                                {assigneeDueTime}
-                              </span>
-                            )}
-                          </div>
-                          {getAssignmentStepNote(task, assignee.username) && (
-                            <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-900">
-                              {getAssignmentStepNote(task, assignee.username)}
-                            </div>
-                          )}
                         </div>
-                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
-                          {MA_LABEL[status] ?? status}
-                        </span>
-                        <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                          {((getAssignmentStepOwner(task, assignee.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
-                            <button
-                              onClick={() => {
-                                openTaskDialog({ type: 'step-edit', assigneeUsername: assignee.username })
-                                setDialogValue(assignee.actual_due_date ? assignee.actual_due_date.slice(0, 16) : '')
-                                setDialogExtraValue(getAssignmentStepNote(task, assignee.username))
-                              }}
-                              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {canReviewAssignee && assignee.status === 'completed' && (
-                            <>
-                              <button onClick={() => doAction(() => acceptMaAssigneeAction(task.id, assignee.username))} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">Accept</button>
-                              <button
-                                onClick={() => {
-                                  openTaskDialog({ type: 'reject-assignee', assigneeUsername: assignee.username })
-                                }}
-                                className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
-                              >
-                                Reject
-                              </button>
-                            </>
-                          )}
-                          {canReviewAssignee && assignee.status === 'accepted' && (
-                            <button
-                              onClick={() => {
-                                openTaskDialog({ type: 'reopen-assignee', assigneeUsername: assignee.username })
-                              }}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100"
-                            >
-                              Reopen
-                            </button>
-                          )}
-                          <button onClick={() => onViewDetail(task)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100">View</button>
-                        </div>
+
                         {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (
                           <div className="w-full rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-3">
                             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
@@ -1097,7 +1150,7 @@ export function TaskCard({
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-400">
+          <div className={cn('mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px]', isCompleted ? 'text-slate-500' : 'text-slate-400')}>
             <span className="flex items-center gap-1">
               <Clock size={10} className="shrink-0" />
               {fmtDate(task.created_at)}
@@ -1121,16 +1174,21 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border border-slate-200 bg-slate-50/80 p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between">
+        <div className={cn(
+          'flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between',
+          isCompleted ? 'border-green-200 bg-green-50/80' : 'border-slate-200 bg-slate-50/80'
+        )}>
           {!maEnabled && (
             <div className="text-left md:text-right">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Expected</div>
-              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-700')}>
+              <div className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', isCompleted ? 'text-green-700' : 'text-slate-400')}>
+                {isCompleted ? 'Finished' : 'Expected'}
+              </div>
+              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-700')}>
                 {task.due_date ? fmtShort(task.due_date) : 'No date'}
               </div>
               {task.due_date && (
-                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : 'text-slate-400')}>
-                  {fmtTime(task.due_date)}
+                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
+                  {isCompleted && task.completed_at ? fmtDate(task.completed_at) : fmtTime(task.due_date)}
                 </div>
               )}
             </div>
@@ -1148,6 +1206,9 @@ export function TaskCard({
             )}
             {completionTime && (
               <Badge label={`Time ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
+            )}
+            {isCompleted && (
+              <Badge label={completionLabel} cls="bg-green-50 text-green-700 border-green-200" />
             )}
             {showClaimBtn && (
               <button
@@ -1178,10 +1239,20 @@ export function TaskCard({
                 <ExternalLink size={10} /> Play Store
               </a>
             )}
+            {showReopenBtn && (
+              <button
+                onClick={() => {
+                  setShowCreatorReopenConfirm(true)
+                }}
+                className="inline-flex items-center justify-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                Reopen Task
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-row items-center justify-end gap-1.5 border-t border-slate-200/80 px-4 py-3 opacity-90 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:px-0 md:py-0 md:pl-4 md:flex-col md:justify-center">
+        <div className="flex shrink-0 flex-row items-center justify-end gap-2 border-t border-slate-200/80 px-4 py-3 opacity-95 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:bg-slate-50/50 md:px-2 md:py-3 md:flex-col md:justify-center">
           {unread.length > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               <span className="relative inline-flex h-2.5 w-2.5">
@@ -1196,19 +1267,19 @@ export function TaskCard({
               <MessageCircle size={10} />{comments.length}
             </span>
           )}
-          <button onClick={() => onViewDetail(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-500" title="View">
+          <button onClick={() => onViewDetail(task)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600" title="View">
             <Eye size={14} />
           </button>
           {isCreator && (
-            <button onClick={() => onEdit(task)} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Edit">
+            <button onClick={() => onEdit(task)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 hover:text-slate-800" title="Edit">
               <Edit3 size={13} />
             </button>
           )}
-          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Duplicate">
+          <button onClick={() => doAction(() => duplicateTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 hover:text-slate-800" title="Duplicate">
             <Copy size={13} />
           </button>
           {isCreator && !isCompleted && (
-            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Delete">
+            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
               <Trash2 size={13} />
             </button>
           )}

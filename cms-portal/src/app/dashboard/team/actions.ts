@@ -37,6 +37,46 @@ function parseJson<T>(value: unknown, fallback: T): T {
   return value as T
 }
 
+/** Converts old GAS-format assignment_chain entries to the new Next.js format. */
+function normalizeChainEntries(
+  chain: AssignmentChainEntry[],
+  creatorUsername: string,
+  assignedTo: string | null,
+): AssignmentChainEntry[] {
+  if (!Array.isArray(chain) || chain.length === 0) return chain
+  const hasNewFormat = chain.some((entry) => entry.next_user !== undefined || (entry.role !== undefined && !entry.action))
+  if (hasNewFormat) {
+    return chain.map((entry) => ({
+      ...entry,
+      assignedAt: entry.assignedAt ?? entry.timestamp ?? undefined,
+    }))
+  }
+  const normalized: AssignmentChainEntry[] = []
+  for (let i = 0; i < chain.length; i += 1) {
+    const entry = chain[i]
+    const actorUsername = String(entry.user || '').trim()
+    if (!actorUsername) continue
+    const assignerUsername = i === 0 ? creatorUsername : String(chain[i - 1].user || '').trim() || creatorUsername
+    normalized.push({
+      user: assignerUsername,
+      role: 'assignee',
+      assignedAt: entry.timestamp ?? undefined,
+      next_user: actorUsername,
+      feedback: entry.feedback ?? undefined,
+      action: entry.action,
+      timestamp: entry.timestamp,
+      level: entry.level,
+      status: entry.status,
+      review_status: entry.review_status,
+    })
+  }
+  if (normalized.length === 0 && assignedTo && creatorUsername) {
+    normalized.push({ user: creatorUsername, role: 'assignee', assignedAt: undefined, next_user: assignedTo })
+  }
+  return normalized
+}
+
+
 async function getTeamUsernames() {
   const user = await getSession()
   if (!user) return { user: null, memberUsernames: [] as string[] }
@@ -223,7 +263,13 @@ export async function getTeamTodos(): Promise<Todo[]> {
     .map((raw) => {
       const task = raw as unknown as Todo
       task.history = parseJson<HistoryEntry[]>(raw.history, [])
-      task.assignment_chain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
+      const rawChain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
+      // Normalize old GAS format → new format so the chain renders correctly
+      task.assignment_chain = normalizeChainEntries(
+        rawChain,
+        String(raw.username || '').trim(),
+        raw.assigned_to ? String(raw.assigned_to).trim() : null,
+      )
       task.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
       task.creator_department = deptMap.get((task.username || '').toLowerCase()) ?? null
       task.assignee_department = deptMap.get((task.assigned_to || '').toLowerCase()) ?? null
