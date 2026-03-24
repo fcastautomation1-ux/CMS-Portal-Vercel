@@ -116,6 +116,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   const [, setShareTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
+  const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(currentUsername),
@@ -293,6 +294,11 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     if (quickFilter === 'assigned_to_me') return 'Assign to me tasks'
     return 'My Tasks'
   }, [quickFilter])
+
+  const dropdownScopeCounts = useMemo(() => ({
+    created_by_me: tasks.filter((t) => matchesPersonalScope(t, 'created_by_me', effectiveUser)).length,
+    assigned_to_me: tasks.filter((t) => matchesPersonalScope(t, 'assigned_to_me', effectiveUser)).length,
+  }), [tasks, matchesPersonalScope, effectiveUser])
 
   const filteredTasks = useMemo(() => {
     const now = new Date()
@@ -523,38 +529,42 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
                 <button
                   type="button"
                   className="flex items-center gap-2 rounded-lg border border-[#d9e2f0] bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#c4d3ef] hover:bg-slate-50"
-                  onClick={(e) => {
-                    const dropdown = e.currentTarget.nextElementSibling as HTMLElement
-                    dropdown.classList.toggle('hidden')
-                  }}
+                  onClick={() => setScopeDropdownOpen((v) => !v)}
                 >
                   {scopeLabel}
-                  <ChevronDown size={14} className="text-slate-400" />
+                  <ChevronDown size={14} className={cn('text-slate-400 transition-transform', scopeDropdownOpen && 'rotate-180')} />
                 </button>
-                <div className="absolute left-0 top-full z-20 mt-1 hidden min-w-[200px] rounded-xl border border-[#d9e2f0] bg-white py-1 shadow-[0_8px_30px_rgba(25,42,89,0.12)]" onMouseLeave={(e) => e.currentTarget.classList.add('hidden')}>
-                  <button
-                    onClick={() => {
-                        router.replace(`/dashboard/tasks?scope=assigned_to_me&status=${statusFilter}`, { scroll: false })
-                    }}
-                    className={cn(
-                      'flex w-full items-center px-4 py-2 text-left text-sm transition-colors hover:bg-slate-50',
-                      quickFilter === 'assigned_to_me' ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
-                    )}
-                  >
-                    Assign to me tasks
-                  </button>
-                  <button
-                    onClick={() => {
-                        router.replace(`/dashboard/tasks?scope=created_by_me&status=${statusFilter}`, { scroll: false })
-                    }}
-                    className={cn(
-                      'flex w-full items-center px-4 py-2 text-left text-sm transition-colors hover:bg-slate-50',
-                      quickFilter === 'created_by_me' ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
-                    )}
-                  >
-                    My Created task
-                  </button>
-                </div>
+                {scopeDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setScopeDropdownOpen(false)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 min-w-[230px] rounded-xl border border-[#d9e2f0] bg-white py-1 shadow-[0_8px_30px_rgba(25,42,89,0.12)]">
+                      {([
+                        { scope: 'assigned_to_me' as const, label: 'Assign to me tasks', count: dropdownScopeCounts.assigned_to_me },
+                        { scope: 'created_by_me' as const, label: 'My Created task', count: dropdownScopeCounts.created_by_me },
+                      ]).map((option) => (
+                        <button
+                          key={option.scope}
+                          onClick={() => {
+                            router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
+                            setScopeDropdownOpen(false)
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50',
+                            quickFilter === option.scope ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          <span className={cn(
+                            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                            quickFilter === option.scope ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                          )}>
+                            {option.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
