@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState, useTransition, useCallback, useEffect, useMemo, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -38,7 +39,6 @@ import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import {
@@ -74,6 +74,11 @@ import {
   updateMaSubAssigneeStatusAction,
   updateSingleTaskDueDateAction,
 } from '@/app/dashboard/tasks/actions'
+
+const TaskHandoffDialog = dynamic(
+  () => import('@/components/tasks/task-handoff-dialog').then((mod) => mod.TaskHandoffDialog),
+  { ssr: false }
+)
 
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
@@ -846,12 +851,13 @@ export function TaskDetailModal({
   }, [onRefresh, queryClient, taskId])
 
   useEffect(() => {
+    if (activeTab !== 'share') return
     let cancelled = false
     getUsersForAssignment().then((users) => {
       if (!cancelled) setShareUsers(users)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [activeTab])
 
   useEffect(() => {
     if (!details || typeof window === 'undefined') return
@@ -1529,7 +1535,8 @@ export function TaskDetailModal({
       <div className="flex-1 overflow-y-auto px-6 py-5">
 
         {/* ────── INFO TAB ────── */}
-        <div className={cn('space-y-5', activeTab === 'info' ? 'block' : 'hidden')}>
+        {activeTab === 'info' && (
+          <div className="space-y-5">
             {/* Two-column meta grid */}
             <div className="grid grid-cols-2 gap-3">
               <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
@@ -1818,9 +1825,11 @@ export function TaskDetailModal({
               </div>
             </Section>
           </div>
+        )}
 
         {/* ────── HISTORY / ACTIVITY TAB ────── */}
-        <div className={activeTab === 'history' ? 'block' : 'hidden'}>
+        {activeTab === 'history' && (
+          <div>
             {historyEvts.length === 0 && !nextStep && (
               <div className="text-center py-12">
                 <Clock size={28} className="mx-auto text-slate-200 mb-2" />
@@ -1891,9 +1900,11 @@ export function TaskDetailModal({
               )}
             </div>
           </div>
+        )}
 
         {/* ────── FILES TAB ────── */}
-        <div className={cn('space-y-4', activeTab === 'files' ? 'block' : 'hidden')}>
+        {activeTab === 'files' && (
+          <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
               <div>
                 <p className="text-sm font-semibold text-slate-800">Attach files</p>
@@ -1966,9 +1977,11 @@ export function TaskDetailModal({
               </div>
             )}
           </div>
+        )}
 
         {/* ────── SHARE TAB ────── */}
-        <div className={cn('space-y-5', activeTab === 'share' ? 'block' : 'hidden')}>
+        {activeTab === 'share' && (
+          <div className="space-y-5">
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Share with User</label>
               <div className="flex gap-2">
@@ -2023,6 +2036,7 @@ export function TaskDetailModal({
               <p className="text-sm text-slate-400 italic">Not shared with anyone yet.</p>
             )}
           </div>
+        )}
       </div>
       {taskDialog && (
         <ActionDialog
@@ -2099,20 +2113,22 @@ export function TaskDetailModal({
           )}
         </ActionDialog>
       )}
-      <TaskHandoffDialog
-        open={showHandoffDialog}
-        currentUsername={currentUsername}
-        currentAssignee={t.assigned_to}
-        onClose={() => setShowHandoffDialog(false)}
-        onAssignDepartment={(department, dueDate, note) => {
-          setShowHandoffDialog(false)
-          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, note))
-        }}
-        onAssignMulti={(assignees, note) => {
-          setShowHandoffDialog(false)
-          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
-        }}
-      />
+      {showHandoffDialog && (
+        <TaskHandoffDialog
+          open={showHandoffDialog}
+          currentUsername={currentUsername}
+          currentAssignee={t.assigned_to}
+          onClose={() => setShowHandoffDialog(false)}
+          onAssignDepartment={(department, dueDate, note) => {
+            setShowHandoffDialog(false)
+            void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, note))
+          }}
+          onAssignMulti={(assignees, note) => {
+            setShowHandoffDialog(false)
+            void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
+          }}
+        />
+      )}
       <ConfirmDialog
         open={showCreatorCompleteConfirm}
         title="Complete this task?"

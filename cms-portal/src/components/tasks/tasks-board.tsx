@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { ChangeEvent } from 'react'
@@ -36,7 +37,6 @@ import { splitTaskMeta } from '@/lib/task-metadata'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
-import { CreateTaskModal } from './create-task-modal'
 import {
   getTodos,
   deleteTodoAction,
@@ -47,6 +47,11 @@ import {
   getDepartmentsForTaskForm,
   duplicateTodoAction,
 } from '@/app/dashboard/tasks/actions'
+
+const CreateTaskModal = dynamic(
+  () => import('./create-task-modal').then((mod) => mod.CreateTaskModal),
+  { ssr: false }
+)
 
 type ViewMode = 'list' | 'kanban' | 'calendar'
 type QuickFilter = 'my_all' | 'created_by_me' | 'assigned_to_me' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
@@ -87,6 +92,7 @@ const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'in_progress', label: 'In Progress', dot: 'bg-blue-500' },
   { key: 'done', label: 'Done', dot: 'bg-green-500' },
 ]
+const TASKS_PER_PAGE = 20
 
 interface TasksBoardProps {
   currentUsername: string
@@ -117,6 +123,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
+  const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(currentUsername),
@@ -151,10 +158,11 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
         departments: departments ?? [],
       }
     },
+    enabled: showCreate || Boolean(editTask),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
-    refetchOnMount: true,
+    refetchOnMount: false,
   })
 
   const tasks = tasksQuery.data ?? initialTasks
@@ -419,12 +427,21 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     return list
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser])
 
+  const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}`
+  const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE))
+  const visiblePage = Math.min(currentPage, totalPages)
+  const paginatedTasks = useMemo(() => {
+    const start = (visiblePage - 1) * TASKS_PER_PAGE
+    return filteredTasks.slice(start, start + TASKS_PER_PAGE)
+  }, [filteredTasks, visiblePage])
+
   useEffect(() => {
     // Prefetch likely detail routes to reduce perceived navigation delay.
-    filteredTasks.slice(0, 24).forEach((task) => {
+    paginatedTasks.slice(0, 20).forEach((task) => {
       router.prefetch(`/dashboard/tasks/${task.id}`)
     })
-  }, [filteredTasks, router])
+  }, [paginatedTasks, router])
 
   const bulkDelete = () => {
     startTransition(async () => {
@@ -452,10 +469,10 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   }
 
   const toggleSelectAll = () => {
-    if (selected.size === filteredTasks.length) {
+    if (selected.size > 0 && paginatedTasks.every((task) => selected.has(task.id))) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(filteredTasks.map((t: Todo) => t.id)))
+      setSelected(new Set(paginatedTasks.map((t: Todo) => t.id)))
     }
   }
 
@@ -608,7 +625,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
                 onClick={toggleSelectAll}
                 className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
-                {selected.size > 0 && selected.size === filteredTasks.length ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
+                {paginatedTasks.length > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
                 {selected.size > 0 ? `${selected.size} selected` : 'Select All'}
               </button>
 
@@ -692,17 +709,17 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
             </div>
           )}
 
-          {!loading && viewMode === 'list' && filteredTasks.length > 0 && (
+          {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
             <div className="space-y-3">
               <div className="sticky top-0 z-10 flex items-center gap-3 rounded-2xl border border-[#dfe5f1] bg-white/90 px-4 py-3 backdrop-blur">
                 <button onClick={toggleSelectAll} className="shrink-0 text-slate-400 hover:text-[#3559d8]">
-                  {selected.size > 0 && selected.size === filteredTasks.length ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
+                  {selected.size > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
                 </button>
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Task</span>
                 <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Expected</span>
               </div>
 
-              {filteredTasks.map((task) => (
+              {paginatedTasks.map((task) => (
                 <div key={task.id} className="group/row flex items-start gap-2">
                   <button
                     onClick={() => toggleSelect(task.id)}
@@ -721,7 +738,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
           {!loading && viewMode === 'kanban' && (
             <div className="flex min-h-full gap-3 overflow-x-auto py-1">
               {KANBAN_COLUMNS.map((col) => {
-                const colTasks = filteredTasks.filter((t) => t.task_status === col.key)
+                const colTasks = paginatedTasks.filter((t) => t.task_status === col.key)
                 return (
                   <div key={col.key} className="w-72 flex-none">
                     <div className="mb-2 flex items-center justify-between px-1">
@@ -748,7 +765,36 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
           )}
 
           {!loading && viewMode === 'calendar' && (
-            <CalendarView tasks={filteredTasks} onTaskClick={(t) => router.push(`/dashboard/tasks/${t.id}`)} />
+            <CalendarView tasks={paginatedTasks} onTaskClick={(t) => router.push(`/dashboard/tasks/${t.id}`)} />
+          )}
+
+          {!loading && filteredTasks.length > TASKS_PER_PAGE && (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-3">
+              <p className="text-sm text-slate-500">
+                Showing {(visiblePage - 1) * TASKS_PER_PAGE + 1}-{Math.min(visiblePage * TASKS_PER_PAGE, filteredTasks.length)} of {filteredTasks.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaginationState({ signature: paginationSignature, page: Math.max(1, visiblePage - 1) })}
+                  disabled={visiblePage === 1}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+                  Page {visiblePage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPaginationState({ signature: paginationSignature, page: Math.min(totalPages, visiblePage + 1) })}
+                  disabled={visiblePage === totalPages}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

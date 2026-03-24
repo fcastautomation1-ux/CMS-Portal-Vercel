@@ -1,11 +1,11 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState, useTransition, type ReactNode } from 'react'
 import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { UserAvatar } from '@/components/ui/user-avatar'
-import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
@@ -42,6 +42,11 @@ import {
   removeMaDelegationAction,
   getUsersForAssignment,
 } from '@/app/dashboard/tasks/actions'
+
+const TaskHandoffDialog = dynamic(
+  () => import('@/components/tasks/task-handoff-dialog').then((mod) => mod.TaskHandoffDialog),
+  { ssr: false }
+)
 
 interface TaskCardProps {
   task: Todo
@@ -1434,20 +1439,22 @@ export function TaskCard({
         )}
       </ActionDialog>
     )}
-    <TaskHandoffDialog
-      open={showHandoffDialog}
-      currentUsername={currentUsername}
-      currentAssignee={task.assigned_to}
-      onClose={() => setShowHandoffDialog(false)}
-      onAssignDepartment={(department, dueDate, note) => {
-        setShowHandoffDialog(false)
-        doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note))
-      }}
-      onAssignMulti={(assignees, note) => {
-        setShowHandoffDialog(false)
-        doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note))
-      }}
-    />
+    {showHandoffDialog && (
+      <TaskHandoffDialog
+        open={showHandoffDialog}
+        currentUsername={currentUsername}
+        currentAssignee={task.assigned_to}
+        onClose={() => setShowHandoffDialog(false)}
+        onAssignDepartment={(department, dueDate, note) => {
+          setShowHandoffDialog(false)
+          doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note))
+        }}
+        onAssignMulti={(assignees, note) => {
+          setShowHandoffDialog(false)
+          doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note))
+        }}
+      />
+    )}
     <ConfirmDialog
       open={showCreatorCompleteConfirm}
       title="Complete this task?"
