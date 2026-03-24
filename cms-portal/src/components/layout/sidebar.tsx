@@ -2,15 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { logoutAction } from '@/app/login/actions'
-import type { SessionUser } from '@/types'
+import type { SessionUser, SidebarTaskCounts } from '@/types'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
-import { getTodos } from '@/app/dashboard/tasks/actions'
+import { getSidebarTaskCounts } from '@/app/dashboard/tasks/actions'
 import { getTeamStats } from '@/app/dashboard/team/actions'
-import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
+import { subscribeToPostgresChanges } from '@/lib/realtime'
 import {
   LayoutGrid,
   TrendingUp,
@@ -160,7 +160,9 @@ export function Sidebar({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [isPending, startTransition] = useTransition()
+  const refreshTimerRef = useRef<number | null>(null)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     workspace: true,
     data: true,
@@ -175,16 +177,15 @@ export function Sidebar({
     logo_url: null,
   })
 
-  const tasksQuery = useQuery({
-    queryKey: queryKeys.tasks(user.username),
-    queryFn: () => getTodos().catch(() => []),
+  const taskCountsQuery = useQuery({
+    queryKey: queryKeys.taskSidebarCounts(user.username),
+    queryFn: () => getSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchInterval: 10_000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
-  const sidebarTasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
+  const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, pending: 0, overdue: 0 }
 
   const teamStatsQuery = useQuery({
     queryKey: queryKeys.teamStats(user.username),
@@ -224,13 +225,8 @@ export function Sidebar({
       router.refresh()
     })
   }
-  const openTaskView = (scope: string, status: 'all' | 'completed' | 'pending' | 'overdue' = 'all') => {
-    onClose?.()
-    router.push(`/dashboard/tasks?scope=${scope}&status=${status}`, { scroll: false })
-  }
 
   const isTaskScopeActive = pathname === '/dashboard/tasks'
-  const activeTaskScope = searchParams.get('scope') ?? 'my_all'
   const activeTaskStatus = searchParams.get('status') ?? 'all'
   const isTeamActive = pathname === '/dashboard/team' || pathname.startsWith('/dashboard/team/')
   const activeTeamScope = isTeamActive ? (searchParams.get('scope') ?? 'users') : 'users'
@@ -252,33 +248,6 @@ export function Sidebar({
     if (tone === 'overdue') return 'bg-rose-500/15 text-rose-700'
     return 'bg-blue-500/15 text-blue-700'
   }
-  const buildStatusCounts = useCallback((tasks: typeof sidebarTasks) => {
-    const now = new Date()
-    return {
-      all: tasks.length,
-      completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
-      pending: tasks.filter((task) => !task.completed && task.task_status !== 'done' && !(task.due_date && new Date(task.due_date) < now)).length,
-      overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length,
-    }
-  }, [])
-  const myAllCounts = useMemo(() => {
-    const userLower = user.username.toLowerCase()
-    const userDeptKeys = splitDepartmentsCsv(user.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
-    const myAllTasks = sidebarTasks.filter((t) => {
-      if (t.archived) return false
-      if (t.username.toLowerCase() === userLower) return true
-      if ((t.completed_by || '').toLowerCase() === userLower) return true
-      if ((t.assigned_to || '').toLowerCase() === userLower) return true
-      const queueDeptKey = canonicalDepartmentKey(t.queue_department || '')
-      if (t.queue_status === 'queued' && !t.assigned_to && (!queueDeptKey || userDeptKeys.includes(queueDeptKey))) return true
-      const assignees = t.multi_assignment?.assignees ?? []
-      return assignees.some((a) =>
-        (a.username || '').toLowerCase() === userLower ||
-        (Array.isArray(a.delegated_to) && a.delegated_to.some((s) => (s.username || '').toLowerCase() === userLower))
-      )
-    })
-    return buildStatusCounts(myAllTasks)
-  }, [sidebarTasks, user.username, user.department, buildStatusCounts])
   const taskPrefetchUrls = useMemo(
     () => [
       '/dashboard/tasks?scope=my_all&status=all',
@@ -304,6 +273,26 @@ export function Sidebar({
       router.prefetch(href)
     })
   }, [router, taskPrefetchUrls])
+
+  useEffect(() => {
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.taskSidebarCounts(user.username) })
+      }, 250)
+    }
+
+    const unsubscribe = subscribeToPostgresChanges(
+      `sidebar-task-counts:${user.username}`,
+      [{ table: 'todos' }],
+      scheduleRefresh
+    )
+
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      unsubscribe()
+    }
+  }, [queryClient, user.username])
 
   useEffect(() => {
     teamPrefetchUrls.forEach((href) => {

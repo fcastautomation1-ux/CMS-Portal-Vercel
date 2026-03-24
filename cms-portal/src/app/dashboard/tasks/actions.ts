@@ -11,6 +11,7 @@ import type {
   Todo,
   TodoAttachment,
   TodoDetails,
+  SidebarTaskCounts,
   TodoStats,
   HistoryEntry,
   CreateTodoInput,
@@ -29,6 +30,8 @@ function parseJson<T>(val: unknown, fallback: T): T {
   }
   return val as T
 }
+
+const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,multi_assignment'
 
 async function resolveAttachmentUrl(
   supabase: ReturnType<typeof createServerClient>,
@@ -666,6 +669,83 @@ export async function getTodoStats(): Promise<TodoStats> {
   if (!user) return { total: 0, completed: 0, pending: 0, overdue: 0, highPriority: 0, dueToday: 0, shared: 0 }
   const todos = await getTodos()
   return computeTodoStatsFromTodos(todos)
+}
+
+export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
+  const user = await getSession()
+  if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0 }
+
+  const supabase = createServerClient()
+  const userLower = user.username.toLowerCase()
+  const userDeptKeys = splitDepartmentsCsv(user.department)
+    .map((dept) => canonicalDepartmentKey(dept))
+    .filter(Boolean)
+
+  const [ownedRes, assignedRes, completedByRes, deptQueueRes, maRes] = await Promise.all([
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('username', user.username),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('assigned_to', user.username),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('completed_by', user.username),
+    user.department
+      ? supabase
+          .from('todos')
+          .select(SIDEBAR_TASK_SELECT)
+          .eq('queue_status', 'queued')
+          .or('assigned_to.is.null,assigned_to.eq.')
+      : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).not('multi_assignment', 'is', null),
+  ])
+
+  const taskMap = new Map<string, Todo>()
+
+  const addTask = (raw: Record<string, unknown>) => {
+    const task = normalizeTodo(raw, user.username)
+    if (!task.archived) {
+      taskMap.set(task.id, task)
+    }
+  }
+
+  ;(ownedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;(assignedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;(completedByRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((row: Record<string, unknown>) => {
+    const queueDeptKey = canonicalDepartmentKey(String(row.queue_department || ''))
+    if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
+      addTask(row)
+    }
+  })
+  ;(maRes.data || []).forEach((row: Record<string, unknown>) => {
+    const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+
+    const isRelevant = ma.assignees.some((assignee) =>
+      (assignee.username || '').toLowerCase() === userLower ||
+      (Array.isArray(assignee.delegated_to) && assignee.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower))
+    )
+
+    if (isRelevant) addTask(row)
+  })
+
+  const tasks = Array.from(taskMap.values())
+  const now = Date.now()
+
+  return {
+    all: tasks.length,
+    completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+    pending: tasks.filter((task) => {
+      if (task.completed || task.task_status === 'done') return false
+      if (task.due_date) {
+        const dueTs = new Date(task.due_date).getTime()
+        if (!Number.isNaN(dueTs) && dueTs < now) return false
+      }
+      return true
+    }).length,
+    overdue: tasks.filter((task) => {
+      if (task.completed) return false
+      if (!task.due_date) return false
+      const dueTs = new Date(task.due_date).getTime()
+      return !Number.isNaN(dueTs) && dueTs < now
+    }).length,
+  }
 }
 
 // ── Get packages for task form ────────────────────────────────────────────────

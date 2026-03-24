@@ -124,9 +124,8 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     initialData: initialTasks,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchInterval: 10_000,
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   })
 
   const overdueApprovalsQuery = useQuery({
@@ -229,7 +228,6 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
       [
         { table: 'todos' },
         { table: 'todo_shares', filter: `shared_with=eq.${currentUsername}` },
-        { table: 'todo_attachments' },
       ],
       scheduleRefresh
     )

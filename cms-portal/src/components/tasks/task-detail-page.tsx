@@ -810,9 +810,8 @@ export function TaskDetailPage({
     initialData: initialDetails,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchInterval: 10_000,
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   })
 
   const details = detailsQuery.data ?? initialDetails
