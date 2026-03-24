@@ -297,20 +297,42 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
   }
 
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
-    task.multi_assignment.assignees.forEach((entry, index) => {
-      if (latestKeyByUser.has(entry.username.toLowerCase())) return
-      const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
-      const parentKey = latestKeyByUser.get(owner.toLowerCase()) || root.key
-      addChild(parentKey, {
+    // Multi-pass: defer child nodes until their parent user node exists.
+    const indexed = task.multi_assignment.assignees.map((entry, index) => ({ entry, index }))
+    let remaining = indexed.filter(({ entry }) => !latestKeyByUser.has(entry.username.toLowerCase()))
+    let passLimit = remaining.length + 1
+    while (remaining.length > 0 && passLimit-- > 0) {
+      const nextRound: Array<{ entry: MultiAssignmentEntry; index: number }> = []
+      for (const { entry, index } of remaining) {
+        const owner = getAssignmentStepOwner(task, entry.username) || task.multi_assignment?.created_by || task.assigned_to || creator
+        const parentKey = latestKeyByUser.get(owner.toLowerCase())
+        if (!parentKey) {
+          nextRound.push({ entry, index })
+          continue
+        }
+        addChild(parentKey, {
+          key: `multi:${index}:${entry.username}`,
+          label: entry.username,
+          tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+          avatarUrl: task.participant_avatars?.[entry.username] ?? null,
+          title: `Multi-assigned to ${entry.username}`,
+          subtitle: `From ${owner}`,
+          focusTarget: entry.username,
+        })
+      }
+      remaining = nextRound
+    }
+    for (const { entry, index } of remaining) {
+      addChild(root.key, {
         key: `multi:${index}:${entry.username}`,
         label: entry.username,
-        tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
+        tone: 'multi',
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `From ${owner}`,
+        subtitle: `From ${creator}`,
         focusTarget: entry.username,
       })
-    })
+    }
   }
 
   if (task.queue_status === 'queued' && task.queue_department && !latestKeyByUser.has(task.queue_department.toLowerCase())) {
@@ -353,12 +375,12 @@ function flattenWorkflowTree(
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
   const rows = flattenWorkflowTree(nodes).slice(0, 8)
-const indent = 30
+  const indent = 30
   const lineOffset = 18
 
   return (
     <div className="hidden w-[220px] shrink-0 md:flex">
-      <div className="relative w-full py-2">
+      <div className="relative w-full rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#fdfefe_100%)] px-2 py-2">
         {rows.map(({ node, depth, pathHasNext, isLast }) => {
           const ringCls =
             node.tone === 'active'
@@ -404,7 +426,7 @@ const indent = 30
               <button
                 type="button"
                 onClick={() => onNodeClick(node)}
-                className="relative flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-slate-50"
+                className="relative flex w-full items-center gap-3 rounded-2xl border border-transparent bg-white/70 px-2 py-2 text-left shadow-[0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-slate-200 hover:bg-white"
                 style={{ marginLeft: `${depth * indent}px` }}
               >
                 <div className="relative shrink-0">
@@ -761,12 +783,6 @@ export function TaskCard({
       <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
         <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />
         <div className="min-w-0 flex-1">
-          {isCompleted && (
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-green-700 shadow-sm">
-              <CircleCheckBig size={14} />
-              {completionLabel}
-            </div>
-          )}
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
             {appNames.map((appName) => (
@@ -895,16 +911,6 @@ export function TaskCard({
                   color="green"
                 >
                   Complete
-                </ActBtn>
-              )}
-              {showReopenBtn && (
-                <ActBtn
-                  onClick={() => {
-                    setShowCreatorReopenConfirm(true)
-                  }}
-                  color="amber"
-                >
-                  Reopen Task
                 </ActBtn>
               )}
               {showApproveBtn && (
@@ -1169,6 +1175,9 @@ export function TaskCard({
             {completionTime && (
               <Badge label={`Time ${completionTime}`} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
             )}
+            {isCompleted && (
+              <Badge label={completionLabel} cls="bg-green-50 text-green-700 border-green-200" />
+            )}
             {showClaimBtn && (
               <button
                 onClick={() => doAction(() => claimQueuedTaskAction(task.id))}
@@ -1197,6 +1206,16 @@ export function TaskCard({
               >
                 <ExternalLink size={10} /> Play Store
               </a>
+            )}
+            {showReopenBtn && (
+              <button
+                onClick={() => {
+                  setShowCreatorReopenConfirm(true)
+                }}
+                className="inline-flex items-center justify-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                Reopen Task
+              </button>
             )}
           </div>
         </div>
