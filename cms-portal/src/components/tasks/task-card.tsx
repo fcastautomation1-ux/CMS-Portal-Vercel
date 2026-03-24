@@ -405,51 +405,46 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
   function nodeCfg(tone: WorkflowRailNode['tone'], depth: number, subtitle?: string) {
     const isOwner = subtitle?.toLowerCase().includes('owner')
     if (isOwner || tone === 'active') return {
-      ring:    'border-blue-400',
-      glow:    'shadow-[0_0_0_3px_rgba(59,130,246,0.15)]',
+      ring:    'border-blue-500',
+      glow:    '',
       dot:     'bg-blue-500',
-      name:    'text-blue-700',
-      av:      'bg-blue-100 text-blue-700',
-      line:    '#93c5fd',
+      name:    'text-blue-600',
+      av:      'bg-blue-50 text-blue-600',
     }
     if (tone === 'department') return {
       ring:    'border-emerald-400',
       glow:    '',
       dot:     'bg-emerald-400',
-      name:    'text-slate-800',
-      av:      'bg-emerald-100 text-emerald-700',
-      line:    '#6ee7b7',
+      name:    'text-slate-700',
+      av:      'bg-emerald-50 text-emerald-600',
     }
     if (tone === 'multi') return {
       ring:    'border-cyan-400',
       glow:    '',
       dot:     'bg-cyan-400',
-      name:    'text-slate-800',
-      av:      'bg-cyan-100 text-cyan-700',
-      line:    '#67e8f9',
+      name:    'text-slate-700',
+      av:      'bg-cyan-50 text-cyan-600',
     }
     if (depth === 0) return {
       ring:    'border-slate-300',
       glow:    '',
       dot:     'bg-slate-400',
       name:    'text-slate-700',
-      av:      '',
-      line:    '#cbd5e1',
+      av:      'bg-slate-100 text-slate-600',
     }
     return {
-      ring:    'border-indigo-300',
+      ring:    'border-cyan-400',
       glow:    '',
-      dot:     'bg-indigo-400',
+      dot:     'bg-cyan-400',
       name:    'text-slate-800',
-      av:      'bg-indigo-50 text-indigo-700',
-      line:    '#a5b4fc',
+      av:      'bg-cyan-50 text-cyan-600',
     }
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_2px_12px_rgba(15,23,42,0.07)]">
+    <div className="w-full overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_4px_16px_rgba(20,30,50,0.03)]">
       {/* Top accent bar */}
-      <div className="h-0.5 w-full bg-gradient-to-r from-slate-300 via-indigo-300 to-blue-400" />
+      <div className="h-[2px] w-full bg-blue-500" />
       <div className="px-2.5 pt-2.5 pb-2">
         {rows.map(({ node, depth, pathHasNext, isLastSib }) => {
           const cfg = nodeCfg(node.tone, depth, node.subtitle)
@@ -875,22 +870,21 @@ export function TaskCard({
             <button
               type="button"
               onClick={() => setShowRail((v) => !v)}
-              className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white px-3 py-1.5 text-left shadow-[0_1px_4px_rgba(15,23,42,0.05)] transition-all hover:border-slate-300 hover:shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
+              className="mb-2.5 flex w-full items-center justify-between mx-auto rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-left shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all hover:bg-slate-50"
             >
               <div className="flex items-center gap-2">
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md bg-slate-100">
-                  <svg width="7" height="11" viewBox="0 0 7 11" fill="none" className="text-slate-500">
-                    <circle cx="3.5" cy="1.8" r="1.5" fill="currentColor" fillOpacity="0.55" />
-                    <line x1="3.5" y1="3.3" x2="3.5" y2="5.2" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.35" />
-                    <circle cx="3.5" cy="6.7" r="1.5" fill="currentColor" fillOpacity="0.75" />
-                    <line x1="3.5" y1="8.2" x2="3.5" y2="10" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.25" />
+                <span className="flex items-center justify-center text-slate-400 opacity-80">
+                  <svg width="6" height="14" viewBox="0 0 6 14" fill="none">
+                    <circle cx="3" cy="2.5" r="1.5" fill="currentColor"/>
+                    <line x1="3" y1="5" x2="3" y2="9" stroke="currentColor" strokeWidth="1" strokeOpacity="0.5"/>
+                    <circle cx="3" cy="11.5" r="1.5" fill="currentColor"/>
                   </svg>
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Queue Task Chain</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">Queue Task Chain</span>
               </div>
               {showRail
-                ? <ChevronUp size={12} className="text-slate-400" />
-                : <ChevronDown size={12} className="text-slate-400" />}
+                ? <ChevronUp size={14} className="text-slate-400" />
+                : <ChevronDown size={14} className="text-slate-400" />}
             </button>
             {showRail && <WorkflowRail nodes={workflowNodes} onNodeClick={handleWorkflowNodeClick} />}
           </div>
