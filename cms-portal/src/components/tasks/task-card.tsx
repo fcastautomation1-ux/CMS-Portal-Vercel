@@ -383,13 +383,15 @@ function flattenWorkflowTree(
   nodes: WorkflowRailNode[],
   depth = 0,
   pathHasNext: boolean[] = []
-): WorkflowRailRow[] {
-  const rows: WorkflowRailRow[] = []
+): (WorkflowRailRow & { isLastSib: boolean })[] {
+  const rows: (WorkflowRailRow & { isLastSib: boolean })[] = []
   nodes.forEach((node, index) => {
-    const isLast = index === nodes.length - 1
-    rows.push({ node, depth, pathHasNext, isLast })
+    const isLastSib = index === nodes.length - 1
+    // pathHasNext stores whether ancestors have next siblings. 
+    // We add !isLastSib to pathHasNext for our children to know if we have a next sibling.
+    rows.push({ node, depth, pathHasNext: [...pathHasNext, !isLastSib], isLastSib, isLast: isLastSib })
     if (node.children?.length) {
-      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLast]))
+      rows.push(...flattenWorkflowTree(node.children, depth + 1, [...pathHasNext, !isLastSib]))
     }
   })
   return rows
@@ -449,85 +451,91 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
       {/* Top accent bar */}
       <div className="h-0.5 w-full bg-gradient-to-r from-slate-300 via-indigo-300 to-blue-400" />
       <div className="px-2.5 pt-2.5 pb-2">
-        {rows.map(({ node, depth }, rowIdx) => {
-          const isLastRow = rowIdx === rows.length - 1
-          const nextRow = rows[rowIdx + 1]
+        {rows.map(({ node, depth, pathHasNext, isLastSib }) => {
           const cfg = nodeCfg(node.tone, depth, node.subtitle)
+          const INDENT = 24
           const indentPx = depth * INDENT
-          // connector goes from avatar center of current row down to next row's avatar
-          const connectorLeftPx = indentPx + 15 // 15 ≈ half of avatar(32px)/2 + padding(6px)
 
           return (
-            <div key={node.key}>
-              {/* ── Avatar row ── */}
-              <div className="group/n relative">
-                <button
-                  type="button"
-                  onClick={() => onNodeClick(node)}
-                  title={node.title}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition-all hover:bg-slate-50/80"
-                  style={{ paddingLeft: `${indentPx + 6}px` }}
-                >
-                  {/* Avatar circle */}
-                  <div className={cn(
-                    'relative h-8 w-8 shrink-0 overflow-hidden rounded-full border-2 transition-transform duration-150 group-hover/n:scale-105',
-                    cfg.ring, cfg.glow
-                  )}>
-                    <UserAvatar
-                      username={node.label}
-                      avatarUrl={node.avatarUrl}
-                      size="sm"
-                      className={cn('h-full w-full', cfg.av)}
-                    />
-                    {/* Status dot */}
-                    <span className={cn(
-                      'absolute -bottom-px -right-px h-2 w-2 rounded-full border-[1.5px] border-white',
-                      cfg.dot
-                    )} />
-                  </div>
+            <div key={node.key} className="relative group/n">
+              {/* 1. Ancestor vertical lines passing through */}
+              {depth > 0 && pathHasNext.slice(0, -1).map((hasNext, level) => hasNext ? (
+                 <div
+                    key={`line-${level}`}
+                    className="absolute top-0 bottom-0 w-px bg-slate-200 pointer-events-none"
+                    style={{ left: `${(level * INDENT) + 28}px` }} 
+                 />
+              ) : null)}
 
-                  {/* Name + subtitle */}
-                  <div className="min-w-0 flex-1">
-                    <p className={cn('truncate text-[11px] font-bold leading-tight', cfg.name)}>
-                      {node.label}
-                    </p>
-                    {node.subtitle && (
-                      <p className="truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
-                    )}
-                  </div>
-                </button>
-
-                {/* Hover tooltip */}
-                <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-44 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_28px_rgba(15,23,42,0.12)] group-hover/n:block">
-                  <p className="text-[11px] font-semibold text-slate-800">{node.title}</p>
-                  {node.subtitle && <p className="mt-0.5 text-[10px] text-slate-500">{node.subtitle}</p>}
-                </div>
-              </div>
-
-              {/* ── Arrow connector to next node ── */}
-              {!isLastRow && (
-                <div className="relative flex items-center gap-1" style={{ paddingLeft: `${connectorLeftPx}px`, paddingTop: 2, paddingBottom: 2 }}>
-                  {/* Vertical line + arrowhead */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-px bg-slate-200" style={{ height: 6 }} />
-                    <svg width="9" height="6" viewBox="0 0 9 6" fill="none">
-                      <path
-                        d="M0.5 0.5L4.5 5L8.5 0.5"
-                        stroke={nextRow ? nodeCfg(nextRow.node.tone, nextRow.depth, nextRow.node.subtitle).line : '#cbd5e1'}
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+              {/* 2. Parent-to-child L-shape connector */}
+              {depth > 0 && (
+                <>
+                  {/* Vertical stem from parent */}
+                  <div
+                    className="absolute top-0 w-px bg-slate-200 pointer-events-none"
+                    style={{ 
+                      left: `${((depth - 1) * INDENT) + 28}px`,
+                      bottom: isLastSib ? '50%' : '0' 
+                    }}
+                  />
+                  {/* Horizontal branch to child */}
+                  <div
+                    className="absolute top-1/2 h-px bg-slate-200 pointer-events-none flex items-center justify-end"
+                    style={{ 
+                      left: `${((depth - 1) * INDENT) + 28}px`,
+                      width: `${INDENT - 16}px`,
+                    }}
+                  >
+                    {/* Tiny arrow head */}
+                    <svg width="4" height="6" viewBox="0 0 4 6" fill="none" className="-mr-0.5">
+                      <path d="M1 1L3 3L1 5" stroke="#e2e8f0" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
-                  {/* "assigned" label only for parent→child steps */}
-                  {nextRow && nextRow.depth > depth && (
-                    <span className="text-[9px] font-semibold uppercase tracking-widest text-slate-300">
-                      assigned
-                    </span>
+                </>
+              )}
+
+              {/* ── Avatar row button ── */}
+              <button
+                type="button"
+                onClick={() => onNodeClick(node)}
+                title={node.title}
+                className="flex w-full items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition-all hover:bg-slate-50/80"
+                style={{ paddingLeft: `${indentPx + 6}px` }}
+              >
+                {/* Avatar circle */}
+                <div className={cn(
+                  'relative h-8 w-8 shrink-0 overflow-hidden rounded-full border-2 transition-transform duration-150 group-hover/n:scale-105',
+                  cfg.ring, cfg.glow
+                )}>
+                  <UserAvatar
+                    username={node.label}
+                    avatarUrl={node.avatarUrl}
+                    size="sm"
+                    className={cn('h-full w-full', cfg.av)}
+                  />
+                  {/* Status dot */}
+                  <span className={cn(
+                    'absolute -bottom-px -right-px h-2 w-2 rounded-full border-[1.5px] border-white',
+                    cfg.dot
+                  )} />
+                </div>
+
+                {/* Name + subtitle */}
+                <div className="min-w-0 flex-1">
+                  <p className={cn('truncate text-[11px] font-bold leading-tight', cfg.name)}>
+                    {node.label}
+                  </p>
+                  {node.subtitle && (
+                    <p className="truncate text-[10px] leading-tight text-slate-400">{node.subtitle}</p>
                   )}
                 </div>
-              )}
+              </button>
+
+              {/* Hover tooltip */}
+              <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-44 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_28px_rgba(15,23,42,0.12)] group-hover/n:block">
+                <p className="text-[11px] font-semibold text-slate-800">{node.title}</p>
+                {node.subtitle && <p className="mt-0.5 text-[10px] text-slate-500">{node.subtitle}</p>}
+              </div>
             </div>
           )
         })}
