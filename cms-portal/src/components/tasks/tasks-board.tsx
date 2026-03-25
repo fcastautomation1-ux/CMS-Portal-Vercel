@@ -118,11 +118,13 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const [showCreate, setShowCreate] = useState(false)
+  const [addTaskPending, setAddTaskPending] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
   const [, setShareTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showBulkMenu, setShowBulkMenu] = useState(false)
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
+  const [pendingScopeSwitch, setPendingScopeSwitch] = useState<string | null>(null)
   const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
 
   const tasksQuery = useQuery({
@@ -556,27 +558,38 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
                       {([
                         { scope: 'assigned_to_me' as const, label: 'Assign to me tasks', count: dropdownScopeCounts.assigned_to_me },
                         { scope: 'created_by_me' as const, label: 'My Created task', count: dropdownScopeCounts.created_by_me },
-                      ]).map((option) => (
-                        <button
-                          key={option.scope}
-                          onClick={() => {
-                            router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
-                            setScopeDropdownOpen(false)
-                          }}
-                          className={cn(
-                            'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50',
-                            quickFilter === option.scope ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
-                          )}
-                        >
-                          <span>{option.label}</span>
-                          <span className={cn(
-                            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                            quickFilter === option.scope ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
-                          )}>
-                            {option.count}
-                          </span>
-                        </button>
-                      ))}
+                      ]).map((option) => {
+                        const isSwitching = pendingScopeSwitch === option.scope
+                        return (
+                          <button
+                            key={option.scope}
+                            disabled={!!pendingScopeSwitch}
+                            onClick={() => {
+                              setPendingScopeSwitch(option.scope)
+                              router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
+                              setScopeDropdownOpen(false)
+                              // clear after short delay so spinner is visible
+                              setTimeout(() => setPendingScopeSwitch(null), 800)
+                            }}
+                            className={cn(
+                              'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed',
+                              quickFilter === option.scope ? 'bg-blue-50/50 font-bold text-blue-600' : 'text-slate-700'
+                            )}
+                          >
+                            <span>{option.label}</span>
+                            {isSwitching ? (
+                              <svg className="h-3.5 w-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+                            ) : (
+                              <span className={cn(
+                                'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                                quickFilter === option.scope ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                              )}>
+                                {option.count}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
                   </>
                 )}
@@ -675,10 +688,19 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
               <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
 
               <button
-                onClick={() => setShowCreate(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] sm:min-w-[124px]"
+                onClick={() => {
+                  setAddTaskPending(true)
+                  setShowCreate(true)
+                  // spinner clears once modal is open (next tick)
+                  setTimeout(() => setAddTaskPending(false), 600)
+                }}
+                disabled={addTaskPending}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] disabled:opacity-80 sm:min-w-[124px]"
               >
-                <Plus size={14} /> Add Task
+                {addTaskPending
+                  ? <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+                  : <Plus size={14} />}
+                {addTaskPending ? 'Opening...' : 'Add Task'}
               </button>
 
               <button
