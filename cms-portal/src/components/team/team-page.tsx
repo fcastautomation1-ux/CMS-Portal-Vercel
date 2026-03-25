@@ -2,10 +2,13 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
+import { getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
+import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/cn'
 import { TaskCard } from '@/components/tasks/task-card'
 
@@ -38,7 +41,7 @@ function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
 }
 
-export function TeamPage({ members, tasks, user }: Props) {
+export function TeamPage({ members: initialMembers, tasks: initialTasks, user }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
@@ -48,6 +51,29 @@ export function TeamPage({ members, tasks, user }: Props) {
   const searchParams = useSearchParams()
   const scope = (searchParams.get('scope') as TeamScope | null) ?? 'users'
   const isTaskScope = scope !== 'users'
+
+  const currentUsername = user?.username ?? ''
+
+  // Use cached data from React Query — served instantly on revisit within staleTime
+  const { data: members = initialMembers } = useQuery({
+    queryKey: queryKeys.teamMembers(currentUsername),
+    queryFn: () => getTeamMembers(),
+    initialData: initialMembers,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+
+  const { data: tasks = initialTasks } = useQuery({
+    queryKey: queryKeys.teamTodos(currentUsername),
+    queryFn: () => getTeamTodos(),
+    initialData: initialTasks,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
 
   const departments = useMemo(
     () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),

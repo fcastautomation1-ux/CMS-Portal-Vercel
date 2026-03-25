@@ -1,9 +1,12 @@
 'use server'
 
+import { unstable_cache, revalidateTag } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
 import type { AssignmentChainEntry, HistoryEntry, MultiAssignment, Todo } from '@/types'
+
+const TEAM_CACHE_TAG = 'team-data'
 
 const TEAM_TASK_LIST_SELECT = [
   'id',
@@ -172,157 +175,222 @@ export async function getTeamStats(): Promise<{
 export async function getTeamMembers(): Promise<TeamMember[]> {
   const { user, memberUsernames } = await getTeamUsernames()
   if (!user) return []
-
-  const supabase = createServerClient()
-
   if (memberUsernames.length === 0) return []
 
-  // Get user details
-  const { data: usersData } = await supabase
-    .from('users')
-    .select('username, role, department, email, last_login, avatar_data')
-    .in('username', memberUsernames)
+  const scopeKey = [user.role, user.username, ...memberUsernames.slice().sort()].join('|')
 
-  if (!usersData) return []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
 
-  // Get task stats for each member
-  const { data: todos } = await supabase
-    .from('todos')
-    .select('username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
-    .eq('archived', false)
+      // Fetch user details and ONLY todos relevant to team members in parallel
+      const [usersRes, assignedTodosRes, maTodosRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select('username, role, department, email, last_login, avatar_data')
+          .in('username', memberUsernames),
+        // Only tasks where team member is the assigned_to (not ALL todos)
+        supabase
+          .from('todos')
+          .select('username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .eq('archived', false)
+          .in('assigned_to', memberUsernames),
+        // Multi-assignment tasks involving team members
+        supabase
+          .from('todos')
+          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .eq('archived', false)
+          .not('multi_assignment', 'is', null),
+      ])
 
-  const now = new Date().toISOString().split('T')[0]
+      const usersData = usersRes.data
+      if (!usersData) return []
 
-  return Promise.all((usersData as unknown as Array<{ username: string; role: string; department: string | null; email: string; last_login: string | null; avatar_data: string | null }>).map(async (u) => {
-    const myTasks = ((todos ?? []) as TeamTodoStatsRow[]).filter((task) => {
-      const userLower = u.username.toLowerCase()
-      const creatorLower = (task.username || '').toLowerCase()
-
-      if ((task.assigned_to || '').toLowerCase() === userLower && creatorLower !== userLower) {
-        return true
-      }
-
-      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-      if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
-      if (creatorLower === userLower) return false
-
-      return multiAssignment.assignees.some((entry) => {
-        if ((entry.username || '').toLowerCase() === userLower) return true
-        return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower)
+      // Merge assigned + multi_assignment todos, deduplicate by id
+      const teamSet = new Set(memberUsernames.map((u) => u.toLowerCase()))
+      const todoMap = new Map<string, TeamTodoStatsRow>()
+      ;((assignedTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) =>
+        todoMap.set(String(t.id), t),
+      )
+      ;((maTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) => {
+        const ma = parseJson<MultiAssignment | null>(t.multi_assignment, null)
+        if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+        const isRelevant = ma.assignees.some(
+          (entry) =>
+            teamSet.has((entry.username || '').toLowerCase()) ||
+            (Array.isArray(entry.delegated_to) &&
+              entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))),
+        )
+        if (isRelevant) todoMap.set(String(t.id), t)
       })
-    })
+      const todos = Array.from(todoMap.values())
 
-    const completed = myTasks.filter((task) => {
-      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-      if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
-        const directEntry = multiAssignment.assignees.find((entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase())
-        if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
+      const now = new Date().toISOString().split('T')[0]
 
-        for (const entry of multiAssignment.assignees) {
-          const delegatedEntry = Array.isArray(entry.delegated_to)
-            ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase())
-            : null
-          if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-        }
-      }
+      return Promise.all(
+        (
+          usersData as unknown as Array<{
+            username: string
+            role: string
+            department: string | null
+            email: string
+            last_login: string | null
+            avatar_data: string | null
+          }>
+        ).map(async (u) => {
+          const myTasks = (todos as TeamTodoStatsRow[]).filter((task) => {
+            const userLower = u.username.toLowerCase()
+            const creatorLower = (task.username || '').toLowerCase()
 
-      return task.completed || task.task_status === 'done'
-    }).length
-
-    const overdue = myTasks.filter((task) => {
-      const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-      let isCompleted = task.completed || task.task_status === 'done'
-
-      if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
-        const directEntry = multiAssignment.assignees.find((entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase())
-        if (directEntry) {
-          isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
-        } else {
-          for (const entry of multiAssignment.assignees) {
-            const delegatedEntry = Array.isArray(entry.delegated_to)
-              ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase())
-              : null
-            if (delegatedEntry) {
-              isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-              break
+            if ((task.assigned_to || '').toLowerCase() === userLower && creatorLower !== userLower) {
+              return true
             }
+
+            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+            if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
+            if (creatorLower === userLower) return false
+
+            return multiAssignment.assignees.some((entry) => {
+              if ((entry.username || '').toLowerCase() === userLower) return true
+              return (
+                Array.isArray(entry.delegated_to) &&
+                entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower)
+              )
+            })
+          })
+
+          const completed = myTasks.filter((task) => {
+            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+            if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+              const directEntry = multiAssignment.assignees.find(
+                (entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase(),
+              )
+              if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
+
+              for (const entry of multiAssignment.assignees) {
+                const delegatedEntry = Array.isArray(entry.delegated_to)
+                  ? entry.delegated_to.find(
+                      (sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase(),
+                    )
+                  : null
+                if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+              }
+            }
+
+            return task.completed || task.task_status === 'done'
+          }).length
+
+          const overdue = myTasks.filter((task) => {
+            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+            let isCompleted = task.completed || task.task_status === 'done'
+
+            if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+              const directEntry = multiAssignment.assignees.find(
+                (entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase(),
+              )
+              if (directEntry) {
+                isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
+              } else {
+                for (const entry of multiAssignment.assignees) {
+                  const delegatedEntry = Array.isArray(entry.delegated_to)
+                    ? entry.delegated_to.find(
+                        (sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase(),
+                      )
+                    : null
+                  if (delegatedEntry) {
+                    isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+                    break
+                  }
+                }
+              }
+            }
+
+            return !isCompleted && !!task.due_date && task.due_date < now
+          }).length
+          const pending = myTasks.length - completed - overdue
+
+          return {
+            ...u,
+            avatar_data: await resolveStorageUrl(supabase, u.avatar_data),
+            taskStats: { total: myTasks.length, completed, pending, overdue },
           }
-        }
-      }
-
-      return !isCompleted && !!task.due_date && task.due_date < now
-    }).length
-    const pending = myTasks.length - completed - overdue
-
-    return {
-      ...u,
-      avatar_data: await resolveStorageUrl(supabase, u.avatar_data),
-      taskStats: { total: myTasks.length, completed, pending, overdue },
-    }
-  }))
+        }),
+      )
+    },
+    ['team-members-page', user.username, scopeKey],
+    { revalidate: 60, tags: [TEAM_CACHE_TAG] },
+  )()
 }
 
 export async function getTeamTodos(): Promise<Todo[]> {
   const { user, memberUsernames } = await getTeamUsernames()
   if (!user || memberUsernames.length === 0) return []
 
-  const supabase = createServerClient()
+  const scopeKey = [user.role, user.username, ...memberUsernames.slice().sort()].join('|')
 
-  const { data: usersData } = await supabase
-    .from('users')
-    .select('username, department')
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
 
-  const deptMap = new Map<string, string | null>()
-  ;(usersData ?? []).forEach((row) => {
-    const userRow = row as { username: string; department: string | null }
-    deptMap.set(userRow.username.toLowerCase(), userRow.department)
-  })
+      const [usersRes, createdRes, assignedRes, maRes] = await Promise.all([
+        supabase.from('users').select('username, department'),
+        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
+        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
+        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null),
+      ])
 
-  const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
-  const [createdRes, assignedRes, maRes] = await Promise.all([
-    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
-    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
-    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null),
-  ])
+      const deptMap = new Map<string, string | null>()
+      ;(usersRes.data ?? []).forEach((row) => {
+        const userRow = row as { username: string; department: string | null }
+        deptMap.set(userRow.username.toLowerCase(), userRow.department)
+      })
 
-  const taskMap = new Map<string, Record<string, unknown>>()
-  ;((createdRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
-  ;((assignedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
-  ;((maRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
-    const multiAssignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
-    if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return
+      const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
+      const taskMap = new Map<string, Record<string, unknown>>()
+      ;((createdRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
+      ;((assignedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
+      ;((maRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
+        const multiAssignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+        if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return
 
-    const isRelevant = multiAssignment.assignees.some((entry) => {
-      const username = (entry.username || '').toLowerCase()
-      if (teamSet.has(username)) return true
-      return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))
-    })
+        const isRelevant = multiAssignment.assignees.some((entry) => {
+          const username = (entry.username || '').toLowerCase()
+          if (teamSet.has(username)) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))
+        })
 
-    if (isRelevant) {
-      taskMap.set(String(raw.id), raw)
-    }
-  })
+        if (isRelevant) {
+          taskMap.set(String(raw.id), raw)
+        }
+      })
 
-  const tasks = Array.from(taskMap.values())
-    .map((raw) => {
-      const task = raw as unknown as Todo
-      task.history = parseJson<HistoryEntry[]>(raw.history, [])
-      const rawChain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
-      // Normalize old GAS format → new format so the chain renders correctly
-      task.assignment_chain = normalizeChainEntries(
-        rawChain,
-        String(raw.username || '').trim(),
-        raw.assigned_to ? String(raw.assigned_to).trim() : null,
-      )
-      task.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
-      task.creator_department = deptMap.get((task.username || '').toLowerCase()) ?? null
-      task.assignee_department = deptMap.get((task.assigned_to || '').toLowerCase()) ?? null
-      if (!task.due_date && task.expected_due_date) {
-        task.due_date = task.expected_due_date
-      }
-      return task
-    })
+      const tasks = Array.from(taskMap.values())
+        .map((raw) => {
+          const task = raw as unknown as Todo
+          task.history = parseJson<HistoryEntry[]>(raw.history, [])
+          const rawChain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
+          task.assignment_chain = normalizeChainEntries(
+            rawChain,
+            String(raw.username || '').trim(),
+            raw.assigned_to ? String(raw.assigned_to).trim() : null,
+          )
+          task.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+          task.creator_department = deptMap.get((task.username || '').toLowerCase()) ?? null
+          task.assignee_department = deptMap.get((task.assigned_to || '').toLowerCase()) ?? null
+          if (!task.due_date && task.expected_due_date) {
+            task.due_date = task.expected_due_date
+          }
+          return task
+        })
 
-  tasks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  return tasks
+      tasks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      return tasks
+    },
+    ['team-todos-page', user.username, scopeKey],
+    { revalidate: 60, tags: [TEAM_CACHE_TAG] },
+  )()
+}
+
+export async function revalidateTeamCache() {
+  revalidateTag(TEAM_CACHE_TAG)
 }

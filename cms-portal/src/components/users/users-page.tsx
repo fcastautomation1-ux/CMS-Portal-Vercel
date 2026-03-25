@@ -3,9 +3,11 @@
 import { useMemo, useState, useTransition } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, Plus, Trash2, Pencil, X, UserPlus } from 'lucide-react'
-import { createUser, updateUser, deleteUser, type UserFormOptions } from '@/app/dashboard/users/actions'
+import { createUser, updateUser, deleteUser, getUsers, type UserFormOptions } from '@/app/dashboard/users/actions'
 import type { User, SessionUser, UserRole, ModuleAccess } from '@/types'
+import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/cn'
 
 const ROLES: UserRole[] = ['Admin', 'Super Manager', 'Manager', 'Supervisor', 'User']
@@ -51,7 +53,19 @@ function initials(name: string) {
 
 export function UsersPage({ users: initial, departments, currentUser, options }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(currentUser.role)
-  const [users, setUsers] = useState(initial)
+  const queryClient = useQueryClient()
+
+  // Serve from React Query cache on revisit (PortalWarmup pre-populates this)
+  const { data: users = initial } = useQuery({
+    queryKey: queryKeys.users(currentUser.username),
+    queryFn: () => getUsers(),
+    initialData: initial,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
+
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
@@ -80,7 +94,11 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
     if (!deleting) return
     startTransition(async () => {
       const res = await deleteUser(deleting.username)
-      if (res.success) setUsers(prev => prev.filter(u => u.username !== deleting.username))
+      if (res.success) {
+        queryClient.setQueryData(queryKeys.users(currentUser.username), (old: User[] | undefined) =>
+          (old ?? []).filter((u) => u.username !== deleting.username),
+        )
+      }
       setDeleting(null)
     })
   }
@@ -178,8 +196,10 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
           options={options}
           onClose={() => { setModalOpen(false); setEditing(null) }}
           onSaved={(u, isNew) => {
-            if (isNew) setUsers(prev => [...prev, u])
-            else setUsers(prev => prev.map(x => x.username === u.username ? u : x))
+            queryClient.setQueryData(queryKeys.users(currentUser.username), (old: User[] | undefined) => {
+              const list = old ?? []
+              return isNew ? [...list, u] : list.map((x) => (x.username === u.username ? u : x))
+            })
             setModalOpen(false)
             setEditing(null)
           }}

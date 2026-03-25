@@ -18,7 +18,7 @@ import {
   getUsersForAssignment,
   getDepartmentsForTaskForm,
 } from '@/app/dashboard/tasks/actions'
-import { getTeamStats } from '@/app/dashboard/team/actions'
+import { getTeamStats, getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
 import { queryKeys } from '@/lib/query-keys'
 import type { SessionUser } from '@/types'
 
@@ -209,6 +209,18 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         fn: () => getTeamStats(),
         staleTime: 60_000,
       })
+      warmTasks.push({
+        key: queryKeys.teamMembers(user.username),
+        fn: () => getTeamMembers(),
+        staleTime: 60_000,
+      })
+      if (!reduceWarmupWork) {
+        warmTasks.push({
+          key: queryKeys.teamTodos(user.username),
+          fn: () => getTeamTodos(),
+          staleTime: 60_000,
+        })
+      }
     }
 
     if (canManageUsers) {

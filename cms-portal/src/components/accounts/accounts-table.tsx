@@ -2,12 +2,14 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search, Plus, Trash2, Pencil, Check, ChevronDown, Copy, RefreshCw } from 'lucide-react'
 import { StatusBadge, WorkflowBadge } from '@/components/ui/badges'
 import { EnabledToggle } from '@/components/ui/enabled-toggle'
 import { AccountModal } from './account-modal'
 import { DeleteConfirm } from './delete-confirm'
-import { batchToggleAccounts } from '@/app/dashboard/accounts/actions'
+import { batchToggleAccounts, getAccounts } from '@/app/dashboard/accounts/actions'
+import { queryKeys } from '@/lib/query-keys'
 import type { Account, SessionUser } from '@/types'
 
 const WORKFLOW_OPTIONS = [
@@ -44,9 +46,21 @@ interface AccountsTableProps {
   userAccess?: Record<string, string[]>
 }
 
-export function AccountsTable({ accounts, user, userAccess = {} }: AccountsTableProps) {
+export function AccountsTable({ accounts: initialAccounts, user, userAccess = {} }: AccountsTableProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
+
+  // Serve from React Query cache on revisit (PortalWarmup pre-populates this)
+  const { data: accounts = initialAccounts } = useQuery({
+    queryKey: queryKeys.accounts(user.username),
+    queryFn: () => getAccounts(),
+    initialData: initialAccounts,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  })
 
   // ── Filters ───────────────────────────────────────────────
   const [search, setSearch] = useState('')
@@ -471,7 +485,11 @@ export function AccountsTable({ accounts, user, userAccess = {} }: AccountsTable
       {modalOpen && (
         <AccountModal
           account={editingAccount}
-          onClose={() => setModalOpen(false)}
+          onClose={() => {
+            setModalOpen(false)
+            // Invalidate React Query cache so next render shows fresh data
+            queryClient.invalidateQueries({ queryKey: queryKeys.accounts(user.username) })
+          }}
         />
       )}
 
