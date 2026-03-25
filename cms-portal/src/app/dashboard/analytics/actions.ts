@@ -1,5 +1,6 @@
 'use server'
 
+import { unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
@@ -44,19 +45,20 @@ export async function getAnalytics(): Promise<AnalyticsData> {
   if (!user) return empty
   if (user.role !== 'Admin' && user.role !== 'Super Manager') return empty
 
-  const supabase = createServerClient()
-  const [{ data: todos }, { data: usersData }, { data: deptsData }] = await Promise.all([
-    supabase
-      .from('todos')
-      .select('id, title, username, assigned_to, completed, task_status, priority, kpi_type, due_date, category, archived, created_at')
-      .eq('archived', false),
-    supabase
-      .from('users')
-      .select('username, avatar_data'),
-    supabase
-      .from('departments')
-      .select('name'),
-  ])
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const [{ data: todos }, { data: usersData }, { data: deptsData }] = await Promise.all([
+      supabase
+        .from('todos')
+        .select('id, title, username, assigned_to, completed, task_status, priority, kpi_type, due_date, category, archived, created_at')
+        .eq('archived', false),
+      supabase
+        .from('users')
+        .select('username, avatar_data'),
+      supabase
+        .from('departments')
+        .select('name'),
+    ])
 
   // Build canonical→official name map so old category labels merge with renamed departments
   const canonicalToOfficial: Record<string, string> = {}
@@ -134,30 +136,31 @@ export async function getAnalytics(): Promise<AnalyticsData> {
     entry.avatarData = avatarMap[entry.username] ?? null
   })
 
-  return {
-    totalTasks: tasks.length,
-    assignedToMe,
-    completed: completedCount,
-    inProgress,
-    pending: pendingCount,
-    overdue,
-    dueToday,
-    statusBreakdown,
-    priorityBreakdown,
-    departmentBreakdown,
-    topUsers,
-    allTasks: tasks.map(t => ({
-      id: t.id,
-      title: t.title,
-      username: t.username,
-      assigned_to: t.assigned_to,
-      completed: t.completed,
-      task_status: t.task_status,
-      priority: t.priority,
-      kpi_type: t.kpi_type,
-      due_date: t.due_date,
-      category: canonicalizeCategory(t.category),
-      created_at: t.created_at,
-    })),
-  }
+    return {
+      totalTasks: tasks.length,
+      assignedToMe,
+      completed: completedCount,
+      inProgress,
+      pending: pendingCount,
+      overdue,
+      dueToday,
+      statusBreakdown,
+      priorityBreakdown,
+      departmentBreakdown,
+      topUsers,
+      allTasks: tasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        username: t.username,
+        assigned_to: t.assigned_to,
+        completed: t.completed,
+        task_status: t.task_status,
+        priority: t.priority,
+        kpi_type: t.kpi_type,
+        due_date: t.due_date,
+        category: canonicalizeCategory(t.category),
+        created_at: t.created_at,
+      })),
+    }
+  }, ['analytics-admin'], { revalidate: 30 })()
 }

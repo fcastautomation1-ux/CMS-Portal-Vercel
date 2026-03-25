@@ -1,5 +1,6 @@
 'use server'
 
+import { unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
@@ -84,17 +85,18 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
   if (!isAdminOrSM) return empty
 
-  const supabase = createServerClient()
-  const today = new Date().toISOString().split('T')[0]
-  const CAMPAIGN_TABLES = ['campaign_conditions', 'workflow_1', 'workflow_2', 'workflow_3'] as const
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const today = new Date().toISOString().split('T')[0]
+    const CAMPAIGN_TABLES = ['campaign_conditions', 'workflow_1', 'workflow_2', 'workflow_3'] as const
 
-  const [accountsRes, usersRes, todosRes, deptsRes, ...campaignResults] = await Promise.all([
-    supabase.from('accounts').select('customer_id,enabled,status'),
-    supabase.from('users').select('username,role,avatar_data'),
-    supabase.from('todos').select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at,archived').eq('archived', false).order('created_at', { ascending: false }),
-    supabase.from('departments').select('id,name'),
-    ...CAMPAIGN_TABLES.map(t => supabase.from(t).select('customer_id,enabled', { count: 'exact', head: false })),
-  ])
+    const [accountsRes, usersRes, todosRes, deptsRes, ...campaignResults] = await Promise.all([
+      supabase.from('accounts').select('customer_id,enabled,status'),
+      supabase.from('users').select('username,role,avatar_data'),
+      supabase.from('todos').select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at,archived').eq('archived', false).order('created_at', { ascending: false }),
+      supabase.from('departments').select('id,name'),
+      ...CAMPAIGN_TABLES.map(t => supabase.from(t).select('customer_id,enabled', { count: 'exact', head: false })),
+    ])
 
   const accounts = (accountsRes.data ?? []) as Array<{ customer_id: string; enabled: boolean; status: string }>
   const enabledAccountIds = new Set(
@@ -226,22 +228,23 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     created_at: t.created_at,
   }))
 
-  return {
-    accounts: acctStats,
-    campaigns: campStats,
-    users: { total: usersData.length, byRole },
-    tasks: { total: todos.length, completed, inProgress, pending, overdue, dueToday },
-    departments: { total: (deptsRes.data ?? []).length },
-    topPerformers,
-    tasksByStatus,
-    tasksByDept,
-    recentTasks,
-    taskRecords: todos.map((task) => ({
-      ...task,
-      category: canonicalizeCategory(task.category),
-    })),
-    userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: avatarMap[u.username] ?? null })),
-  }
+    return {
+      accounts: acctStats,
+      campaigns: campStats,
+      users: { total: usersData.length, byRole },
+      tasks: { total: todos.length, completed, inProgress, pending, overdue, dueToday },
+      departments: { total: (deptsRes.data ?? []).length },
+      topPerformers,
+      tasksByStatus,
+      tasksByDept,
+      recentTasks,
+      taskRecords: todos.map((task) => ({
+        ...task,
+        category: canonicalizeCategory(task.category),
+      })),
+      userRecords: usersData.map(u => ({ username: u.username, role: u.role, avatarData: avatarMap[u.username] ?? null })),
+    }
+  }, ['overview-admin'], { revalidate: 30 })()
 }
 
 export async function getUserPersonalStats(): Promise<PersonalStats> {
@@ -253,15 +256,16 @@ export async function getUserPersonalStats(): Promise<PersonalStats> {
   const user = await getSession()
   if (!user) return empty
 
-  const supabase = createServerClient()
-  const today = new Date().toISOString().split('T')[0]
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const today = new Date().toISOString().split('T')[0]
 
-  const { data: todosRaw } = await supabase
-    .from('todos')
-    .select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at')
-    .eq('archived', false)
-    .or(`username.eq.${user.username},assigned_to.eq.${user.username}`)
-    .order('created_at', { ascending: false })
+    const { data: todosRaw } = await supabase
+      .from('todos')
+      .select('id,title,username,assigned_to,completed,task_status,priority,due_date,category,created_at')
+      .eq('archived', false)
+      .or(`username.eq.${user.username},assigned_to.eq.${user.username}`)
+      .order('created_at', { ascending: false })
 
   const todos = (todosRaw ?? []) as Array<{
     id: string; title: string; username: string; assigned_to: string | null
@@ -279,16 +283,17 @@ export async function getUserPersonalStats(): Promise<PersonalStats> {
     pending++
   }
 
-  return {
-    tasks: { total: todos.length, completed, inProgress, pending, overdue },
-    recentTasks: todos.slice(0, 8),
-    tasksByStatus: [
-      { label: 'Completed', value: completed, color: '#10B981' },
-      { label: 'In Progress', value: inProgress, color: '#3B82F6' },
-      { label: 'Pending', value: pending, color: '#F59E0B' },
-      { label: 'Overdue', value: overdue, color: '#EF4444' },
-    ],
-  }
+    return {
+      tasks: { total: todos.length, completed, inProgress, pending, overdue },
+      recentTasks: todos.slice(0, 8),
+      tasksByStatus: [
+        { label: 'Completed', value: completed, color: '#10B981' },
+        { label: 'In Progress', value: inProgress, color: '#3B82F6' },
+        { label: 'Pending', value: pending, color: '#F59E0B' },
+        { label: 'Overdue', value: overdue, color: '#EF4444' },
+      ],
+    }
+  }, ['overview-personal', user.username], { revalidate: 30 })()
 }
 
 export async function getManagerOverview(): Promise<ManagerOverviewStats> {
@@ -301,19 +306,20 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   }
   if (!user || (user.role !== 'Manager' && user.role !== 'Supervisor')) return empty
 
-  const supabase = createServerClient()
-  const today = new Date().toISOString().split('T')[0]
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const today = new Date().toISOString().split('T')[0]
 
-  const teamSet = new Set<string>()
-  if (user.teamMembers) user.teamMembers.forEach(m => { if (m) teamSet.add(m) })
-  const { data: managed } = await supabase.from('users').select('username,role,department').eq('manager_id', user.username)
-  if (managed) managed.forEach((u: Record<string, unknown>) => teamSet.add(u.username as string))
+    const teamSet = new Set<string>()
+    if (user.teamMembers) user.teamMembers.forEach(m => { if (m) teamSet.add(m) })
+    const { data: managed } = await supabase.from('users').select('username,role,department').eq('manager_id', user.username)
+    if (managed) managed.forEach((u: Record<string, unknown>) => teamSet.add(u.username as string))
 
-  const memberList = Array.from(teamSet)
-  if (memberList.length === 0) return empty
+    const memberList = Array.from(teamSet)
+    if (memberList.length === 0) return empty
 
-  const { data: usersData } = await supabase.from('users').select('username,role,department').in('username', memberList)
-  const { data: todos } = await supabase.from('todos').select('username,assigned_to,completed,task_status,due_date,archived').eq('archived', false).in('assigned_to', memberList)
+    const { data: usersData } = await supabase.from('users').select('username,role,department').in('username', memberList)
+    const { data: todos } = await supabase.from('todos').select('username,assigned_to,completed,task_status,due_date,archived').eq('archived', false).in('assigned_to', memberList)
 
   const todoList = (todos ?? []) as Array<{ username: string; assigned_to: string | null; completed: boolean; task_status: string; due_date: string | null }>
 
@@ -353,10 +359,11 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     return { day: label, completed: 0, date: dayStr }
   })
 
-  return {
-    teamCount: memberList.length,
-    teamTasks: { total: todoList.length, completed, inProgress, pending, overdue },
-    teamMembers,
-    weeklyProgress: weeklyProgress.map(({ day, completed: dayCompleted }) => ({ day, completed: dayCompleted })),
-  }
+    return {
+      teamCount: memberList.length,
+      teamTasks: { total: todoList.length, completed, inProgress, pending, overdue },
+      teamMembers,
+      weeklyProgress: weeklyProgress.map(({ day, completed: dayCompleted }) => ({ day, completed: dayCompleted })),
+    }
+  }, ['overview-manager', user.username, user.teamMembers.join(',')], { revalidate: 30 })()
 }
