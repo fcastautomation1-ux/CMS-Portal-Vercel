@@ -180,9 +180,9 @@ export function Sidebar({
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
     queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
-    staleTime: 2 * 60_000,
+    staleTime: 60_000,
     gcTime: 30 * 60_000,
-    refetchOnMount: false,
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
   })
   const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, pending: 0, overdue: 0 }

@@ -848,17 +848,9 @@ export async function getCachedTodos(): Promise<Todo[]> {
   return _cachedGetTodos(user.username)
 }
 
-const _cachedSidebarTaskCounts = unstable_cache(
-  async (_username: string) => getSidebarTaskCounts(),
-  ['sidebar-task-counts'],
-  { revalidate: 30, tags: ['tasks-data'] }
-)
-
-/** Cached version of getSidebarTaskCounts — use in sidebar queryFn for faster repeated fetches. */
+/** Direct wrapper — unstable_cache cannot be used here because getSidebarTaskCounts reads cookies() internally. React Query staleTime handles client-side caching. */
 export async function getCachedSidebarTaskCounts(): Promise<SidebarTaskCounts> {
-  const user = await getSession()
-  if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0 }
-  return _cachedSidebarTaskCounts(user.username)
+  return getSidebarTaskCounts()
 }
 
 /** Bust the tasks server-side cache and revalidate the page. Call after any mutation. */
