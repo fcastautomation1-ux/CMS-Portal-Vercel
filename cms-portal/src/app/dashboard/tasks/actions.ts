@@ -834,7 +834,6 @@ export async function getCachedSidebarTaskCounts(): Promise<SidebarTaskCounts> {
 /** Bust the tasks server-side cache and revalidate the page. Call after any mutation. */
 function revalidateTasksData() {
   revalidateTag('tasks-data')
-  revalidateTasksData()
 }
 
 // ── Get packages for task form ────────────────────────────────────────────────

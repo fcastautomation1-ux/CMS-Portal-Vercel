@@ -1103,7 +1103,16 @@ export function TaskCard({
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-800">{assignee.username}</div>
-                          <div className="mt-1 text-[11px] text-slate-400">Assigned contributor</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border', MA_STATUS[status] ?? MA_STATUS.pending)}>
+                              {MA_LABEL[status] ?? status}
+                            </span>
+                            {assigneeDueDate && (
+                              <span className={cn('text-[11px] font-medium', assigneeOverdue ? 'text-red-500' : 'text-slate-400')}>
+                                Due {fmtShort(assigneeDueDate)}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (

@@ -733,14 +733,6 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
 
           {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
             <div className="space-y-3">
-              <div className="sticky top-0 z-10 flex items-center gap-3 rounded-2xl border border-[#dfe5f1] bg-white/90 px-4 py-3 backdrop-blur">
-                <button onClick={toggleSelectAll} className="shrink-0 text-slate-400 hover:text-[#3559d8]">
-                  {selected.size > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
-                </button>
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Task</span>
-                <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.16em] text-[#90a0bc]">Expected</span>
-              </div>
-
               {paginatedTasks.map((task) => (
                 <div key={task.id} className="group/row flex items-start gap-2">
                   <button
