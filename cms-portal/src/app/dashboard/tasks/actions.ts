@@ -731,6 +731,36 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0 }
 
   const supabase = createServerClient()
+  const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
+
+  // Admin / Super Manager → count all non-archived tasks portal-wide
+  if (isAdminOrSM) {
+    const { data, error } = await supabase
+      .from('todos')
+      .select('id,completed,task_status,due_date')
+      .eq('archived', false)
+    if (error || !data) return { all: 0, completed: 0, pending: 0, overdue: 0 }
+    const now = Date.now()
+    return {
+      all: data.length,
+      completed: data.filter((t) => t.completed || t.task_status === 'done').length,
+      pending: data.filter((t) => {
+        if (t.completed || t.task_status === 'done') return false
+        if (t.due_date) {
+          const dueTs = new Date(t.due_date).getTime()
+          if (!Number.isNaN(dueTs) && dueTs < now) return false
+        }
+        return true
+      }).length,
+      overdue: data.filter((t) => {
+        if (t.completed) return false
+        if (!t.due_date) return false
+        const dueTs = new Date(t.due_date).getTime()
+        return !Number.isNaN(dueTs) && dueTs < now
+      }).length,
+    }
+  }
+
   const userLower = user.username.toLowerCase()
   const userDeptKeys = splitDepartmentsCsv(user.department)
     .map((dept) => canonicalDepartmentKey(dept))

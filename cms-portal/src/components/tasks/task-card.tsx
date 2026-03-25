@@ -909,19 +909,13 @@ export function TaskCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          {appNames.length > 0 && (
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              {appNames.map((appName) => (
-                <span key={appName} className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">
-                  {appName}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
-            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
+          {/* Row 1: App names + KPI type + Task title */}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {appNames.map((appName) => (
+              <span key={appName} className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">
+                {appName}
+              </span>
+            ))}
             {task.kpi_type && (
               <span className="rounded-full border border-violet-100 bg-violet-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-400">
                 {task.kpi_type}
@@ -936,6 +930,12 @@ export function TaskCard({
             >
               {task.title}
             </button>
+          </div>
+
+          {/* Row 2: Status dot + Priority badge only */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+            <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
 
           {summaryText && (
