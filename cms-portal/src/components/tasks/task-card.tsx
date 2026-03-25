@@ -259,7 +259,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
     tone: 'user',
     avatarUrl: task.participant_avatars?.[creator] ?? null,
     title: `Created by ${creator}`,
-    subtitle: 'Created here',
+    subtitle: task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'backlog' ? 'Pending' : task.task_status === 'done' ? 'Completed' : 'Created here',
     focusTarget: creator,
     children: [],
   }
@@ -298,7 +298,9 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
         tone: isCurrentOwner && task.task_status === 'in_progress' ? 'active' : 'user',
         avatarUrl: task.participant_avatars?.[actor] ?? null,
         title: `Assigned to ${actor}`,
-        subtitle: isCurrentOwner ? `Current owner · From ${creator}` : `From ${creator}`,
+        subtitle: isCurrentOwner
+          ? (task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'done' ? 'Completed' : 'Active')
+          : `From ${creator}`,
         focusTarget: actor,
       }
       addChild(fallbackParentKey, actorNode)
@@ -327,7 +329,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: task.task_status === 'in_progress' ? 'active' : 'user',
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
-      subtitle: `Current owner · From ${creator}`,
+      subtitle: task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'done' ? 'Completed' : 'Active',
       focusTarget: task.assigned_to,
     })
   }
@@ -907,23 +909,24 @@ export function TaskCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{task.id.slice(0, 4)}</span>
-            {appNames.map((appName) => (
-              <span key={appName} className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-500">
-                {appName}
-              </span>
-            ))}
-            {task.kpi_type && (
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-600">
-                {task.kpi_type}
-              </span>
-            )}
-          </div>
+          {appNames.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {appNames.map((appName) => (
+                <span key={appName} className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">
+                  {appName}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2.5">
             <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
+            {task.kpi_type && (
+              <span className="rounded-full border border-violet-100 bg-violet-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-400">
+                {task.kpi_type}
+              </span>
+            )}
             <button
               onClick={() => onViewDetail(task)}
               className={cn(
@@ -941,12 +944,6 @@ export function TaskCard({
             </p>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2.5">
-            {task.username && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                <User size={11} className="shrink-0" />
-                by <span className="font-semibold text-slate-600">{task.username}</span>
-              </span>
-            )}
             {task.approval_status === 'pending_approval' && (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-600">
                 Waiting for {pendingApprover}
