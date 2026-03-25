@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { sendEmail, renderTaskReminderEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -133,13 +134,37 @@ export async function GET(request: NextRequest) {
   const tomorrow = new Date(today)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
   const tomorrowIso = tomorrow.toISOString()
+
+  // Fetch email addresses + notification preferences for all recipients in one query
+  const allRecipientsArr = Array.from(allRecipients)
+  const approvalRecipients = approvalTaskList
+    .map((task) => String(task.pending_approver || '').trim())
+    .filter(Boolean)
+  const allUsernamesForEmail = [...new Set([...allRecipientsArr, ...approvalRecipients])]
+
+  const { data: usersForEmail } = allUsernamesForEmail.length
+    ? await supabase
+        .from('users')
+        .select('username, email, email_notifications_enabled')
+        .in('username', allUsernamesForEmail)
+    : { data: [] as Array<{ username: string; email: string; email_notifications_enabled: boolean }> }
+
+  const userEmailMap = new Map<string, { email: string; emailEnabled: boolean }>(
+    ((usersForEmail ?? []) as Array<{ username: string; email: string; email_notifications_enabled: boolean }>).map((u) => [
+      u.username.toLowerCase(),
+      { email: u.email, emailEnabled: u.email_notifications_enabled ?? false },
+    ])
+  )
+
+  const portalUrl = process.env.NEXT_PUBLIC_APP_URL
+    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
   const reminderTaskIds = [
     ...taskIds,
     ...approvalTaskList.map((task) => task.id),
   ]
   const reminderRecipients = [
-    ...Array.from(allRecipients),
-    ...approvalTaskList.map((task) => String(task.pending_approver || '').trim()).filter(Boolean),
+    ...allRecipientsArr,
+    ...approvalRecipients,
   ]
 
   const { data: todayReminders } = reminderTaskIds.length && reminderRecipients.length
@@ -189,6 +214,13 @@ export async function GET(request: NextRequest) {
         created_at: new Date().toISOString(),
       })
       remindersSent += 1
+
+      // Send email if user has notifications enabled
+      const userInfo = userEmailMap.get(username.toLowerCase())
+      if (userInfo?.emailEnabled && userInfo.email) {
+        const { html, text } = renderTaskReminderEmail(username, task.title, getDaysText(daysRemaining), portalUrl)
+        sendEmail({ to: userInfo.email, subject: `Task Reminder: ${task.title}`, html, text }).catch(() => {})
+      }
     }
   }
 
@@ -215,6 +247,14 @@ export async function GET(request: NextRequest) {
       created_at: new Date().toISOString(),
     })
     approvalRemindersSent += 1
+
+    // Send email if approver has notifications enabled
+    const approverInfo = userEmailMap.get(approver.toLowerCase())
+    if (approverInfo?.emailEnabled && approverInfo.email) {
+      const daysText = `${overdueDays === 1 ? '1 day' : `${overdueDays} days`} overdue`
+      const { html, text } = renderTaskReminderEmail(approver, task.title, daysText, portalUrl)
+      sendEmail({ to: approverInfo.email, subject: `Approval Overdue: ${task.title}`, html, text }).catch(() => {})
+    }
   }
 
   return NextResponse.json({

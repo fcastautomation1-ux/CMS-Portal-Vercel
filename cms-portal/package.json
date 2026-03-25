@@ -22,6 +22,7 @@
     "lucide-react": "^0.577.0",
     "mammoth": "^1.12.0",
     "next": "^14.2.35",
+    "nodemailer": "^8.0.4",
     "pdfjs-dist": "^5.5.207",
     "postcss": "^8.5.8",
     "react": "^18.3.1",
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.37",
+    "@types/nodemailer": "^7.0.11",
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.5",
     "eslint": "^9",

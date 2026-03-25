@@ -5,6 +5,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { buildPortalLogoPath, CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { getPortalBranding as getPortalBrandingFromLib, type PortalBranding } from '@/lib/portal-branding'
+import { verifySmtpConnection } from '@/lib/email'
 
 export interface SmtpConfig {
   id?: string
@@ -106,7 +107,7 @@ export async function saveSmtpConfig(
   return { success: true }
 }
 
-// ── Test connection (basic validation) ────────────────────────
+// ── Test connection (real SMTP verify via nodemailer) ─────────
 export async function testSmtpConnection(
   cfg: Omit<SmtpConfig, 'id' | 'updated_at'>
 ): Promise<{ success: boolean; message: string }> {
@@ -116,7 +117,7 @@ export async function testSmtpConnection(
     return { success: false, message: 'Permission denied.' }
   }
 
-  // Basic validation only — actual network test requires a backend SMTP library
+  // Basic field validation first
   if (!cfg.host || cfg.host.length < 3) {
     return { success: false, message: 'Invalid SMTP host.' }
   }
@@ -130,10 +131,17 @@ export async function testSmtpConnection(
     return { success: false, message: 'SMTP username is required.' }
   }
 
-  return {
-    success: true,
-    message: `Configuration looks valid. To fully test delivery, save and send a test email from your server using these settings: ${cfg.host}:${cfg.port} (${cfg.encryption.toUpperCase()}).`,
-  }
+  // Real SMTP connection test
+  return verifySmtpConnection({
+    host: cfg.host,
+    port: cfg.port,
+    username: cfg.username,
+    password: cfg.password,
+    from_name: cfg.from_name,
+    from_email: cfg.from_email,
+    encryption: cfg.encryption,
+    enabled: cfg.enabled,
+  })
 }
 
 // ── Portal Branding ─────────────────────────────────────────
