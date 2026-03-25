@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Plus, Trash2, Pencil, X, UserPlus } from 'lucide-react'
+import { Search, Plus, Trash2, Pencil, X, UserPlus, Loader2 } from 'lucide-react'
 import { createUser, updateUser, deleteUser, getUsers, type UserFormOptions } from '@/app/dashboard/users/actions'
 import type { User, SessionUser, UserRole, ModuleAccess } from '@/types'
 import { queryKeys } from '@/lib/query-keys'
@@ -207,18 +207,26 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
       )}
 
       {deleting && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) setDeleting(null) }}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (!pending && e.target === e.currentTarget) setDeleting(null) }}>
           <div className="card w-full rounded-t-2xl sm:max-w-sm sm:rounded-2xl animate-slide-up">
             <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--slate-100)' }}>
               <h2 className="text-base font-bold" style={{ color: 'var(--slate-900)' }}>Delete User</h2>
-              <button onClick={() => setDeleting(null)} className="btn-motion rounded-lg p-1 hover:bg-slate-100"><X size={16} /></button>
+              <button onClick={() => { if (!pending) setDeleting(null) }} disabled={pending} className="btn-motion rounded-lg p-1 hover:bg-slate-100 disabled:opacity-40"><X size={16} /></button>
             </div>
             <div className="px-5 py-5">
               <p className="text-sm" style={{ color: 'var(--slate-600)' }}>Are you sure you want to delete <strong>{deleting.username}</strong>?</p>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid var(--slate-100)' }}>
-              <button onClick={() => setDeleting(null)} className="btn-motion h-9 rounded-lg px-4 text-sm font-medium" style={{ color: 'var(--slate-600)' }}>Cancel</button>
-              <button onClick={handleDelete} disabled={pending} className="btn-motion h-9 rounded-lg px-4 text-sm font-semibold text-white" style={{ background: '#EF4444' }}>Delete</button>
+              <button onClick={() => setDeleting(null)} disabled={pending} className="btn-motion h-9 rounded-lg px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50" style={{ color: 'var(--slate-600)' }}>Cancel</button>
+              <button
+                onClick={handleDelete}
+                disabled={pending}
+                className="btn-motion inline-flex h-9 min-w-[90px] items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-70"
+                style={{ background: '#EF4444' }}
+              >
+                {pending && <Loader2 size={13} className="animate-spin" />}
+                {pending ? 'Deleting...' : 'Delete'}
+              </button>
             </div>
           </div>
         </div>
