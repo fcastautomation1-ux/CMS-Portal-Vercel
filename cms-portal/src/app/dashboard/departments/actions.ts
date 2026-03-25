@@ -107,14 +107,19 @@ export async function getUsersForDepartmentAssignment(): Promise<Array<{ usernam
   if (!user) return []
   if (!['Admin', 'Super Manager', 'Manager'].includes(user.role)) return []
 
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('users')
-    .select('username,department')
-    .order('username', { ascending: true })
-
-  if (error) return []
-  return (data as Array<{ username: string; department: string | null }>) ?? []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data, error } = await supabase
+        .from('users')
+        .select('username,department')
+        .order('username', { ascending: true })
+      if (error) return []
+      return (data as Array<{ username: string; department: string | null }>) ?? []
+    },
+    ['dept-assignment-users'],
+    { revalidate: 60, tags: [DEPARTMENTS_CACHE_TAG] }
+  )()
 }
 
 export async function assignUsersToDepartment(

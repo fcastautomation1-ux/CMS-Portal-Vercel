@@ -13,12 +13,15 @@ import { getAccounts } from '@/app/dashboard/accounts/actions'
 import { getCampaigns, getAccountsForCampaigns, getConditionDefinitions } from '@/app/dashboard/campaigns/actions'
 import {
   getTodos,
+  getCachedTodos,
   getCachedSidebarTaskCounts,
   getPackagesForTaskForm,
   getUsersForAssignment,
   getDepartmentsForTaskForm,
 } from '@/app/dashboard/tasks/actions'
 import { getTeamStats, getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
+import { getRules } from '@/app/dashboard/rules/actions'
+import { getWorkflows } from '@/app/dashboard/workflows/actions'
 import { queryKeys } from '@/lib/query-keys'
 import type { SessionUser } from '@/types'
 
@@ -158,7 +161,7 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       },
       {
         key: queryKeys.tasks(user.username),
-        fn: () => getTodos(),
+        fn: () => getCachedTodos(),
         staleTime: 60_000,
       },
       {
@@ -310,6 +313,22 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
           key: queryKeys.campaignDefinitions(),
           fn: () => getConditionDefinitions(),
           staleTime: 300_000,
+        }
+      )
+    }
+
+    // Rules and workflows: Admin/SM only — cached server-side so these are fast
+    if (isAdminOrSM) {
+      warmTasks.push(
+        {
+          key: queryKeys.rules(),
+          fn: () => getRules(),
+          staleTime: 60_000,
+        },
+        {
+          key: queryKeys.workflows(),
+          fn: () => getWorkflows(),
+          staleTime: 60_000,
         }
       )
     }

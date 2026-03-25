@@ -180,8 +180,8 @@ export function Sidebar({
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
     queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
   })
@@ -190,8 +190,8 @@ export function Sidebar({
   const teamStatsQuery = useQuery({
     queryKey: queryKeys.teamStats(user.username),
     queryFn: () => getTeamStats().catch(() => null),
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 30 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
   })

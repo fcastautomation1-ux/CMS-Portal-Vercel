@@ -1,9 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Rule } from '@/types'
+
+const RULES_CACHE_TAG = 'rules-data'
 
 /** Rules are only visible to Admin/SM, or Managers with 'all' account access */
 function canAccessRules(user: Awaited<ReturnType<typeof getSession>>): boolean {
@@ -16,14 +18,19 @@ export async function getRules(): Promise<Rule[]> {
   const user = await getSession()
   if (!canAccessRules(user)) return []
 
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('removal_condition_definitions')
-    .select('*')
-    .order('name')
-
-  if (error) { console.error('getRules error:', error); return [] }
-  return (data as unknown as Rule[]) ?? []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data, error } = await supabase
+        .from('removal_condition_definitions')
+        .select('*')
+        .order('name')
+      if (error) { console.error('getRules error:', error); return [] }
+      return (data as unknown as Rule[]) ?? []
+    },
+    ['rules-list'],
+    { revalidate: 60, tags: [RULES_CACHE_TAG] }
+  )()
 }
 
 export async function saveRule(
@@ -51,6 +58,7 @@ export async function saveRule(
   }
 
   revalidatePath('/dashboard/rules')
+  revalidateTag(RULES_CACHE_TAG)
   return { success: true }
 }
 
@@ -71,5 +79,6 @@ export async function deleteRule(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/rules')
+  revalidateTag(RULES_CACHE_TAG)
   return { success: true }
 }

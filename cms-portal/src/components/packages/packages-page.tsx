@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { Plus, X, Search, RefreshCw, Upload, CheckSquare, Square, Users, Building2, Check } from 'lucide-react'
 import {
@@ -11,6 +12,7 @@ import {
   bulkAssignDepartments,
   bulkAssignPackagesToUsers,
 } from '@/app/dashboard/packages/actions'
+import { queryKeys } from '@/lib/query-keys'
 import type { Package, SessionUser } from '@/types'
 
 interface Props { packages: Package[]; user: SessionUser }
@@ -21,10 +23,23 @@ type UserRow = { username: string; role: string; department: string | null }
 export function PackagesPage({ packages: initial, user }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const packages = initial
-  const [users, setUsers] = useState<UserRow[]>([])
-  const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+
+  // Served instantly from portal warmup cache; no loading spinner on revisit
+  const { data: users = [] } = useQuery<{ username: string; role: string; department: string | null }[]>({
+    queryKey: queryKeys.packageAssignmentUsers(),
+    queryFn: getPackageAssignmentUsers,
+    staleTime: 60_000,
+    refetchOnMount: false,
+  })
+  const { data: assignments = [] } = useQuery<{ username: string; package_id: string }[]>({
+    queryKey: queryKeys.packageAssignments(),
+    queryFn: getUserPackageAssignments,
+    staleTime: 60_000,
+    refetchOnMount: false,
+  })
 
   const [packageSearch, setPackageSearch] = useState('')
 
@@ -36,20 +51,6 @@ export function PackagesPage({ packages: initial, user }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [editing, setEditing] = useState<Package | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const [userRows, assignmentRows] = await Promise.all([
-        getPackageAssignmentUsers(),
-        getUserPackageAssignments(),
-      ])
-      if (cancelled) return
-      setUsers(userRows)
-      setAssignments(assignmentRows)
-    })()
-    return () => { cancelled = true }
-  }, [])
 
   const departments = useMemo(() => {
     return Array.from(new Set(users.map(u => (u.department || '').trim()).filter(Boolean))).sort()
@@ -346,7 +347,7 @@ export function PackagesPage({ packages: initial, user }: Props) {
           onClose={() => setBulkUsersOpen(false)}
           onSaved={async () => {
             const refreshed = await getUserPackageAssignments()
-            setAssignments(refreshed)
+            queryClient.setQueryData(queryKeys.packageAssignments(), refreshed)
             setBulkUsersOpen(false)
             setSelectedRows(new Set())
           }}

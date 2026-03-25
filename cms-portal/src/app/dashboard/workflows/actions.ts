@@ -1,9 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Workflow } from '@/types'
+
+const WORKFLOWS_CACHE_TAG = 'workflows-data'
 
 /** Workflows are only visible to Admin/SM, or Managers with 'all' account access */
 function canAccessWorkflows(user: Awaited<ReturnType<typeof getSession>>): boolean {
@@ -16,14 +18,19 @@ export async function getWorkflows(): Promise<Workflow[]> {
   const user = await getSession()
   if (!canAccessWorkflows(user)) return []
 
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('workflows')
-    .select('*')
-    .order('workflow_name')
-
-  if (error) { console.error('getWorkflows error:', error); return [] }
-  return (data as unknown as Workflow[]) ?? []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('*')
+        .order('workflow_name')
+      if (error) { console.error('getWorkflows error:', error); return [] }
+      return (data as unknown as Workflow[]) ?? []
+    },
+    ['workflows-list'],
+    { revalidate: 60, tags: [WORKFLOWS_CACHE_TAG] }
+  )()
 }
 
 export async function toggleWorkflow(
@@ -44,5 +51,6 @@ export async function toggleWorkflow(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/workflows')
+  revalidateTag(WORKFLOWS_CACHE_TAG)
   return { success: true }
 }

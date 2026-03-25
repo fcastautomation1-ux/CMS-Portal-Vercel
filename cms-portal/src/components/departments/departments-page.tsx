@@ -165,13 +165,14 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
   }
 
   useEffect(() => {
-    if (!canEdit) return
+    // Only fetch once, and only when the assign-users modal is first opened.
+    if (!canEdit || !assigningDept || assignUsers.length > 0) return
     let cancelled = false
     getUsersForDepartmentAssignment().then((rows) => {
       if (!cancelled) setAssignUsers(rows)
     })
     return () => { cancelled = true }
-  }, [canEdit])
+  }, [canEdit, assigningDept, assignUsers.length])
 
   const filteredAssignUsers = useMemo(() => {
     const q = assignSearch.toLowerCase().trim()

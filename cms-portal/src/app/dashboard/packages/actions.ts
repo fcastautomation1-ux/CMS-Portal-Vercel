@@ -65,22 +65,33 @@ export async function getPackageAssignmentUsers(): Promise<PackageAssignmentUser
   const user = await getSession()
   if (!user || !canManagePackages(user.role)) return []
 
-  const supabase = createServerClient()
-  const { data } = await supabase
-    .from('users')
-    .select('username,role,department')
-    .order('username')
-
-  return (data as PackageAssignmentUser[] | null) ?? []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data } = await supabase
+        .from('users')
+        .select('username,role,department')
+        .order('username')
+      return (data as PackageAssignmentUser[] | null) ?? []
+    },
+    ['package-assignment-users'],
+    { revalidate: 60, tags: [PACKAGES_CACHE_TAG] }
+  )()
 }
 
 export async function getUserPackageAssignments(): Promise<UserPackageAssignment[]> {
   const user = await getSession()
   if (!user || !canManagePackages(user.role)) return []
 
-  const supabase = createServerClient()
-  const rows = await getUserPackageRows(supabase)
-  return rows.map(r => ({ username: r.username, package_id: r.package_id }))
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const rows = await getUserPackageRows(supabase)
+      return rows.map(r => ({ username: r.username, package_id: r.package_id }))
+    },
+    ['user-package-assignments'],
+    { revalidate: 60, tags: [PACKAGES_CACHE_TAG] }
+  )()
 }
 
 export async function assignPackagesToUser(

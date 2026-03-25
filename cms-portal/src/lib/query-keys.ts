@@ -28,4 +28,6 @@ export const queryKeys = {
   campaigns: (username: string) => ['campaigns', username] as const,
   campaignAccounts: (username: string) => ['campaigns', username, 'accounts'] as const,
   campaignDefinitions: () => ['campaigns', 'definitions'] as const,
+  rules: () => ['rules'] as const,
+  workflows: () => ['workflows'] as const,
 }
