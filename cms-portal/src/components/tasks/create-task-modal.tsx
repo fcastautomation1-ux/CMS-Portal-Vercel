@@ -11,6 +11,7 @@ import {
   List,
   ListOrdered,
   Loader2,
+  Minus,
   Paperclip,
   Plus,
   Search,
@@ -205,7 +206,16 @@ export function CreateTaskModal({
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [isPending])
 
+  // Track which task's editor has been initialised so that background
+  // query refetches (new object reference, same id) never reset the DOM/cursor.
+  const editorInitializedRef = useRef<string | null>(null)
+
   useEffect(() => {
+    // Key on task id — 'new' for the create-task form, actual id for edit.
+    const taskKey = editTask?.id ?? '__new__'
+    if (editorInitializedRef.current === taskKey) return
+    editorInitializedRef.current = taskKey
+
     if (descriptionRef.current) {
       descriptionRef.current.innerHTML = normalizeTaskDescription(
         initialDraft?.description ?? editTask?.description ?? ''
@@ -215,7 +225,8 @@ export function CreateTaskModal({
     if (goalRef.current) {
       goalRef.current.innerHTML = initialDraft?.ourGoal ?? editTask?.our_goal ?? ''
     }
-  }, [editTask, initialDraft?.description, initialDraft?.ourGoal])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editTask?.id])
 
   useEffect(() => {
     if (!editTask || typeof window === 'undefined') return
@@ -404,9 +415,13 @@ export function CreateTaskModal({
 
   const handleDescriptionMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target
-    if (!(target instanceof Element)) return
-    const cell = target.closest('td, th')
-    if (!cell || target !== cell) return
+    if (!(target instanceof Element) && !(target instanceof Node)) return
+    const element = target instanceof Element ? target : (target as ChildNode).parentElement
+    if (!element) return
+    const cell = element.closest('td, th')
+    if (!cell) return
+    // Only manually place the caret for visually-empty cells (those contain just a
+    // placeholder <br>).  Non-empty cells let the browser handle cursor placement.
     if ((cell.textContent ?? '').trim()) return
 
     const selection = window.getSelection()
@@ -613,18 +628,20 @@ export function CreateTaskModal({
 
   const handleAddTableRow = () => {
     const context = getSelectedTableContext(descriptionRef.current)
-    if (!context?.row) {
+    if (!context?.row || !context.table) {
       setError('Place the cursor inside a description table first.')
       setErrorField('description')
       return
     }
 
-    const newRow = context.row.cloneNode(true) as HTMLTableRowElement
-    Array.from(newRow.cells).forEach((cell, index) => {
-      const headerText = `Column ${index + 1}`
-      cell.innerHTML = cell.tagName === 'TH' ? headerText : ''
+    // Always add a data row (TD), even if cursor is in the header (TH) row.
+    const colCount = context.row.cells.length || 1
+    const newRow = context.table.insertRow(context.row.rowIndex + 1)
+    Array.from({ length: colCount }).forEach(() => {
+      const cell = newRow.insertCell()
+      cell.innerHTML = ''
     })
-    context.row.insertAdjacentElement('afterend', newRow)
+
     normalizeEditableTables(descriptionRef.current)
     syncDescription()
   }
@@ -654,8 +671,66 @@ export function CreateTaskModal({
     syncDescription()
   }
 
+  const handleRemoveTableRow = () => {
+    const context = getSelectedTableContext(descriptionRef.current)
+    if (!context?.row || !context.table) {
+      setError('Place the cursor inside a description table row first.')
+      setErrorField('description')
+      return
+    }
+
+    // Don't remove if it's the only row left
+    if (context.table.rows.length <= 1) {
+      setError('Cannot remove the last row. Delete the table instead.')
+      setErrorField('description')
+      return
+    }
+
+    context.row.remove()
+    normalizeEditableTables(descriptionRef.current)
+    syncDescription()
+  }
+
+  const handleRemoveTableColumn = () => {
+    const context = getSelectedTableContext(descriptionRef.current)
+    if (!context?.table || !context.cell) {
+      setError('Place the cursor inside a description table column first.')
+      setErrorField('description')
+      return
+    }
+
+    const removeIndex = context.cell.cellIndex
+
+    // Don't remove if it's the only column left
+    if (context.table.rows.length > 0 && context.table.rows[0].cells.length <= 1) {
+      setError('Cannot remove the last column. Delete the table instead.')
+      setErrorField('description')
+      return
+    }
+
+    Array.from(context.table.rows).forEach((row) => {
+      if (row.cells[removeIndex]) {
+        row.cells[removeIndex].remove()
+      }
+    })
+
+    normalizeEditableTables(descriptionRef.current)
+    syncDescription()
+  }
+
   const importRowsIntoDescription = (rows: unknown[][], sourceLabel: string) => {
-    insertDescriptionHtml(buildTableHtml(rows))
+    // Always append the imported table at the end of the editor rather than at
+    // the current cursor position.  If the cursor happens to be inside a table
+    // cell, range.createContextualFragment() runs in a <td> context which causes
+    // browsers to foster-parent the new <table> markup, producing garbled output
+    // (one character per cell).  insertAdjacentHTML('beforeend') is reliably safe.
+    const editor = descriptionRef.current
+    if (editor) {
+      editor.focus()
+      editor.insertAdjacentHTML('beforeend', buildTableHtml(rows))
+      normalizeEditableTables(editor)
+      syncDescription()
+    }
     finishImportProgress(`${sourceLabel} imported`)
   }
 
@@ -666,9 +741,48 @@ export function CreateTaskModal({
 
     try {
       const lowerName = file.name.toLowerCase()
+
       if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.json')) {
         const text = await file.text()
         insertDescriptionHtml(normalizeTaskDescription(text))
+        finishImportProgress(`${file.name} imported`)
+        return
+      }
+
+      if (lowerName.endsWith('.docx')) {
+        updateImportProgress(`Converting ${file.name}`, 40)
+        const arrayBuffer = await file.arrayBuffer()
+        const mammoth = await import('mammoth')
+        const result = await mammoth.convertToHtml({ arrayBuffer })
+        const html = result.value?.trim()
+        if (!html) throw new Error('The Word document appears to be empty.')
+        insertDescriptionHtml(html)
+        finishImportProgress(`${file.name} imported`)
+        return
+      }
+
+      if (lowerName.endsWith('.pdf')) {
+        updateImportProgress(`Extracting ${file.name}`, 20)
+        const arrayBuffer = await file.arrayBuffer()
+        // Dynamically import pdfjs-dist to keep initial bundle small.
+        const pdfjs = await import('pdfjs-dist')
+        // Point to the CDN worker so we don't need import.meta.url (which breaks
+        // webpack in CommonJS mode) and don't have to copy the worker to /public.
+        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+        const pageTexts: string[] = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          updateImportProgress(`Reading page ${i}/${pdf.numPages}`, 20 + Math.round((i / pdf.numPages) * 60))
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          const pageText = content.items
+            .map((item) => ('str' in item ? item.str : ''))
+            .join(' ')
+          pageTexts.push(pageText.trim())
+        }
+        const fullText = pageTexts.filter(Boolean).join('\n\n')
+        if (!fullText.trim()) throw new Error('No extractable text found in this PDF.')
+        insertDescriptionHtml(normalizeTaskDescription(fullText))
         finishImportProgress(`${file.name} imported`)
         return
       }
@@ -991,6 +1105,23 @@ export function CreateTaskModal({
                         handleAddTableColumn()
                       }}
                     />
+                    <ToolbarAction
+                      icon={<Minus size={14} />}
+                      title="Remove Table Row"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleRemoveTableRow()
+                      }}
+                    />
+                    <ToolbarAction
+                      icon={<Minus size={14} />}
+                      label="Col"
+                      title="Remove Table Column"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleRemoveTableColumn()
+                      }}
+                    />
                     <Divider />
                     <ToolbarAction
                       icon={<Upload size={14} />}
@@ -1026,7 +1157,7 @@ export function CreateTaskModal({
                       </button>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      Supports bullet lists, manual tables, Excel, CSV, pasted table text, and public Google Sheets.
+                      Supports bullet lists, manual tables, Excel, CSV, Word (.docx), PDF, pasted table text, and public Google Sheets.
                     </p>
 
                     {descriptionImport.active && (
@@ -1068,7 +1199,7 @@ export function CreateTaskModal({
                   <input
                     ref={importFileInputRef}
                     type="file"
-                    accept=".csv,.xlsx,.xls,.txt,.md,.json"
+                    accept=".csv,.xlsx,.xls,.txt,.md,.json,.docx,.pdf"
                     onChange={handleImportFileChange}
                     className="hidden"
                   />
