@@ -1,10 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Department } from '@/types'
 import { canonicalDepartmentKey, mapDepartmentCsvToOfficial, splitDepartmentsCsv } from '@/lib/department-name'
+
+const DEPARTMENTS_CACHE_TAG = 'departments-data'
 
 function replaceDepartmentInCsv(source: string, oldName: string, nextName: string) {
   const oldKey = canonicalDepartmentKey(oldName)
@@ -34,15 +36,16 @@ function appendDepartmentToCsv(source: string | null | undefined, departmentName
 export async function getDepartments(): Promise<Department[]> {
   const user = await getSession()
   if (!user) return []
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const { data, error } = await supabase
+      .from('departments')
+      .select('*')
+      .order('name')
 
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('departments')
-    .select('*')
-    .order('name')
-
-  if (error) { console.error('getDepartments error:', error); return [] }
-  return (data as unknown as Department[]) ?? []
+    if (error) { console.error('getDepartments error:', error); return [] }
+    return (data as unknown as Department[]) ?? []
+  }, ['departments-page'], { revalidate: 60, tags: [DEPARTMENTS_CACHE_TAG] })()
 }
 
 export async function getDepartmentMembers(): Promise<Record<string, number>> {
@@ -71,30 +74,32 @@ export async function getDepartmentMembers(): Promise<Record<string, number>> {
 }
 
 export async function getDepartmentMembersWithNames(): Promise<Record<string, string[]>> {
-  const supabase = createServerClient()
-  const [{ data: users }, { data: departments }] = await Promise.all([
-    supabase.from('users').select('username,department'),
-    supabase.from('departments').select('name'),
-  ])
-  if (!users) return {}
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const [{ data: users }, { data: departments }] = await Promise.all([
+      supabase.from('users').select('username,department'),
+      supabase.from('departments').select('name'),
+    ])
+    if (!users) return {}
 
-  const canonicalToOfficial: Record<string, string> = {}
-  for (const row of (departments ?? []) as Array<{ name: string }>) {
-    const key = canonicalDepartmentKey(row.name)
-    if (key && !canonicalToOfficial[key]) canonicalToOfficial[key] = row.name
-  }
-
-  const map: Record<string, string[]> = {}
-  for (const row of users as Array<{ username: string; department: string | null }>) {
-    const mappedCsv = mapDepartmentCsvToOfficial(row.department, canonicalToOfficial)
-    const depts = splitDepartmentsCsv(mappedCsv)
-
-    for (const dept of depts) {
-      if (!map[dept]) map[dept] = []
-      map[dept].push(row.username)
+    const canonicalToOfficial: Record<string, string> = {}
+    for (const row of (departments ?? []) as Array<{ name: string }>) {
+      const key = canonicalDepartmentKey(row.name)
+      if (key && !canonicalToOfficial[key]) canonicalToOfficial[key] = row.name
     }
-  }
-  return map
+
+    const map: Record<string, string[]> = {}
+    for (const row of users as Array<{ username: string; department: string | null }>) {
+      const mappedCsv = mapDepartmentCsvToOfficial(row.department, canonicalToOfficial)
+      const depts = splitDepartmentsCsv(mappedCsv)
+
+      for (const dept of depts) {
+        if (!map[dept]) map[dept] = []
+        map[dept].push(row.username)
+      }
+    }
+    return map
+  }, ['department-member-names'], { revalidate: 60, tags: [DEPARTMENTS_CACHE_TAG] })()
 }
 
 export async function getUsersForDepartmentAssignment(): Promise<Array<{ username: string; department: string | null }>> {
@@ -146,6 +151,7 @@ export async function assignUsersToDepartment(
 
   revalidatePath('/dashboard/departments')
   revalidatePath('/dashboard/users')
+  revalidateTag(DEPARTMENTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -225,6 +231,7 @@ export async function saveDepartment(
     }
 
     revalidatePath('/dashboard/departments')
+    revalidateTag(DEPARTMENTS_CACHE_TAG)
     return { success: true, department: data as Department }
   } else {
     const primary = await supabase
@@ -250,6 +257,7 @@ export async function saveDepartment(
     const data = (primary.data ?? fallback?.data) as Department
 
     revalidatePath('/dashboard/departments')
+    revalidateTag(DEPARTMENTS_CACHE_TAG)
     return { success: true, department: data as Department }
   }
 }
@@ -267,5 +275,6 @@ export async function deleteDepartment(
   const { error } = await supabase.from('departments').delete().eq('id', id)
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/departments')
+  revalidateTag(DEPARTMENTS_CACHE_TAG)
   return { success: true }
 }

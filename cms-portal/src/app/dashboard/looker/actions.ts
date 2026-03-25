@@ -1,9 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { LookerReport } from '@/types'
+
+const LOOKER_CACHE_TAG = 'looker-data'
 
 type RawLookerReport = {
   id: string
@@ -51,51 +53,52 @@ function normalizeReport(row: RawLookerReport): LookerReport {
 export async function getLookerReports(): Promise<LookerReport[]> {
   const user = await getSession()
   if (!user) return []
-
-  const supabase = createServerClient()
-  const bySortOrder = await supabase
-    .from('looker_reports')
-    .select('*')
-    .order('sort_order', { ascending: true })
-
-  const byUpdatedAt = bySortOrder.error
-    ? await supabase
+  const scopeKey = [user.role, user.username, user.allowedLookerReports.join(',')].join('|')
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const bySortOrder = await supabase
       .from('looker_reports')
       .select('*')
-      .order('updated_at', { ascending: false })
-    : bySortOrder
+      .order('sort_order', { ascending: true })
 
-  if (byUpdatedAt.error) { console.error('getLookerReports error:', byUpdatedAt.error); return [] }
+    const byUpdatedAt = bySortOrder.error
+      ? await supabase
+        .from('looker_reports')
+        .select('*')
+        .order('updated_at', { ascending: false })
+      : bySortOrder
 
-  const reports = ((byUpdatedAt.data as RawLookerReport[]) ?? [])
-    .map(normalizeReport)
-    .filter(r => {
-      const raw = (byUpdatedAt.data as RawLookerReport[]).find(x => x.id === r.id)
-      return raw?.active !== false
-    })
-    .filter(r => Boolean(r.report_url))
+    if (byUpdatedAt.error) { console.error('getLookerReports error:', byUpdatedAt.error); return [] }
 
-  // Non-Admin/Manager users only see reports they are allowed to view
-  const normalizedRole = user.role.toLowerCase()
-  const isPrivileged = normalizedRole === 'admin' || normalizedRole === 'super manager' || normalizedRole === 'manager'
-  if (!isPrivileged) {
-    const allowed = user.allowedLookerReports
-    if (!allowed.includes('All') && !allowed.includes('*')) {
-      return reports.filter(r => {
-        if (allowed.includes(r.id) || allowed.includes(r.title)) return true
-        const parsedAllowedUsers = r.allowed_users
-          .split(',')
-          .map(v => v.trim().toLowerCase())
-          .filter(Boolean)
-        return parsedAllowedUsers.includes(user.username.toLowerCase())
-          || parsedAllowedUsers.includes(user.role.toLowerCase())
-          || parsedAllowedUsers.includes('all')
-          || parsedAllowedUsers.includes('empty')
+    const reports = ((byUpdatedAt.data as RawLookerReport[]) ?? [])
+      .map(normalizeReport)
+      .filter(r => {
+        const raw = (byUpdatedAt.data as RawLookerReport[]).find(x => x.id === r.id)
+        return raw?.active !== false
       })
-    }
-  }
+      .filter(r => Boolean(r.report_url))
 
-  return reports
+    const normalizedRole = user.role.toLowerCase()
+    const isPrivileged = normalizedRole === 'admin' || normalizedRole === 'super manager' || normalizedRole === 'manager'
+    if (!isPrivileged) {
+      const allowed = user.allowedLookerReports
+      if (!allowed.includes('All') && !allowed.includes('*')) {
+        return reports.filter(r => {
+          if (allowed.includes(r.id) || allowed.includes(r.title)) return true
+          const parsedAllowedUsers = r.allowed_users
+            .split(',')
+            .map(v => v.trim().toLowerCase())
+            .filter(Boolean)
+          return parsedAllowedUsers.includes(user.username.toLowerCase())
+            || parsedAllowedUsers.includes(user.role.toLowerCase())
+            || parsedAllowedUsers.includes('all')
+            || parsedAllowedUsers.includes('empty')
+        })
+      }
+    }
+
+    return reports
+  }, ['looker-page', scopeKey], { revalidate: 60, tags: [LOOKER_CACHE_TAG] })()
 }
 
 export async function getLookerAccessUsers(): Promise<string[]> {
@@ -166,10 +169,12 @@ export async function saveLookerReport(
       if (fallback.error) return { success: false, error: fallback.error.message }
 
       revalidatePath('/dashboard/looker')
+      revalidateTag(LOOKER_CACHE_TAG)
       return { success: true, report: normalizeReport(fallback.data as RawLookerReport) }
     }
 
     revalidatePath('/dashboard/looker')
+    revalidateTag(LOOKER_CACHE_TAG)
     return { success: true, report: normalizeReport(primary.data as RawLookerReport) }
   } else {
     const primary = await supabase
@@ -199,10 +204,12 @@ export async function saveLookerReport(
       if (fallback.error) return { success: false, error: fallback.error.message }
 
       revalidatePath('/dashboard/looker')
+      revalidateTag(LOOKER_CACHE_TAG)
       return { success: true, report: normalizeReport(fallback.data as RawLookerReport) }
     }
 
     revalidatePath('/dashboard/looker')
+    revalidateTag(LOOKER_CACHE_TAG)
     return { success: true, report: normalizeReport(primary.data as RawLookerReport) }
   }
 }
@@ -220,5 +227,6 @@ export async function deleteLookerReport(
   const { error } = await supabase.from('looker_reports').delete().eq('id', id)
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/looker')
+  revalidateTag(LOOKER_CACHE_TAG)
   return { success: true }
 }

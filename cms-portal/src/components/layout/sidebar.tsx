@@ -303,7 +303,7 @@ export function Sidebar({
   useEffect(() => {
     let mounted = true
     const loadBranding = () => {
-      fetch('/api/public-branding', { cache: 'no-store' })
+      fetch('/api/public-branding', { cache: 'force-cache' })
         .then((res) => res.json())
         .then((data) => {
           if (!mounted) return
