@@ -3,8 +3,6 @@ import { redirect } from 'next/navigation'
 import { getAnalytics } from './actions'
 import { AnalyticsPage } from '@/components/analytics/analytics-page'
 
-export const dynamic = 'force-dynamic'
-
 export default async function Page() {
   const [user, analytics] = await Promise.all([
     getSession(),

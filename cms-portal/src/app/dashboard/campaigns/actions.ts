@@ -1,11 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Campaign, Account, SessionUser } from '@/types'
 
 const CAMPAIGN_TABLES = ['campaign_conditions', 'workflow_1', 'workflow_2', 'workflow_3'] as const
+const CAMPAIGNS_CACHE_TAG = 'campaigns-data'
 
 /** Returns true if the user has full access to all accounts/campaigns */
 function hasFullAccess(user: SessionUser): boolean {
@@ -27,20 +28,27 @@ export async function getCampaigns(): Promise<Campaign[]> {
   const allowedIds = getAllowedAccountIds(user)
   // User has no account access at all
   if (allowedIds !== null && allowedIds.length === 0) return []
+  const scopeKey = allowedIds === null ? 'all' : [...allowedIds].sort().join(',')
 
-  const supabase = createServerClient()
-  const all: Campaign[] = []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const all: Campaign[] = []
 
-  for (const table of CAMPAIGN_TABLES) {
-    let query = supabase.from(table).select('*')
-    if (allowedIds !== null) {
-      query = query.in('customer_id', allowedIds)
-    }
-    const { data } = await query
-    if (data) all.push(...(data as unknown as Campaign[]))
-  }
+      for (const table of CAMPAIGN_TABLES) {
+        let query = supabase.from(table).select('*')
+        if (allowedIds !== null) {
+          query = query.in('customer_id', allowedIds)
+        }
+        const { data } = await query
+        if (data) all.push(...(data as unknown as Campaign[]))
+      }
 
-  return all
+      return all
+    },
+    ['campaigns-page', user.username, scopeKey],
+    { revalidate: 60, tags: [CAMPAIGNS_CACHE_TAG] }
+  )()
 }
 
 export async function getCampaignsForAccount(customerId: string): Promise<Campaign[]> {
@@ -68,14 +76,21 @@ export async function getAccountsForCampaigns(): Promise<Account[]> {
 
   const allowedIds = getAllowedAccountIds(user)
   if (allowedIds !== null && allowedIds.length === 0) return []
+  const scopeKey = allowedIds === null ? 'all' : [...allowedIds].sort().join(',')
 
-  const supabase = createServerClient()
-  let query = supabase.from('accounts').select('customer_id, workflow, account_name, drive_code_comments').order('customer_id')
-  if (allowedIds !== null) {
-    query = query.in('customer_id', allowedIds)
-  }
-  const { data } = await query
-  return (data as unknown as Account[]) ?? []
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      let query = supabase.from('accounts').select('customer_id, workflow, account_name, drive_code_comments').order('customer_id')
+      if (allowedIds !== null) {
+        query = query.in('customer_id', allowedIds)
+      }
+      const { data } = await query
+      return (data as unknown as Account[]) ?? []
+    },
+    ['campaign-accounts', user.username, scopeKey],
+    { revalidate: 60, tags: [CAMPAIGNS_CACHE_TAG] }
+  )()
 }
 
 export async function getConditionDefinitions(): Promise<Array<{ id: string; name: string; description: string | null }>> {
@@ -85,17 +100,23 @@ export async function getConditionDefinitions(): Promise<Array<{ id: string; nam
   const allowedIds = getAllowedAccountIds(user)
   if (allowedIds !== null && allowedIds.length === 0) return []
 
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('removal_condition_definitions')
-    .select('id,name,description')
-    .order('name')
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data, error } = await supabase
+        .from('removal_condition_definitions')
+        .select('id,name,description')
+        .order('name')
 
-  if (error) {
-    console.error('getConditionDefinitions error:', error)
-    return []
-  }
-  return (data as Array<{ id: string; name: string; description: string | null }>) ?? []
+      if (error) {
+        console.error('getConditionDefinitions error:', error)
+        return []
+      }
+      return (data as Array<{ id: string; name: string; description: string | null }>) ?? []
+    },
+    ['campaign-condition-definitions'],
+    { revalidate: 300, tags: [CAMPAIGNS_CACHE_TAG] }
+  )()
 }
 
 export async function saveCampaign(
@@ -132,6 +153,7 @@ export async function saveCampaign(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/campaigns')
+  revalidateTag(CAMPAIGNS_CACHE_TAG)
   return { success: true }
 }
 
@@ -153,6 +175,7 @@ export async function saveCampaignBatch(
   }
 
   revalidatePath('/dashboard/campaigns')
+  revalidateTag(CAMPAIGNS_CACHE_TAG)
   return { success: true }
 }
 
@@ -181,5 +204,6 @@ export async function deleteCampaign(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/campaigns')
+  revalidateTag(CAMPAIGNS_CACHE_TAG)
   return { success: true }
 }

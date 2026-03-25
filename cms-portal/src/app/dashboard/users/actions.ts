@@ -1,11 +1,15 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { buildLegacyPasswordFields } from '@/lib/password'
 import { resolveStorageUrl } from '@/lib/storage'
 import type { ModuleAccess, User } from '@/types'
+
+const USERS_CACHE_TAG = 'users-data'
+const USER_FORM_OPTIONS_CACHE_TAG = 'user-form-options'
+const DEPARTMENTS_LIST_CACHE_TAG = 'departments-list'
 
 export interface UserFormOptions {
   accounts: Array<{ customer_id: string; account_name: string | null }>
@@ -17,44 +21,48 @@ export interface UserFormOptions {
 export async function getUsers(): Promise<User[]> {
   const user = await getSession()
   if (!user) return []
+  const scopeKey = [
+    user.role,
+    user.username,
+    user.department ?? '',
+    user.moduleAccess?.users?.departmentRestricted ? 'dept' : 'all',
+    user.teamMembers.join(','),
+  ].join('|')
 
-  const supabase = createServerClient()
-  const withResolvedAvatars = async (rows: User[]) =>
-    Promise.all(
-      rows.map(async (row) => ({
-        ...row,
-        avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
-      }))
-    )
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const withResolvedAvatars = async (rows: User[]) =>
+      Promise.all(
+        rows.map(async (row) => ({
+          ...row,
+          avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+        }))
+      )
 
-  // Admin and Super Manager see ALL users
-  if (user.role === 'Admin' || user.role === 'Super Manager') {
-    const { data } = await supabase.from('users').select('*').order('username')
-    return withResolvedAvatars((data as unknown as User[]) ?? [])
-  }
-
-  // Manager sees a restricted set
-  if (user.role === 'Manager') {
-    const { data } = await supabase.from('users').select('*').order('username')
-    if (!data) return []
-    const all = data as unknown as User[]
-
-    // If department-restricted: only same-department users
-    if (user.moduleAccess?.users?.departmentRestricted && user.department) {
-      return withResolvedAvatars(all.filter(u => u.department === user.department))
+    if (user.role === 'Admin' || user.role === 'Super Manager') {
+      const { data } = await supabase.from('users').select('*').order('username')
+      return withResolvedAvatars((data as unknown as User[]) ?? [])
     }
 
-    // Default Manager: see self + users where manager_id === me + team_members list
-    const teamList = user.teamMembers.map(t => t.toLowerCase())
-    return withResolvedAvatars(all.filter(u =>
-      u.username === user.username ||
-      u.manager_id === user.username ||
-      teamList.includes(u.username.toLowerCase())
-    ))
-  }
+    if (user.role === 'Manager') {
+      const { data } = await supabase.from('users').select('*').order('username')
+      if (!data) return []
+      const all = data as unknown as User[]
 
-  // Supervisor / User: no access to Users module
-  return []
+      if (user.moduleAccess?.users?.departmentRestricted && user.department) {
+        return withResolvedAvatars(all.filter(u => u.department === user.department))
+      }
+
+      const teamList = user.teamMembers.map(t => t.toLowerCase())
+      return withResolvedAvatars(all.filter(u =>
+        u.username === user.username ||
+        u.manager_id === user.username ||
+        teamList.includes(u.username.toLowerCase())
+      ))
+    }
+
+    return []
+  }, ['users-page', scopeKey], { revalidate: 30, tags: [USERS_CACHE_TAG] })()
 }
 
 export async function createUser(
@@ -107,6 +115,9 @@ export async function createUser(
   }
   revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/departments')
+  revalidateTag(USERS_CACHE_TAG)
+  revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
+  revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
   return { success: true }
 }
 
@@ -162,6 +173,9 @@ export async function updateUser(
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/departments')
+  revalidateTag(USERS_CACHE_TAG)
+  revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
+  revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
   return { success: true }
 }
 
@@ -180,13 +194,18 @@ export async function deleteUser(
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/departments')
+  revalidateTag(USERS_CACHE_TAG)
+  revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
+  revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
   return { success: true }
 }
 
 export async function getDepartmentsList(): Promise<string[]> {
-  const supabase = createServerClient()
-  const { data } = await supabase.from('departments').select('name').order('name')
-  return data?.map(d => d.name) ?? []
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const { data } = await supabase.from('departments').select('name').order('name')
+    return data?.map(d => d.name) ?? []
+  }, ['users-departments-list'], { revalidate: 60, tags: [DEPARTMENTS_LIST_CACHE_TAG] })()
 }
 
 export async function getUserFormOptions(): Promise<UserFormOptions> {
@@ -194,80 +213,81 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
   if (!session) {
     return { accounts: [], lookerReports: [], managers: [], teamMembers: [] }
   }
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const [accountsPrimary, lookerPrimaryBySort, managersRes, usersRes] = await Promise.all([
+      supabase.from('accounts').select('customer_id,account_name,drive_code_comments').order('customer_id'),
+      supabase.from('looker_reports').select('id,title,name').order('sort_order'),
+      supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
+      supabase.from('users').select('username,role,department').order('username'),
+    ])
 
-  const supabase = createServerClient()
-  const [accountsPrimary, lookerPrimaryBySort, managersRes, usersRes] = await Promise.all([
-    supabase.from('accounts').select('customer_id,account_name,drive_code_comments').order('customer_id'),
-    supabase.from('looker_reports').select('id,title,name').order('sort_order'),
-    supabase.from('users').select('username,role').in('role', ['Admin', 'Super Manager', 'Manager']).order('username'),
-    supabase.from('users').select('username,role,department').order('username'),
-  ])
+    const accountsFallback = accountsPrimary.error
+      ? await supabase.from('accounts').select('*').order('customer_id')
+      : null
 
-  const accountsFallback = accountsPrimary.error
-    ? await supabase.from('accounts').select('*').order('customer_id')
-    : null
+    const lookerResByUpdatedAt = lookerPrimaryBySort.error
+      ? await supabase.from('looker_reports').select('id,title,name').order('updated_at', { ascending: false })
+      : lookerPrimaryBySort
 
-  const lookerResByUpdatedAt = lookerPrimaryBySort.error
-    ? await supabase.from('looker_reports').select('id,title,name').order('updated_at', { ascending: false })
-    : lookerPrimaryBySort
+    const lookerFallbackAny = lookerResByUpdatedAt.error
+      ? await supabase.from('looker_reports').select('*').order('id')
+      : null
 
-  const lookerFallbackAny = lookerResByUpdatedAt.error
-    ? await supabase.from('looker_reports').select('*').order('id')
-    : null
+    const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{
+      customer_id?: string | null
+      account_name?: string | null
+      account_title?: string | null
+      account?: string | null
+      drive_code_comments?: string | null
+      name?: string | null
+      id?: string | null
+    }>)
 
-  const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{
-    customer_id?: string | null
-    account_name?: string | null
-    account_title?: string | null
-    account?: string | null
-    drive_code_comments?: string | null
-    name?: string | null
-    id?: string | null
-  }>)
+    const accounts = rawAccounts
+      .map((a) => {
+        const customerId = String(a.customer_id ?? a.id ?? '').trim()
+        if (!customerId) return null
+        const maybeName = [
+          a.account_name,
+          a.account_title,
+          a.account,
+          a.name,
+          a.drive_code_comments,
+        ].find(v => typeof v === 'string' && v.trim().length > 0) ?? null
+        return {
+          customer_id: customerId,
+          account_name: maybeName,
+        }
+      })
+      .filter((a): a is { customer_id: string; account_name: string | null } => Boolean(a))
 
-  const accounts = rawAccounts
-    .map((a) => {
-      const customerId = String(a.customer_id ?? a.id ?? '').trim()
-      if (!customerId) return null
-      const maybeName = [
-        a.account_name,
-        a.account_title,
-        a.account,
-        a.name,
-        a.drive_code_comments,
-      ].find(v => typeof v === 'string' && v.trim().length > 0) ?? null
-      return {
-        customer_id: customerId,
-        account_name: maybeName,
-      }
-    })
-    .filter((a): a is { customer_id: string; account_name: string | null } => Boolean(a))
+    const uniqueAccountsMap = new Map<string, { customer_id: string; account_name: string | null }>()
+    for (const account of accounts) uniqueAccountsMap.set(account.customer_id, account)
 
-  const uniqueAccountsMap = new Map<string, { customer_id: string; account_name: string | null }>()
-  for (const account of accounts) uniqueAccountsMap.set(account.customer_id, account)
+    const rawLookerReports = ((lookerResByUpdatedAt.data ?? lookerFallbackAny?.data ?? []) as Array<{
+      id?: string | null
+      title?: string | null
+      name?: string | null
+    }>)
 
-  const rawLookerReports = ((lookerResByUpdatedAt.data ?? lookerFallbackAny?.data ?? []) as Array<{
-    id?: string | null
-    title?: string | null
-    name?: string | null
-  }>)
+    const lookerReports = rawLookerReports
+      .map((r) => {
+        const id = String(r.id ?? r.name ?? r.title ?? '').trim()
+        const title = (r.title ?? r.name ?? '').trim() || 'Untitled Report'
+        if (!id) return null
+        return { id, title }
+      })
+      .filter((r): r is { id: string; title: string } => Boolean(r))
 
-  const lookerReports = rawLookerReports
-    .map((r) => {
-      const id = String(r.id ?? r.name ?? r.title ?? '').trim()
-      const title = (r.title ?? r.name ?? '').trim() || 'Untitled Report'
-      if (!id) return null
-      return { id, title }
-    })
-    .filter((r): r is { id: string; title: string } => Boolean(r))
+    const uniqueLookerMap = new Map<string, { id: string; title: string }>()
+    for (const report of lookerReports) uniqueLookerMap.set(report.id, report)
 
-  const uniqueLookerMap = new Map<string, { id: string; title: string }>()
-  for (const report of lookerReports) uniqueLookerMap.set(report.id, report)
-
-  return {
-    accounts: Array.from(uniqueAccountsMap.values()),
-    lookerReports: Array.from(uniqueLookerMap.values()),
-    managers: (managersRes.data as Array<{ username: string; role: string }>) ?? [],
-    teamMembers: (usersRes.data as Array<{ username: string; role: string; department: string | null }>) ?? [],
-  }
+    return {
+      accounts: Array.from(uniqueAccountsMap.values()),
+      lookerReports: Array.from(uniqueLookerMap.values()),
+      managers: (managersRes.data as Array<{ username: string; role: string }>) ?? [],
+      teamMembers: (usersRes.data as Array<{ username: string; role: string; department: string | null }>) ?? [],
+    }
+  }, ['user-form-options'], { revalidate: 60, tags: [USER_FORM_OPTIONS_CACHE_TAG] })()
 }

@@ -1,10 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { buildAccountFilePath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 import type { Account, AccountFile, AccountFormData, SessionUser } from '@/types'
+
+const ACCOUNTS_CACHE_TAG = 'accounts-data'
 
 // ─── Role-based account filtering ────────────────────────────────
 function buildAccountFilter(user: SessionUser) {
@@ -37,20 +39,30 @@ export async function getAccounts(): Promise<Account[]> {
 
   const filter = buildAccountFilter(user)
   if (filter === 'NO_ACCESS') return []
+  const scopeKey = Array.isArray(filter) ? [...filter].sort().join(',') : 'all'
 
-  const supabase = createServerClient()
-  let query = supabase
-    .from('accounts')
-    .select('*')
-    .order('created_date', { ascending: false })
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      let query = supabase
+        .from('accounts')
+        .select('*')
+        .order('created_date', { ascending: false })
 
-  if (Array.isArray(filter) && filter.length > 0) {
-    query = query.in('customer_id', filter)
-  }
+      if (Array.isArray(filter) && filter.length > 0) {
+        query = query.in('customer_id', filter)
+      }
 
-  const { data, error } = await query
-  if (error) { console.error('getAccounts error:', error); return [] }
-  return (data as Account[]) ?? []
+      const { data, error } = await query
+      if (error) {
+        console.error('getAccounts error:', error)
+        return []
+      }
+      return (data as Account[]) ?? []
+    },
+    ['accounts-page', user.username, scopeKey],
+    { revalidate: 60, tags: [ACCOUNTS_CACHE_TAG] }
+  )()
 }
 
 export async function getAccountFiles(accountId: string): Promise<AccountFile[]> {
@@ -138,6 +150,7 @@ export async function saveAccountFileAction(input: {
   }
 
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -171,6 +184,7 @@ export async function deleteAccountFileAction(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -214,6 +228,7 @@ export async function createAccount(
   }
 
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -256,6 +271,7 @@ export async function updateAccount(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -277,6 +293,7 @@ export async function deleteAccount(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -299,6 +316,7 @@ export async function toggleAccount(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 
@@ -323,6 +341,7 @@ export async function batchToggleAccounts(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/accounts')
+  revalidateTag(ACCOUNTS_CACHE_TAG)
   return { success: true }
 }
 

@@ -375,6 +375,13 @@ export interface TodoStats {
   shared: number
 }
 
+export interface SidebarTaskCounts {
+  all: number
+  completed: number
+  pending: number
+  overdue: number
+}
+
 export type TaskRouting = 'self' | 'department' | 'manager' | 'multi'
 
 export interface CreateTodoInput {

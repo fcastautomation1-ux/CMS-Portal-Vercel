@@ -1,9 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import type { Package } from '@/types'
+
+const PACKAGES_CACHE_TAG = 'packages-data'
 
 type PackageAssignmentUser = {
   username: string
@@ -37,25 +39,26 @@ async function getUserPackageRows(supabase: ReturnType<typeof createServerClient
 export async function getPackages(): Promise<Package[]> {
   const user = await getSession()
   if (!user || !canManagePackages(user.role)) return []
+  return unstable_cache(async () => {
+    const supabase = createServerClient()
+    const [{ data, error }, assignmentRows] = await Promise.all([
+      supabase.from('packages').select('*').order('name'),
+      getUserPackageRows(supabase),
+    ])
 
-  const supabase = createServerClient()
-  const [{ data, error }, assignmentRows] = await Promise.all([
-    supabase.from('packages').select('*').order('name'),
-    getUserPackageRows(supabase),
-  ])
+    if (error) { console.error('getPackages error:', error); return [] }
 
-  if (error) { console.error('getPackages error:', error); return [] }
+    const assignedCountByPackage: Record<string, number> = {}
+    for (const row of assignmentRows) {
+      if (!row.package_id) continue
+      assignedCountByPackage[row.package_id] = (assignedCountByPackage[row.package_id] || 0) + 1
+    }
 
-  const assignedCountByPackage: Record<string, number> = {}
-  for (const row of assignmentRows) {
-    if (!row.package_id) continue
-    assignedCountByPackage[row.package_id] = (assignedCountByPackage[row.package_id] || 0) + 1
-  }
-
-  return ((data as unknown as Package[]) ?? []).map(pkg => ({
-    ...pkg,
-    assigned_users_count: assignedCountByPackage[pkg.id] || 0,
-  }))
+    return ((data as unknown as Package[]) ?? []).map(pkg => ({
+      ...pkg,
+      assigned_users_count: assignedCountByPackage[pkg.id] || 0,
+    }))
+  }, ['packages-page'], { revalidate: 60, tags: [PACKAGES_CACHE_TAG] })()
 }
 
 export async function getPackageAssignmentUsers(): Promise<PackageAssignmentUser[]> {
@@ -118,6 +121,7 @@ export async function assignPackagesToUser(
 
   revalidatePath('/dashboard/packages')
   revalidatePath('/dashboard/tasks')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }
 }
 
@@ -162,6 +166,7 @@ export async function addPackagesBulk(
   }
 
   revalidatePath('/dashboard/packages')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return {
     success: true,
     total: normalized.length,
@@ -229,6 +234,7 @@ export async function savePackage(
   }
 
   revalidatePath('/dashboard/packages')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }
 }
 
@@ -244,6 +250,7 @@ export async function deletePackage(
   const { error } = await supabase.from('packages').delete().eq('id', id)
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/packages')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }
 }
 
@@ -268,6 +275,7 @@ export async function bulkAssignDepartments(
 
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/packages')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }
 }
 
@@ -322,6 +330,7 @@ export async function bulkAssignPackagesToUsers(
   }
 
   revalidatePath('/dashboard/packages')
+  revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }
 }
 

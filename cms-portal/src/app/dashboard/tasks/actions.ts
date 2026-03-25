@@ -7,10 +7,12 @@ import { isPastPakistanDate } from '@/lib/pakistan-time'
 import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import { canonicalDepartmentKey, mapDepartmentCsvToOfficial, splitDepartmentsCsv } from '@/lib/department-name'
+import { queueTaskWebhookEvent } from '@/lib/task-webhooks'
 import type {
   Todo,
   TodoAttachment,
   TodoDetails,
+  SidebarTaskCounts,
   TodoStats,
   HistoryEntry,
   CreateTodoInput,
@@ -30,11 +32,51 @@ function parseJson<T>(val: unknown, fallback: T): T {
   return val as T
 }
 
+const TASK_LIST_SELECT = [
+  'id',
+  'username',
+  'title',
+  'description',
+  'completed',
+  'task_status',
+  'priority',
+  'category',
+  'kpi_type',
+  'due_date',
+  'expected_due_date',
+  'actual_due_date',
+  'notes',
+  'package_name',
+  'app_name',
+  'position',
+  'archived',
+  'queue_department',
+  'queue_status',
+  'multi_assignment',
+  'assigned_to',
+  'manager_id',
+  'completed_by',
+  'completed_at',
+  'approval_status',
+  'workflow_state',
+  'pending_approver',
+  'approved_at',
+  'approved_by',
+  'declined_at',
+  'declined_by',
+  'decline_reason',
+  'assignment_chain',
+  'history',
+  'created_at',
+  'updated_at',
+].join(',')
+
+const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,multi_assignment'
+
 async function resolveAttachmentUrl(
   supabase: ReturnType<typeof createServerClient>,
   row: TodoAttachment
 ): Promise<TodoAttachment> {
-  const rawFileUrl = String(row.file_url || '').trim()
   const storagePath = getAttachmentStoragePath(row as unknown as Record<string, unknown>)
 
   if (!storagePath) {
@@ -70,6 +112,20 @@ function getAttachmentStoragePath(row: Record<string, unknown>): string {
   const fileUrl = String(row.file_url || '').trim()
   if (!fileUrl || /^https?:\/\//i.test(fileUrl) || !fileUrl.includes('/')) return ''
   return fileUrl
+}
+
+function emitTaskWebhook(
+  event: Parameters<typeof queueTaskWebhookEvent>[0]['event'],
+  taskId: string,
+  actorUsername: string,
+  metadata?: Record<string, unknown>
+) {
+  queueTaskWebhookEvent({
+    event,
+    taskId,
+    actorUsername,
+    metadata,
+  })
 }
 
 /**
@@ -490,14 +546,14 @@ export async function getTodos(): Promise<Todo[]> {
   })
 
   if (isAdminOrSM) {
-    const { data, error } = await supabase.from('todos').select('*')
+    const { data, error } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
     if (error) { console.error('getTodos error:', error); return [] }
     const { data: sharedData } = await supabase
       .from('todo_shares')
       .select('todo_id')
       .eq('shared_with', user.username)
     const sharedIds = new Set((sharedData || []).map((s: Record<string, unknown>) => s.todo_id as string))
-    return (data || []).map((raw: Record<string, unknown>) => {
+    return ((data || []) as unknown as Record<string, unknown>[]).map((raw) => {
       const t = normalizeTodo(raw, user.username)
       t.is_shared = sharedIds.has(t.id) || undefined
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
@@ -537,15 +593,16 @@ export async function getTodos(): Promise<Todo[]> {
 
   // Parallel queries
   const [ownedRes, assignedRes, completedByRes, pendingApproverRes, sharedRes, deptQueueRes] = await Promise.all([
-    supabase.from('todos').select('*').eq('username', user.username),
-    supabase.from('todos').select('*').eq('assigned_to', user.username),
-    supabase.from('todos').select('*').eq('completed_by', user.username),
-    supabase.from('todos').select('*').eq('pending_approver', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('username', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('assigned_to', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('completed_by', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('pending_approver', user.username),
     supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username),
     user.department
       ? supabase
           .from('todos')
-          .select('*')
+          .select(TASK_LIST_SELECT)
+          .eq('archived', false)
           .eq('queue_status', 'queued')
           .or('assigned_to.is.null,assigned_to.eq.')
       : Promise.resolve({ data: [] }),
@@ -558,7 +615,8 @@ export async function getTodos(): Promise<Todo[]> {
   // Tasks where I'm manager_id
   const { data: managedData } = await supabase
     .from('todos')
-    .select('*')
+    .select(TASK_LIST_SELECT)
+    .eq('archived', false)
     .ilike('manager_id', `%${user.username}%`)
 
   const allTasks: Todo[] = []
@@ -591,10 +649,10 @@ export async function getTodos(): Promise<Todo[]> {
     }
   }
 
-  ;(ownedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r))
-  ;(assignedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_assigned_to_me: true }))
-  ;(completedByRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_completed_by_me: true }))
-  ;(pendingApproverRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_chain_member: true }))
+  ;((ownedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r))
+  ;((assignedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_assigned_to_me: true }))
+  ;((completedByRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_completed_by_me: true }))
+  ;((pendingApproverRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_chain_member: true }))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => {
     const queueDept = String(r.queue_department || '')
     const queueDeptKey = canonicalDepartmentKey(queueDept)
@@ -603,7 +661,7 @@ export async function getTodos(): Promise<Todo[]> {
     }
   })
 
-  ;(managedData || []).forEach((r: Record<string, unknown>) => {
+  ;((managedData || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     const managers = String(r.manager_id || '').split(',').map((m) => m.trim().toLowerCase())
     if (managers.includes(user.username.toLowerCase())) {
       addTask(r, { is_managed: true })
@@ -613,11 +671,11 @@ export async function getTodos(): Promise<Todo[]> {
   // Team tasks
   if (myTeamUsernames.length > 0) {
     const [teamCreated, teamAssigned] = await Promise.all([
-      supabase.from('todos').select('*').in('username', myTeamUsernames),
-      supabase.from('todos').select('*').in('assigned_to', myTeamUsernames),
+      supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('username', myTeamUsernames),
+      supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('assigned_to', myTeamUsernames),
     ])
-    ;(teamCreated.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_team_task: true }))
-    ;(teamAssigned.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_team_task: true }))
+    ;((teamCreated.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_team_task: true }))
+    ;((teamAssigned.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_team_task: true }))
   }
 
   // Shared tasks
@@ -625,13 +683,13 @@ export async function getTodos(): Promise<Todo[]> {
     .map((s: Record<string, unknown>) => s.todo_id as string)
     .filter((id: string) => !taskIds.has(id))
   if (sharedIds.length > 0) {
-    const { data: sharedTasks } = await supabase.from('todos').select('*').in('id', sharedIds)
-    ;(sharedTasks || []).forEach((r: Record<string, unknown>) => addTask(r, { is_shared: true }))
+    const { data: sharedTasks } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('id', sharedIds)
+    ;((sharedTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_shared: true }))
   }
 
   // Multi-assignment tasks
-  const { data: maTasks } = await supabase.from('todos').select('*').not('multi_assignment', 'is', null)
-  ;(maTasks || []).forEach((r: Record<string, unknown>) => {
+  const { data: maTasks } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null)
+  ;((maTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     const ma = parseJson<MultiAssignment | null>(r.multi_assignment, null)
     if (ma?.enabled && Array.isArray(ma.assignees)) {
       const isAssignee = ma.assignees.some(
@@ -666,6 +724,83 @@ export async function getTodoStats(): Promise<TodoStats> {
   if (!user) return { total: 0, completed: 0, pending: 0, overdue: 0, highPriority: 0, dueToday: 0, shared: 0 }
   const todos = await getTodos()
   return computeTodoStatsFromTodos(todos)
+}
+
+export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
+  const user = await getSession()
+  if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0 }
+
+  const supabase = createServerClient()
+  const userLower = user.username.toLowerCase()
+  const userDeptKeys = splitDepartmentsCsv(user.department)
+    .map((dept) => canonicalDepartmentKey(dept))
+    .filter(Boolean)
+
+  const [ownedRes, assignedRes, completedByRes, deptQueueRes, maRes] = await Promise.all([
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('username', user.username),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('assigned_to', user.username),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('completed_by', user.username),
+    user.department
+      ? supabase
+          .from('todos')
+          .select(SIDEBAR_TASK_SELECT)
+          .eq('queue_status', 'queued')
+          .or('assigned_to.is.null,assigned_to.eq.')
+      : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).not('multi_assignment', 'is', null),
+  ])
+
+  const taskMap = new Map<string, Todo>()
+
+  const addTask = (raw: Record<string, unknown>) => {
+    const task = normalizeTodo(raw, user.username)
+    if (!task.archived) {
+      taskMap.set(task.id, task)
+    }
+  }
+
+  ;(ownedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;(assignedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;(completedByRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
+  ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((row: Record<string, unknown>) => {
+    const queueDeptKey = canonicalDepartmentKey(String(row.queue_department || ''))
+    if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
+      addTask(row)
+    }
+  })
+  ;(maRes.data || []).forEach((row: Record<string, unknown>) => {
+    const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+
+    const isRelevant = ma.assignees.some((assignee) =>
+      (assignee.username || '').toLowerCase() === userLower ||
+      (Array.isArray(assignee.delegated_to) && assignee.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower))
+    )
+
+    if (isRelevant) addTask(row)
+  })
+
+  const tasks = Array.from(taskMap.values())
+  const now = Date.now()
+
+  return {
+    all: tasks.length,
+    completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+    pending: tasks.filter((task) => {
+      if (task.completed || task.task_status === 'done') return false
+      if (task.due_date) {
+        const dueTs = new Date(task.due_date).getTime()
+        if (!Number.isNaN(dueTs) && dueTs < now) return false
+      }
+      return true
+    }).length,
+    overdue: tasks.filter((task) => {
+      if (task.completed) return false
+      if (!task.due_date) return false
+      const dueTs = new Date(task.due_date).getTime()
+      return !Number.isNaN(dueTs) && dueTs < now
+    }).length,
+  }
 }
 
 // ── Get packages for task form ────────────────────────────────────────────────
@@ -815,7 +950,9 @@ export async function saveTodoAction(
   const now = new Date().toISOString()
   const id = input.id || crypto.randomUUID()
 
-  if (input.id) {
+  const isEdit = Boolean(input.id)
+
+  if (isEdit) {
     // Edit — only creator can edit
     const { data: existing } = await supabase
       .from('todos')
@@ -1060,6 +1197,10 @@ export async function saveTodoAction(
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook(isEdit ? 'task.updated' : 'task.created', id, user.username, {
+    title: input.title.trim(),
+    routing: input.routing,
+  })
   return { success: true, id }
 }
 
@@ -1099,6 +1240,7 @@ export async function deleteTodoAction(todoId: string): Promise<{ success: boole
   await supabase.from('todo_shares').delete().eq('todo_id', todoId)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.deleted', todoId, user.username)
   return { success: true }
 }
 
@@ -1115,6 +1257,7 @@ export async function archiveTodoAction(todoId: string): Promise<{ success: bool
 
   await supabase.from('todos').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', todoId)
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.archived', todoId, user.username)
   return { success: true }
 }
 
@@ -1166,6 +1309,9 @@ export async function startTaskAction(todoId: string): Promise<{ success: boolea
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.started', todoId, user.username, {
+    title: String(task.title || ''),
+  })
   return { success: true }
 }
 
@@ -1309,6 +1455,9 @@ export async function toggleTodoCompleteAction(
   await supabase.from('todos').update(updateData).eq('id', todoId)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook(completed ? 'task.completed' : 'task.reopened', todoId, user.username, {
+    submissionNote: submissionNote ? submissionNote.trim() : '',
+  })
   return { success: true }
 }
 
@@ -1435,6 +1584,9 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.approved', todoId, user.username, {
+    nextApprover: nextPending?.user ?? null,
+  })
   return { success: true }
 }
 
@@ -1512,6 +1664,9 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.declined', todoId, user.username, {
+    reason,
+  })
   return { success: true }
 }
 
@@ -1599,6 +1754,10 @@ export async function addCommentAction(
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.created', todoId, user.username, {
+    messageId: newComment.message_id,
+    mentions: mentionUsers,
+  })
   return { success: true }
 }
 
@@ -1655,6 +1814,10 @@ export async function editTodoCommentAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.updated', todoId, user.username, {
+    messageId,
+    mentions: mentionUsers,
+  })
   return { success: true }
 }
 
@@ -1699,6 +1862,9 @@ export async function deleteTodoCommentAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.deleted', todoId, user.username, {
+    messageId,
+  })
   return { success: true }
 }
 
@@ -1741,6 +1907,9 @@ export async function shareTodoAction(
   })
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.shared', todoId, user.username, {
+    sharedWithUsername,
+  })
   return { success: true }
 }
 
@@ -1761,6 +1930,9 @@ export async function unshareTodoAction(
     .eq('shared_with', sharedWithUsername)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.unshared', todoId, user.username, {
+    sharedWithUsername,
+  })
   return { success: true }
 }
 

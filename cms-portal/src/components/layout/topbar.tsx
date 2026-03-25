@@ -1,9 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { Menu, Sun, Moon } from 'lucide-react'
 import type { SessionUser } from '@/types'
-import { NotificationPanel } from '@/components/notifications/notification-panel'
+
+const NotificationPanel = dynamic(
+  () => import('@/components/notifications/notification-panel').then((mod) => mod.NotificationPanel),
+  { ssr: false }
+)
 
 const ROLE_CONFIG: Record<string, { gradient: string; badge: string; badgeText: string }> = {
   Admin:           { gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)', badge: 'rgba(139,92,246,0.15)', badgeText: '#7C3AED' },

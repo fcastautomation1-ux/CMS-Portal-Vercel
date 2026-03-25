@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
@@ -34,7 +35,7 @@ function parseCSV(val: string | null) {
   return (val ?? '').split(',').map(s => s.trim()).filter(Boolean)
 }
 
-async function hydrateSessionUser(username: string): Promise<SessionUser | null> {
+const hydrateSessionUser = cache(async (username: string): Promise<SessionUser | null> => {
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from('users')
@@ -61,7 +62,7 @@ async function hydrateSessionUser(username: string): Promise<SessionUser | null>
     driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
   }
-}
+})
 
 export async function createSession(user: Pick<SessionUser, 'username'>): Promise<string> {
   return await new SignJWT({ username: user.username } satisfies SessionPayload)
@@ -84,7 +85,7 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
   }
 }
 
-export async function getSession(): Promise<SessionUser | null> {
+export const getSession = cache(async (): Promise<SessionUser | null> => {
   const cookieStore = await cookies()
   const token = cookieStore.get(COOKIE_NAME)?.value
   if (!token) return null
@@ -93,7 +94,7 @@ export async function getSession(): Promise<SessionUser | null> {
   if (!payload?.username) return null
 
   return hydrateSessionUser(payload.username)
-}
+})
 
 export function getCookieName() {
   return COOKIE_NAME

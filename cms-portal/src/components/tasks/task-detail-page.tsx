@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -41,9 +42,7 @@ import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { TaskHandoffDialog } from '@/components/tasks/task-handoff-dialog'
 import type { Todo, TodoDetails, HistoryEntry, MultiAssignmentEntry } from '@/types'
-import { CreateTaskModal } from './create-task-modal'
 import {
   acknowledgeTaskAction,
   addCommentAction,
@@ -77,6 +76,16 @@ import {
   updateMaSubAssigneeStatusAction,
   updateSingleTaskDueDateAction,
 } from '@/app/dashboard/tasks/actions'
+
+const TaskHandoffDialog = dynamic(
+  () => import('@/components/tasks/task-handoff-dialog').then((mod) => mod.TaskHandoffDialog),
+  { ssr: false }
+)
+
+const CreateTaskModal = dynamic(
+  () => import('./create-task-modal').then((mod) => mod.CreateTaskModal),
+  { ssr: false }
+)
 
 type TabId = 'info' | 'history' | 'files' | 'share' | 'timeline'
 const MAX_ATTACHMENT_SIZE = 1024 * 1024 * 1024
@@ -810,15 +819,17 @@ export function TaskDetailPage({
     initialData: initialDetails,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchInterval: 10_000,
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   })
 
   const details = detailsQuery.data ?? initialDetails
   const appNames = splitTaskMeta(details.app_name)
   const packageNames = splitTaskMeta(details.package_name)
-  const workflowTree = buildWorkflowTree(details)
+  const workflowTree = useMemo(
+    () => activeTab === 'info' ? buildWorkflowTree(details) : [],
+    [activeTab, details]
+  )
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
     if (!updated) {
@@ -855,12 +866,13 @@ export function TaskDetailPage({
   }, [currentUsername, details.id, queryClient])
 
   useEffect(() => {
+    if (activeTab !== 'share') return
     let cancelled = false
     getUsersForAssignment().then((users) => {
       if (!cancelled) setShareUsers(users)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [activeTab])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1647,7 +1659,8 @@ export function TaskDetailPage({
               </div>
 
               <div className="px-5 py-5 sm:px-6">
-                <div className={cn('space-y-6', activeTab === 'info' ? 'block' : 'hidden')}>
+                {activeTab === 'info' && (
+                  <div className="space-y-6">
                     <WorkflowTree nodes={workflowTree} onNodeClick={handleWorkflowNodeClick} />
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
@@ -1838,8 +1851,10 @@ export function TaskDetailPage({
                       </Section>
                     )}
                   </div>
+                )}
 
-                <div className={activeTab === 'history' ? 'block' : 'hidden'}>
+                {activeTab === 'history' && (
+                  <div>
                   <div className="mb-4 rounded-[24px] border border-blue-100 bg-[linear-gradient(135deg,rgba(59,130,246,0.10),rgba(255,255,255,0.95))] px-4 py-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
@@ -1852,9 +1867,11 @@ export function TaskDetailPage({
                     </div>
                   </div>
                   {renderTimeline(activityTimeline, { showNextStep: true })}
-                </div>
+                  </div>
+                )}
 
-                <div className={cn('space-y-4', activeTab === 'files' ? 'block' : 'hidden')}>
+                {activeTab === 'files' && (
+                  <div className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                       <div>
                         <p className="text-sm font-semibold text-slate-800">Attach files</p>
@@ -1940,8 +1957,10 @@ export function TaskDetailPage({
                       </div>
                     )}
                   </div>
+                )}
 
-                <div className={cn('space-y-5', activeTab === 'share' ? 'block' : 'hidden')}>
+                {activeTab === 'share' && (
+                  <div className="space-y-5">
                     <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                       <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Share with user</label>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1998,8 +2017,10 @@ export function TaskDetailPage({
                       </div>
                     )}
                   </div>
+                )}
 
-                <div className={cn('space-y-5', activeTab === 'timeline' ? 'block' : 'hidden')}>
+                {activeTab === 'timeline' && (
+                  <div className="space-y-5">
                     <div className="rounded-[24px] border border-orange-100 bg-[linear-gradient(135deg,rgba(249,115,22,0.10),rgba(255,255,255,0.96))] px-4 py-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
@@ -2013,6 +2034,7 @@ export function TaskDetailPage({
                     </div>
                     {renderTimeline(combinedTimeline, { emptyText: 'No activity or conversation yet.', includeConversationHint: true, showNextStep: true })}
                   </div>
+                )}
               </div>
             </section>
 
@@ -2251,20 +2273,22 @@ export function TaskDetailPage({
           )}
         </ActionDialog>
       )}
-      <TaskHandoffDialog
-        open={showHandoffDialog}
-        currentUsername={currentUsername}
-        currentAssignee={t.assigned_to}
-        onClose={() => setShowHandoffDialog(false)}
-        onAssignDepartment={(department, dueDate, note) => {
-          setShowHandoffDialog(false)
-          void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, note))
-        }}
-        onAssignMulti={(assignees, note) => {
-          setShowHandoffDialog(false)
-          void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
-        }}
-      />
+      {showHandoffDialog && (
+        <TaskHandoffDialog
+          open={showHandoffDialog}
+          currentUsername={currentUsername}
+          currentAssignee={t.assigned_to}
+          onClose={() => setShowHandoffDialog(false)}
+          onAssignDepartment={(department, dueDate, note) => {
+            setShowHandoffDialog(false)
+            void doAction(() => sendTaskToDepartmentQueueAction(t.id, department, dueDate, note))
+          }}
+          onAssignMulti={(assignees, note) => {
+            setShowHandoffDialog(false)
+            void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
+          }}
+        />
+      )}
 
       {editTask && <CreateTaskModal editTask={editTask} onClose={() => setEditTask(null)} onSaved={refreshDetails} />}
       <ConfirmDialog
