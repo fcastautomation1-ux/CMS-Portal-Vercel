@@ -354,7 +354,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
           tone: (entry.status === 'in_progress' || entry.status === 'completed') ? 'active' : 'multi',
           avatarUrl: task.participant_avatars?.[entry.username] ?? null,
           title: `Multi-assigned to ${entry.username}`,
-          subtitle: `From ${owner}`,
+          subtitle: MA_LABEL[entry.status ?? 'pending'] ?? 'Pending',
           focusTarget: entry.username,
         })
       }
@@ -367,7 +367,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
         tone: 'multi',
         avatarUrl: task.participant_avatars?.[entry.username] ?? null,
         title: `Multi-assigned to ${entry.username}`,
-        subtitle: `From ${creator}`,
+        subtitle: MA_LABEL[entry.status ?? 'pending'] ?? 'Pending',
         focusTarget: entry.username,
       })
     }
@@ -563,7 +563,7 @@ export function TaskCard({
   compact = false,
 }: TaskCardProps) {
   const [isPending, startTransition] = useTransition()
-  const [showMa, setShowMa] = useState(true)
+  const [showMa, setShowMa] = useState(false)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
@@ -1112,6 +1112,29 @@ export function TaskCard({
                                 Due {fmtShort(assigneeDueDate)}
                               </span>
                             )}
+                          </div>
+                          {/* Individual progress bar */}
+                          <div className="mt-2">
+                            <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-all',
+                                  status === 'accepted' || status === 'completed' ? 'bg-emerald-500' :
+                                  status === 'in_progress' ? 'bg-[linear-gradient(90deg,#38bdf8,#2563eb)]' :
+                                  'bg-slate-300'
+                                )}
+                                style={{
+                                  width: status === 'accepted' ? '100%' :
+                                         status === 'completed' ? '75%' :
+                                         status === 'in_progress' ? '40%' : '0%'
+                                }}
+                              />
+                            </div>
+                            <p className="mt-0.5 text-[10px] font-medium text-slate-400">
+                              {status === 'accepted' ? '100% done' :
+                               status === 'completed' ? 'Submitted' :
+                               status === 'in_progress' ? 'In progress' : 'Not started'}
+                            </p>
                           </div>
                         </div>
 
