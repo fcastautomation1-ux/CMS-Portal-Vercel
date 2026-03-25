@@ -331,8 +331,8 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
                             key={cond.id}
                             className="rounded-xl p-3 border cursor-pointer transition-all"
                             style={{
-                              border: checked ? '1.5px solid var(--blue-600)' : '1px solid var(--slate-200)',
-                              background: checked ? 'var(--blue-50)' : '#fff',
+                              border: checked ? '1.5px solid var(--blue-600)' : '1px solid var(--color-border)',
+                              background: checked ? 'var(--blue-50)' : 'var(--color-surface)',
                             }}
                           >
                             <div className="flex items-start gap-2">
@@ -361,7 +361,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
               })}
             </div>
 
-            <div className="px-4 py-3 sm:px-6 sm:py-4 flex flex-wrap justify-end gap-2" style={{ borderTop: '1px solid var(--slate-200)', background: '#fff' }}>
+            <div className="px-4 py-3 sm:px-6 sm:py-4 flex flex-wrap justify-end gap-2" style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
               <button className="btn-motion h-10 px-4 rounded-lg text-sm" onClick={() => setManagingAccount(null)} style={{ color: 'var(--slate-600)' }}>Close</button>
               <button
                 className="btn-motion h-10 px-4 rounded-lg text-sm font-semibold text-white flex items-center gap-2"

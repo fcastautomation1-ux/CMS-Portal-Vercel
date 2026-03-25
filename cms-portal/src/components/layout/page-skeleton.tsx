@@ -7,9 +7,9 @@ export function PageSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: num
         <div className="h-9 w-28 rounded-lg bg-slate-200" />
       </div>
       {/* Table */}
-      <div className="rounded-xl overflow-hidden" style={{ background: '#fff', border: '1px solid #E4E8EF' }}>
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
         {/* thead */}
-        <div className="flex gap-4 px-5 py-3" style={{ background: '#F8FAFB', borderBottom: '1px solid #E4E8EF' }}>
+        <div className="flex gap-4 px-5 py-3" style={{ background: 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
           {Array.from({ length: cols }).map((_, i) => (
             <div key={i} className="h-3.5 rounded bg-slate-200 flex-1" />
           ))}
@@ -19,7 +19,7 @@ export function PageSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: num
           <div
             key={ri}
             className="flex gap-4 px-5 py-4"
-            style={{ borderBottom: ri < rows - 1 ? '1px solid #F0F2F5' : 'none' }}
+            style={{ borderBottom: ri < rows - 1 ? '1px solid var(--color-border)' : 'none' }}
           >
             {Array.from({ length: cols }).map((_, ci) => (
               <div
@@ -47,7 +47,7 @@ export function CardSkeleton({ cards = 6 }: { cards?: number }) {
           <div
             key={i}
             className="rounded-xl p-5 space-y-3"
-            style={{ background: '#fff', border: '1px solid #E4E8EF' }}
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
           >
             <div className="h-5 w-3/4 rounded-lg bg-slate-200" />
             <div className="h-4 w-full rounded-lg bg-slate-100" />

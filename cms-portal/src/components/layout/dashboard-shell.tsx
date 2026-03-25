@@ -50,7 +50,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     localStorage.setItem('cms_theme', next)
-    saveThemePreference(next).catch(() => {})
+    saveThemePreference(next).catch(() => { })
   }, [theme])
 
   const handleCollapsedChange = useCallback((val: boolean) => {

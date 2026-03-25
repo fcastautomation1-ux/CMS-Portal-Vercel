@@ -85,7 +85,8 @@ function resolveNavUrl(notif: Notification): string {
   return '/dashboard'
 }
 
-const TYPE_CONFIG: Record<string, { icon: typeof Info; color: string; bg: string; emoji: string }> = {  task_assigned: { icon: CheckCircle, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'T' },
+const TYPE_CONFIG: Record<string, { icon: typeof Info; color: string; bg: string; emoji: string }> = {
+  task_assigned: { icon: CheckCircle, color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', emoji: 'T' },
   task_completed: { icon: CheckCircle, color: '#10B981', bg: 'rgba(16,185,129,0.1)', emoji: 'C' },
   task_shared: { icon: Info, color: '#6366F1', bg: 'rgba(99,102,241,0.1)', emoji: 'S' },
   access_granted: { icon: CheckCircle, color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', emoji: 'A' },
@@ -439,7 +440,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
           ) : (
             grouped.map(group => (
               <div key={group.label}>
-                <div className="px-5 py-2" style={{ background: group.label === 'Today' ? 'linear-gradient(135deg, #eff6ff, #dbeafe)' : 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
+                <div className="px-5 py-2" style={{ background: group.label === 'Today' ? 'var(--color-primary-light)' : 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
                   <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: group.label === 'Today' ? '#1D4ED8' : 'var(--color-text-muted)' }}>
                     {group.label}
                   </span>

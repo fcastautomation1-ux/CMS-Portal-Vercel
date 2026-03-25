@@ -199,7 +199,7 @@ export function PackagesPage({ packages: initial, user }: Props) {
               <col style={{ width: '6%' }} />
             </colgroup>
             <thead>
-              <tr style={{ borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+              <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' }}>
                 {canEdit && (
                   <th className="px-2 py-2.5 w-8">
                     <button
@@ -416,9 +416,9 @@ function PackageModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
-          <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>{isEdit ? 'Edit App Name' : 'Add New App Name'}</h2>
+      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>{isEdit ? 'Edit App Name' : 'Add New App Name'}</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
 
@@ -527,9 +527,9 @@ function BulkImportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
-          <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Bulk Import Packages</h2>
+      <div className="w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Bulk Import Packages</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={16} /></button>
         </div>
 
@@ -611,10 +611,10 @@ function BulkDeptModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+      <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <div>
-            <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Assign Departments</h2>
+            <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Assign Departments</h2>
             <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>
               Applying to {selectedPackageIds.length} selected package{selectedPackageIds.length !== 1 ? 's' : ''}
             </p>
@@ -724,10 +724,10 @@ function BulkUsersModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(15,23,42,0.4)' }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
+      <div className="w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden animate-slide-up" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <div>
-            <h2 className="font-bold text-base" style={{ color: '#0F172A' }}>Assign to Multiple Users</h2>
+            <h2 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Assign to Multiple Users</h2>
             <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>
               Assign {selectedPackageIds.length} package{selectedPackageIds.length !== 1 ? 's' : ''} to selected users (merges with existing)
             </p>

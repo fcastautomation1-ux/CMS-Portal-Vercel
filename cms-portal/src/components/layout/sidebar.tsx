@@ -313,7 +313,7 @@ export function Sidebar({
             logo_url: data?.logo_url || null,
           })
         })
-        .catch(() => {})
+        .catch(() => { })
     }
 
     loadBranding()

@@ -11,11 +11,11 @@ const NotificationPanel = dynamic(
 )
 
 const ROLE_CONFIG: Record<string, { gradient: string; badge: string; badgeText: string }> = {
-  Admin:           { gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)', badge: 'rgba(139,92,246,0.15)', badgeText: '#7C3AED' },
+  Admin: { gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)', badge: 'rgba(139,92,246,0.15)', badgeText: '#7C3AED' },
   'Super Manager': { gradient: 'linear-gradient(135deg, #2B7FFF, #1A6AE4)', badge: 'rgba(43,127,255,0.15)', badgeText: '#1A6AE4' },
-  Manager:         { gradient: 'linear-gradient(135deg, #14B8A6, #0D9488)', badge: 'rgba(20,184,166,0.15)', badgeText: '#0D9488' },
-  Supervisor:      { gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', badge: 'rgba(245,158,11,0.15)', badgeText: '#D97706' },
-  User:            { gradient: 'linear-gradient(135deg, #64748B, #475569)', badge: 'rgba(100,116,139,0.15)', badgeText: '#475569' },
+  Manager: { gradient: 'linear-gradient(135deg, #14B8A6, #0D9488)', badge: 'rgba(20,184,166,0.15)', badgeText: '#0D9488' },
+  Supervisor: { gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', badge: 'rgba(245,158,11,0.15)', badgeText: '#D97706' },
+  User: { gradient: 'linear-gradient(135deg, #64748B, #475569)', badge: 'rgba(100,116,139,0.15)', badgeText: '#475569' },
 }
 
 interface TopbarProps {
