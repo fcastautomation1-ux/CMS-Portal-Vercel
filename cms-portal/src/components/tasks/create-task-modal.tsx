@@ -974,10 +974,10 @@ export function CreateTaskModal({
       <div
         className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
         style={{
-          background: 'rgba(255,255,255,0.96)',
+          background: 'var(--color-surface)',
           backdropFilter: 'blur(18px) saturate(180%)',
           WebkitBackdropFilter: 'blur(18px) saturate(180%)',
-          border: '1px solid var(--slate-200)',
+          border: '1px solid var(--color-border)',
           boxShadow: '0 24px 70px rgba(15,23,42,0.14)',
         }}
       >

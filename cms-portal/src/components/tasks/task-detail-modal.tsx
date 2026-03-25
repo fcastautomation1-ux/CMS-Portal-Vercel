@@ -2246,7 +2246,7 @@ function ModalShell({ children, onClose }: { children: React.ReactNode; onClose:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6" onClick={onClose}>
       <div className="rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl"
-        style={{ background: 'white', border: '1px solid rgba(0,0,0,0.08)' }}
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
         onClick={(e) => e.stopPropagation()}>
         {children}
       </div>

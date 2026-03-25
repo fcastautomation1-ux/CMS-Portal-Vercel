@@ -736,6 +736,14 @@ button, a, input, select, textarea {
 .dark [class*="linear-gradient("][class*="#fdfefe"] {
   background: var(--color-surface) !important;
 }
+/* Gradients that use rgba white (e.g. rgba(255,255,255,0.95)) */
+.dark [class*="linear-gradient("][class*="rgba(255,255,255"] {
+  background: var(--color-surface) !important;
+}
+
+/* ── Ring / outline white ────────────────────────────────── */
+.dark .ring-white { --tw-ring-color: var(--color-border) !important; }
+.dark [class*="ring-white"] { --tw-ring-color: var(--color-border) !important; }
 
 /* ── Dividers / hr ──────────────────────────────────────── */
 .dark hr { border-color: var(--color-border) !important; }
