@@ -5,6 +5,7 @@ import type { SessionUser } from '@/types'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
 import { DeploymentWatcher } from '@/components/layout/deployment-watcher'
+import { PortalWarmup } from '@/components/layout/portal-warmup'
 import { saveThemePreference } from '@/app/dashboard/profile/actions'
 
 interface DashboardShellProps {
@@ -64,6 +65,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <DeploymentWatcher />
+      <PortalWarmup user={user} />
       <Sidebar
         user={user}
         mobileOpen={mobileNavOpen}
