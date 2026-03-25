@@ -7,6 +7,7 @@ import { isPastPakistanDate } from '@/lib/pakistan-time'
 import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
 import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import { canonicalDepartmentKey, mapDepartmentCsvToOfficial, splitDepartmentsCsv } from '@/lib/department-name'
+import { queueTaskWebhookEvent } from '@/lib/task-webhooks'
 import type {
   Todo,
   TodoAttachment,
@@ -73,6 +74,20 @@ function getAttachmentStoragePath(row: Record<string, unknown>): string {
   const fileUrl = String(row.file_url || '').trim()
   if (!fileUrl || /^https?:\/\//i.test(fileUrl) || !fileUrl.includes('/')) return ''
   return fileUrl
+}
+
+function emitTaskWebhook(
+  event: Parameters<typeof queueTaskWebhookEvent>[0]['event'],
+  taskId: string,
+  actorUsername: string,
+  metadata?: Record<string, unknown>
+) {
+  queueTaskWebhookEvent({
+    event,
+    taskId,
+    actorUsername,
+    metadata,
+  })
 }
 
 /**
@@ -895,7 +910,9 @@ export async function saveTodoAction(
   const now = new Date().toISOString()
   const id = input.id || crypto.randomUUID()
 
-  if (input.id) {
+  const isEdit = Boolean(input.id)
+
+  if (isEdit) {
     // Edit — only creator can edit
     const { data: existing } = await supabase
       .from('todos')
@@ -1140,6 +1157,10 @@ export async function saveTodoAction(
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook(isEdit ? 'task.updated' : 'task.created', id, user.username, {
+    title: input.title.trim(),
+    routing: input.routing,
+  })
   return { success: true, id }
 }
 
@@ -1179,6 +1200,7 @@ export async function deleteTodoAction(todoId: string): Promise<{ success: boole
   await supabase.from('todo_shares').delete().eq('todo_id', todoId)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.deleted', todoId, user.username)
   return { success: true }
 }
 
@@ -1195,6 +1217,7 @@ export async function archiveTodoAction(todoId: string): Promise<{ success: bool
 
   await supabase.from('todos').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', todoId)
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.archived', todoId, user.username)
   return { success: true }
 }
 
@@ -1246,6 +1269,9 @@ export async function startTaskAction(todoId: string): Promise<{ success: boolea
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.started', todoId, user.username, {
+    title: String(task.title || ''),
+  })
   return { success: true }
 }
 
@@ -1389,6 +1415,9 @@ export async function toggleTodoCompleteAction(
   await supabase.from('todos').update(updateData).eq('id', todoId)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook(completed ? 'task.completed' : 'task.reopened', todoId, user.username, {
+    submissionNote: submissionNote ? submissionNote.trim() : '',
+  })
   return { success: true }
 }
 
@@ -1515,6 +1544,9 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.approved', todoId, user.username, {
+    nextApprover: nextPending?.user ?? null,
+  })
   return { success: true }
 }
 
@@ -1592,6 +1624,9 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.declined', todoId, user.username, {
+    reason,
+  })
   return { success: true }
 }
 
@@ -1679,6 +1714,10 @@ export async function addCommentAction(
   }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.created', todoId, user.username, {
+    messageId: newComment.message_id,
+    mentions: mentionUsers,
+  })
   return { success: true }
 }
 
@@ -1735,6 +1774,10 @@ export async function editTodoCommentAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.updated', todoId, user.username, {
+    messageId,
+    mentions: mentionUsers,
+  })
   return { success: true }
 }
 
@@ -1779,6 +1822,9 @@ export async function deleteTodoCommentAction(
   if (error) return { success: false, error: error.message }
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.comment.deleted', todoId, user.username, {
+    messageId,
+  })
   return { success: true }
 }
 
@@ -1821,6 +1867,9 @@ export async function shareTodoAction(
   })
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.shared', todoId, user.username, {
+    sharedWithUsername,
+  })
   return { success: true }
 }
 
@@ -1841,6 +1890,9 @@ export async function unshareTodoAction(
     .eq('shared_with', sharedWithUsername)
 
   revalidatePath('/dashboard/tasks')
+  emitTaskWebhook('task.unshared', todoId, user.username, {
+    sharedWithUsername,
+  })
   return { success: true }
 }
 
