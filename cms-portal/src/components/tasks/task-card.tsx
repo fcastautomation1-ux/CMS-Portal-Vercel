@@ -220,9 +220,17 @@ const BTN_CLS: Record<BtnColor, string> = {
   teal: 'bg-teal-600 hover:bg-teal-700 text-white',
 }
 
-function ActBtn({ onClick, color, children }: { onClick: () => void; color: BtnColor; children: React.ReactNode }) {
+function ActBtn({ onClick, color, children, disabled }: { onClick: () => void; color: BtnColor; children: React.ReactNode; disabled?: boolean }) {
   return (
-    <button onClick={onClick} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors', BTN_CLS[color])}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
+        BTN_CLS[color],
+        disabled && 'cursor-not-allowed opacity-50'
+      )}
+    >
       {children}
     </button>
   )
@@ -565,6 +573,7 @@ export function TaskCard({
   const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
   const [expandedAssigneeNotes, setExpandedAssigneeNotes] = useState<Set<string>>(() => new Set())
   const [showRail, setShowRail] = useState(true)
+  const [actionError, setActionError] = useState('')
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
@@ -680,9 +689,14 @@ export function TaskCard({
     return a.username.localeCompare(b.username)
   })
   const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
+    setActionError('')
     startTransition(async () => {
       const result = await fn()
-      if (result.success) onRefresh()
+      if (result.success) {
+        onRefresh()
+      } else {
+        setActionError(result.error ?? 'Action failed. Please try again.')
+      }
     })
   }
 
@@ -942,15 +956,16 @@ export function TaskCard({
 
           {hasActions && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber">Acknowledge</ActBtn>}
-              {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue">Start Work</ActBtn>}
-              {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet">Pick Task</ActBtn>}
+              {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
+              {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue" disabled={isPending}>Start Work</ActBtn>}
+              {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet" disabled={isPending}>Pick Task</ActBtn>}
               {showReassignBtn && (
                 <ActBtn
                   onClick={() => {
                     setShowHandoffDialog(true)
                   }}
                   color="indigo"
+                  disabled={isPending}
                 >
                   Assign To Next
                 </ActBtn>
@@ -963,6 +978,7 @@ export function TaskCard({
                     setDialogExtraValue(getAssignmentStepNote(task, task.assigned_to!))
                   }}
                   color="teal"
+                  disabled={isPending}
                 >
                   Edit Assignee
                 </ActBtn>
@@ -973,17 +989,19 @@ export function TaskCard({
                     openTaskDialog({ type: 'queue-assign' })
                   }}
                   color="indigo"
+                  disabled={isPending}
                 >
                   Assign to Team
                 </ActBtn>
               )}
-              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo">MA: Start</ActBtn>}
+              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo" disabled={isPending}>MA: Start</ActBtn>}
               {showMaSubmitBtn && (
                 <ActBtn
                   onClick={() => {
                     openTaskDialog({ type: 'ma-submit' })
                   }}
                   color="teal"
+                  disabled={isPending}
                 >
                   MA: Submit
                 </ActBtn>
@@ -994,17 +1012,19 @@ export function TaskCard({
                     openTaskDialog({ type: 'delegate' })
                   }}
                   color="violet"
+                  disabled={isPending}
                 >
                   Delegate
                 </ActBtn>
               )}
-              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'))} color="indigo">Sub: Start</ActBtn>}
+              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'))} color="indigo" disabled={isPending}>Sub: Start</ActBtn>}
               {showDelegatedSubmitBtn && (
                 <ActBtn
                   onClick={() => {
                     openTaskDialog({ type: 'sub-submit', delegatorUsername: delegatedEntry!.username })
                   }}
                   color="teal"
+                  disabled={isPending}
                 >
                   Sub: Submit
                 </ActBtn>
@@ -1019,16 +1039,23 @@ export function TaskCard({
                     openTaskDialog({ type: 'complete' })
                   }}
                   color="green"
+                  disabled={isPending}
                 >
                   Complete
                 </ActBtn>
               )}
               {showApproveBtn && (
                 <>
-                  <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green">Approve</ActBtn>
-                  <ActBtn onClick={() => openTaskDialog({ type: 'decline-approval' })} color="red">Decline</ActBtn>
+                  <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green" disabled={isPending}>Approve</ActBtn>
+                  <ActBtn onClick={() => openTaskDialog({ type: 'decline-approval' })} color="red" disabled={isPending}>Decline</ActBtn>
                 </>
               )}
+            </div>
+          )}
+
+          {actionError && (
+            <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+              {actionError}
             </div>
           )}
 
