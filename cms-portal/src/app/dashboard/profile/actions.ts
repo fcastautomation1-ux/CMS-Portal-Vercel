@@ -5,7 +5,6 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession, createSession, getCookieName } from '@/lib/auth'
 import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
 import { buildUserAvatarPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '@/lib/storage'
-import { sendEmail, renderPasswordChangedEmail } from '@/lib/email'
 
 export async function saveThemePreference(
   theme: 'light' | 'dark'
@@ -187,17 +186,5 @@ export async function changePassword(data: {
     .update(buildLegacyPasswordFields(data.newPassword))
     .eq('username', user.username)
   if (error) return { success: false, error: error.message }
-
-  // Security email — fire-and-forget, always send regardless of email_notifications_enabled
-  const { data: userRecord } = await supabase
-    .from('users')
-    .select('email')
-    .eq('username', user.username)
-    .single()
-  if (userRecord) {
-    const { html, text } = renderPasswordChangedEmail(user.username)
-    sendEmail({ to: (userRecord as Record<string, unknown>).email as string, subject: 'Your password was changed', html, text }).catch(() => {})
-  }
-
   return { success: true }
 }

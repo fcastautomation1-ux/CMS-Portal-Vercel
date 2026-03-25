@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { loginAction } from './actions'
-import { Eye, EyeOff, X, Loader2, CheckCircle2 } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 
 const initialState = null
 
@@ -138,30 +138,6 @@ export default function LoginPage() {
   const usernameRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
-  // Forgot password modal state
-  const [forgotOpen, setForgotOpen] = useState(false)
-  const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotStatus, setForgotStatus] = useState<'idle' | 'loading' | 'sent'>('idle')
-
-  async function handleForgotSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setForgotStatus('loading')
-    try {
-      await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail }),
-      })
-    } catch { /* silent */ }
-    setForgotStatus('sent')
-  }
-
-  function closeForgot() {
-    setForgotOpen(false)
-    setForgotEmail('')
-    setForgotStatus('idle')
-  }
-
   useEffect(() => {
     usernameRef.current?.focus()
     router.prefetch('/dashboard')
@@ -194,7 +170,6 @@ export default function LoginPage() {
   }, [])
 
   return (
-    <>
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6" style={{ background: '#EAEAEA' }}>
       <div
         className="w-full max-w-5xl flex rounded-2xl sm:rounded-3xl overflow-hidden"
@@ -298,7 +273,7 @@ export default function LoginPage() {
                 />
                 <span className="text-sm" style={{ color: '#64748B' }}>Remember me</span>
               </label>
-              <button type="button" className="text-sm font-medium" style={{ color: '#7C3AED' }} onClick={() => setForgotOpen(true)}>
+              <button type="button" className="text-sm font-medium" style={{ color: '#7C3AED' }}>
                 Forgot Password?
               </button>
             </div>
@@ -325,75 +300,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-
-    {/* Forgot Password Modal */}
-    {forgotOpen && (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
-        onClick={closeForgot}
-      >
-        <div
-          className="w-full max-w-sm bg-white rounded-2xl p-8 relative"
-          style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.18)' }}
-          onClick={e => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={closeForgot}
-            className="absolute top-4 right-4 p-1.5 rounded-lg transition-colors"
-            style={{ color: '#94A3B8' }}
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-
-          {forgotStatus !== 'sent' ? (
-            <>
-              <h2 className="font-bold text-xl mb-2" style={{ color: '#0F172A' }}>Reset Password</h2>
-              <p className="text-sm mb-6" style={{ color: '#94A3B8' }}>
-                Enter the email address linked to your account and we&apos;ll send you a reset link.
-              </p>
-              <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
-                <input
-                  type="email"
-                  required
-                  value={forgotEmail}
-                  onChange={e => setForgotEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="w-full h-12 px-4 rounded-xl text-sm outline-none"
-                  style={{ border: '1.5px solid #E2E8F0', background: '#FAFAFA', color: '#0F172A' }}
-                  onFocus={e => { e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.1)' }}
-                  onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = 'none' }}
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  disabled={forgotStatus === 'loading'}
-                  className="w-full h-12 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-70"
-                  style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', boxShadow: '0 4px 15px rgba(124,58,237,0.35)' }}
-                >
-                  {forgotStatus === 'loading' ? (
-                    <><Loader2 size={16} className="animate-spin" /> Sending…</>
-                  ) : 'Send reset link'}
-                </button>
-              </form>
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <CheckCircle2 size={44} color="#22c55e" />
-              <p className="font-semibold text-lg" style={{ color: '#0F172A' }}>Check your inbox</p>
-              <p className="text-sm" style={{ color: '#64748B' }}>
-                If <strong>{forgotEmail}</strong> is registered, a reset link is on its way. Check your spam folder too.
-              </p>
-              <button type="button" onClick={closeForgot} className="mt-2 text-sm font-medium" style={{ color: '#7C3AED' }}>
-                Back to login
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-  </>
   )
 }
