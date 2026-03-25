@@ -119,7 +119,7 @@ export async function updateProfile(data: {
   if (!user) return { success: false, error: 'Not authenticated' }
 
   const supabase = createServerClient()
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  const updates: Record<string, unknown> = {}
   if (data.email !== undefined) updates.email = data.email
   if (data.department !== undefined) updates.department = data.department
   if (data.avatar_data !== undefined) updates.avatar_data = data.avatar_data
@@ -183,7 +183,7 @@ export async function changePassword(data: {
   }
   const { error } = await supabase
     .from('users')
-    .update({ ...buildLegacyPasswordFields(data.newPassword), updated_at: new Date().toISOString() })
+    .update(buildLegacyPasswordFields(data.newPassword))
     .eq('username', user.username)
   if (error) return { success: false, error: error.message }
   return { success: true }
