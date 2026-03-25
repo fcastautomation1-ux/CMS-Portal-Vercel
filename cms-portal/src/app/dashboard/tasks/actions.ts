@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { isPastPakistanDate } from '@/lib/pakistan-time'
@@ -803,6 +803,40 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   }
 }
 
+// ── Cached wrappers for hot paths ────────────────────────────────────────────
+
+const _cachedGetTodos = unstable_cache(
+  async (_username: string) => getTodos(),
+  ['todos-for-user'],
+  { revalidate: 30, tags: ['tasks-data'] }
+)
+
+/** Use in server components (page.tsx) for fast initial load. Client calls use getTodos() directly. */
+export async function getCachedTodos(): Promise<Todo[]> {
+  const user = await getSession()
+  if (!user) return []
+  return _cachedGetTodos(user.username)
+}
+
+const _cachedSidebarTaskCounts = unstable_cache(
+  async (_username: string) => getSidebarTaskCounts(),
+  ['sidebar-task-counts'],
+  { revalidate: 30, tags: ['tasks-data'] }
+)
+
+/** Cached version of getSidebarTaskCounts — use in sidebar queryFn for faster repeated fetches. */
+export async function getCachedSidebarTaskCounts(): Promise<SidebarTaskCounts> {
+  const user = await getSession()
+  if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0 }
+  return _cachedSidebarTaskCounts(user.username)
+}
+
+/** Bust the tasks server-side cache and revalidate the page. Call after any mutation. */
+function revalidateTasksData() {
+  revalidateTag('tasks-data')
+  revalidateTasksData()
+}
+
 // ── Get packages for task form ────────────────────────────────────────────────
 
 export async function getPackagesForTaskForm(): Promise<Array<{ id: string; name: string; app_name: string | null }>> {
@@ -1196,7 +1230,7 @@ export async function saveTodoAction(
     }
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook(isEdit ? 'task.updated' : 'task.created', id, user.username, {
     title: input.title.trim(),
     routing: input.routing,
@@ -1239,7 +1273,7 @@ export async function deleteTodoAction(todoId: string): Promise<{ success: boole
   await supabase.from('todos').delete().eq('id', todoId)
   await supabase.from('todo_shares').delete().eq('todo_id', todoId)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.deleted', todoId, user.username)
   return { success: true }
 }
@@ -1256,7 +1290,7 @@ export async function archiveTodoAction(todoId: string): Promise<{ success: bool
   if ((existing as Record<string, unknown>).username !== user.username) return { success: false, error: 'Cannot archive this task — not yours.' }
 
   await supabase.from('todos').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', todoId)
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.archived', todoId, user.username)
   return { success: true }
 }
@@ -1308,7 +1342,7 @@ export async function startTaskAction(todoId: string): Promise<{ success: boolea
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.started', todoId, user.username, {
     title: String(task.title || ''),
   })
@@ -1454,7 +1488,7 @@ export async function toggleTodoCompleteAction(
   updateData.history = JSON.stringify(history)
   await supabase.from('todos').update(updateData).eq('id', todoId)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook(completed ? 'task.completed' : 'task.reopened', todoId, user.username, {
     submissionNote: submissionNote ? submissionNote.trim() : '',
   })
@@ -1583,7 +1617,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.approved', todoId, user.username, {
     nextApprover: nextPending?.user ?? null,
   })
@@ -1663,7 +1697,7 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.declined', todoId, user.username, {
     reason,
   })
@@ -1753,7 +1787,7 @@ export async function addCommentAction(
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.comment.created', todoId, user.username, {
     messageId: newComment.message_id,
     mentions: mentionUsers,
@@ -1813,7 +1847,7 @@ export async function editTodoCommentAction(
   }).eq('id', todoId)
   if (error) return { success: false, error: error.message }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.comment.updated', todoId, user.username, {
     messageId,
     mentions: mentionUsers,
@@ -1861,7 +1895,7 @@ export async function deleteTodoCommentAction(
   }).eq('id', todoId)
   if (error) return { success: false, error: error.message }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.comment.deleted', todoId, user.username, {
     messageId,
   })
@@ -1906,7 +1940,7 @@ export async function shareTodoAction(
     relatedId: todoId,
   })
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.shared', todoId, user.username, {
     sharedWithUsername,
   })
@@ -1929,7 +1963,7 @@ export async function unshareTodoAction(
     .eq('todo_id', todoId)
     .eq('shared_with', sharedWithUsername)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   emitTaskWebhook('task.unshared', todoId, user.username, {
     sharedWithUsername,
   })
@@ -2019,7 +2053,7 @@ export async function saveTodoAttachmentAction(input: {
     if (fallbackInsert.error) return { success: false, error: fallbackInsert.error.message }
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2071,7 +2105,7 @@ export async function markTaskCommentsReadAction(
 
   if (error) return { success: false, error: error.message }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2185,7 +2219,7 @@ export async function deleteTodoAttachmentAction(
   const { error } = await supabase.from('todo_attachments').delete().eq('id', attachmentId).eq('todo_id', todoId)
   if (error) return { success: false, error: error.message }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2369,7 +2403,7 @@ export async function updateTaskStatusAction(
   }
 
   await supabase.from('todos').update(updatePayload).eq('id', todoId)
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2421,7 +2455,7 @@ export async function acknowledgeTaskAction(todoId: string): Promise<{ success: 
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2489,7 +2523,7 @@ export async function duplicateTodoAction(todoId: string): Promise<{ success: bo
   const { error } = await supabase.from('todos').insert(payload)
   if (error) return { success: false, error: error.message }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true, id: newId }
 }
 
@@ -2557,7 +2591,7 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2645,7 +2679,7 @@ export async function assignQueuedTaskToTeamMemberAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2735,7 +2769,7 @@ export async function reassignTaskAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2834,7 +2868,7 @@ export async function sendTaskToDepartmentQueueAction(
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -2953,7 +2987,7 @@ export async function convertTaskToMultiAssignmentAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3016,7 +3050,7 @@ export async function updateSingleTaskDueDateAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3109,7 +3143,7 @@ export async function updateMaAssigneeDueDateAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3217,7 +3251,7 @@ export async function updateAssignmentStepAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3338,7 +3372,7 @@ export async function extendMultiAssignmentStepAction(
     user.username,
   )
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3413,7 +3447,7 @@ export async function updateMaAssigneeStatusAction(
     }
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3515,7 +3549,7 @@ export async function acceptMaAssigneeAction(
     })
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3594,7 +3628,7 @@ export async function rejectMaAssigneeAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3681,7 +3715,7 @@ export async function reopenMaAssigneeAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3746,7 +3780,7 @@ export async function delegateMaAssigneeAction(
     relatedId: todoId,
   })
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3816,7 +3850,7 @@ export async function updateMaSubAssigneeStatusAction(
     }, user.username)
   }
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3882,7 +3916,7 @@ export async function acceptMaSubAssigneeAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -3951,7 +3985,7 @@ export async function rejectMaSubAssigneeAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 
@@ -4013,7 +4047,7 @@ export async function removeMaDelegationAction(
     relatedId: todoId,
   }, user.username)
 
-  revalidatePath('/dashboard/tasks')
+  revalidateTasksData()
   return { success: true }
 }
 

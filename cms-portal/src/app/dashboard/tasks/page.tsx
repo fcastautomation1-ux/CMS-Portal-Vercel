@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { getTodos } from './actions'
+import { getCachedTodos } from './actions'
 import { TasksBoard } from '@/components/tasks/tasks-board'
 import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -16,7 +16,7 @@ export default async function TasksPage({
 }) {
   const [user, tasks] = await Promise.all([
     getSession(),
-    getTodos().catch(() => []),
+    getCachedTodos().catch(() => []),
   ])
   if (!user) redirect('/login')
 

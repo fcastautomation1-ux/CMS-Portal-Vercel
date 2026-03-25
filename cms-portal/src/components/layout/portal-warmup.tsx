@@ -13,7 +13,7 @@ import { getAccounts } from '@/app/dashboard/accounts/actions'
 import { getCampaigns, getAccountsForCampaigns, getConditionDefinitions } from '@/app/dashboard/campaigns/actions'
 import {
   getTodos,
-  getSidebarTaskCounts,
+  getCachedSidebarTaskCounts,
   getPackagesForTaskForm,
   getUsersForAssignment,
   getDepartmentsForTaskForm,
@@ -153,7 +153,7 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
     const warmTasks: WarmTask[] = [
       {
         key: queryKeys.taskSidebarCounts(user.username),
-        fn: () => getSidebarTaskCounts(),
+        fn: () => getCachedSidebarTaskCounts(),
         staleTime: 60_000,
       },
       {

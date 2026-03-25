@@ -131,7 +131,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
     initialData: initialTasks,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: true,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
   })
 

@@ -8,7 +8,7 @@ import { logoutAction } from '@/app/login/actions'
 import type { SessionUser, SidebarTaskCounts } from '@/types'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
-import { getSidebarTaskCounts } from '@/app/dashboard/tasks/actions'
+import { getCachedSidebarTaskCounts } from '@/app/dashboard/tasks/actions'
 import { getTeamStats } from '@/app/dashboard/team/actions'
 import { subscribeToPostgresChanges } from '@/lib/realtime'
 import {
@@ -179,7 +179,7 @@ export function Sidebar({
 
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
-    queryFn: () => getSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
+    queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchOnMount: false,
