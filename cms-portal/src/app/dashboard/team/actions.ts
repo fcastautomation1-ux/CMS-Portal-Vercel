@@ -183,18 +183,24 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
     async () => {
       const supabase = createServerClient()
 
-      // Fetch user details and ONLY todos relevant to team members in parallel
-      const [usersRes, assignedTodosRes, maTodosRes] = await Promise.all([
+      // Fetch user details and todos relevant to team members in parallel
+      const [usersRes, assignedTodosRes, createdTodosRes, maTodosRes] = await Promise.all([
         supabase
           .from('users')
           .select('username, role, department, email, last_login, avatar_data')
           .in('username', memberUsernames),
-        // Only tasks where team member is the assigned_to (not ALL todos)
+        // Tasks directly assigned to a team member
         supabase
           .from('todos')
-          .select('username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
           .eq('archived', false)
           .in('assigned_to', memberUsernames),
+        // Tasks created by a team member (catches self-assigned + unassigned creator tasks)
+        supabase
+          .from('todos')
+          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .eq('archived', false)
+          .in('username', memberUsernames),
         // Multi-assignment tasks involving team members
         supabase
           .from('todos')
@@ -206,10 +212,13 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
       const usersData = usersRes.data
       if (!usersData) return []
 
-      // Merge assigned + multi_assignment todos, deduplicate by id
+      // Merge assigned + created + multi_assignment todos, deduplicate by id
       const teamSet = new Set(memberUsernames.map((u) => u.toLowerCase()))
       const todoMap = new Map<string, TeamTodoStatsRow>()
       ;((assignedTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) =>
+        todoMap.set(String(t.id), t),
+      )
+      ;((createdTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) =>
         todoMap.set(String(t.id), t),
       )
       ;((maTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) => {
@@ -242,13 +251,14 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
             const userLower = u.username.toLowerCase()
             const creatorLower = (task.username || '').toLowerCase()
 
-            if ((task.assigned_to || '').toLowerCase() === userLower && creatorLower !== userLower) {
-              return true
-            }
+            // Include if assigned to user (including self-assigned tasks)
+            if ((task.assigned_to || '').toLowerCase() === userLower) return true
+            // Include if user created it and there is no other assignee (unassigned creator owns it)
+            if (creatorLower === userLower && !(task.assigned_to || '').trim()) return true
 
             const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
             if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
-            if (creatorLower === userLower) return false
+            // For MA tasks: include if user is in the assignees (even if they created the task)
 
             return multiAssignment.assignees.some((entry) => {
               if ((entry.username || '').toLowerCase() === userLower) return true
