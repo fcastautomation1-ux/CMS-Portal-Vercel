@@ -1,5 +1,3 @@
-'use server'
-
 import 'server-only'
 import { createHmac, randomUUID } from 'node:crypto'
 
