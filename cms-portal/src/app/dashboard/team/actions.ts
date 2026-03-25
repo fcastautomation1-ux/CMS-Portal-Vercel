@@ -5,6 +5,45 @@ import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
 import type { AssignmentChainEntry, HistoryEntry, MultiAssignment, Todo } from '@/types'
 
+const TEAM_TASK_LIST_SELECT = [
+  'id',
+  'username',
+  'title',
+  'description',
+  'completed',
+  'task_status',
+  'priority',
+  'category',
+  'kpi_type',
+  'due_date',
+  'expected_due_date',
+  'actual_due_date',
+  'notes',
+  'package_name',
+  'app_name',
+  'position',
+  'archived',
+  'queue_department',
+  'queue_status',
+  'multi_assignment',
+  'assigned_to',
+  'manager_id',
+  'completed_by',
+  'completed_at',
+  'approval_status',
+  'workflow_state',
+  'pending_approver',
+  'approved_at',
+  'approved_by',
+  'declined_at',
+  'declined_by',
+  'decline_reason',
+  'assignment_chain',
+  'history',
+  'created_at',
+  'updated_at',
+].join(',')
+
 export interface TeamMember {
   username: string
   role: string
@@ -239,27 +278,32 @@ export async function getTeamTodos(): Promise<Todo[]> {
     deptMap.set(userRow.username.toLowerCase(), userRow.department)
   })
 
-  const { data } = await supabase
-    .from('todos')
-    .select('*')
-    .eq('archived', false)
-
   const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
-  const tasks = ((data ?? []) as Record<string, unknown>[])
-    .filter((raw) => {
-      const creator = String(raw.username || '').toLowerCase()
-      const assignee = String(raw.assigned_to || '').toLowerCase()
-      if (teamSet.has(creator) || teamSet.has(assignee)) return true
+  const [createdRes, assignedRes, maRes] = await Promise.all([
+    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
+    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
+    supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null),
+  ])
 
-      const multiAssignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
-      if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
+  const taskMap = new Map<string, Record<string, unknown>>()
+  ;((createdRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
+  ;((assignedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
+  ;((maRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
+    const multiAssignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+    if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return
 
-      return multiAssignment.assignees.some((entry) => {
-        const username = (entry.username || '').toLowerCase()
-        if (teamSet.has(username)) return true
-        return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))
-      })
+    const isRelevant = multiAssignment.assignees.some((entry) => {
+      const username = (entry.username || '').toLowerCase()
+      if (teamSet.has(username)) return true
+      return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))
     })
+
+    if (isRelevant) {
+      taskMap.set(String(raw.id), raw)
+    }
+  })
+
+  const tasks = Array.from(taskMap.values())
     .map((raw) => {
       const task = raw as unknown as Todo
       task.history = parseJson<HistoryEntry[]>(raw.history, [])

@@ -32,13 +32,51 @@ function parseJson<T>(val: unknown, fallback: T): T {
   return val as T
 }
 
+const TASK_LIST_SELECT = [
+  'id',
+  'username',
+  'title',
+  'description',
+  'completed',
+  'task_status',
+  'priority',
+  'category',
+  'kpi_type',
+  'due_date',
+  'expected_due_date',
+  'actual_due_date',
+  'notes',
+  'package_name',
+  'app_name',
+  'position',
+  'archived',
+  'queue_department',
+  'queue_status',
+  'multi_assignment',
+  'assigned_to',
+  'manager_id',
+  'completed_by',
+  'completed_at',
+  'approval_status',
+  'workflow_state',
+  'pending_approver',
+  'approved_at',
+  'approved_by',
+  'declined_at',
+  'declined_by',
+  'decline_reason',
+  'assignment_chain',
+  'history',
+  'created_at',
+  'updated_at',
+].join(',')
+
 const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,multi_assignment'
 
 async function resolveAttachmentUrl(
   supabase: ReturnType<typeof createServerClient>,
   row: TodoAttachment
 ): Promise<TodoAttachment> {
-  const rawFileUrl = String(row.file_url || '').trim()
   const storagePath = getAttachmentStoragePath(row as unknown as Record<string, unknown>)
 
   if (!storagePath) {
@@ -508,14 +546,14 @@ export async function getTodos(): Promise<Todo[]> {
   })
 
   if (isAdminOrSM) {
-    const { data, error } = await supabase.from('todos').select('*')
+    const { data, error } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
     if (error) { console.error('getTodos error:', error); return [] }
     const { data: sharedData } = await supabase
       .from('todo_shares')
       .select('todo_id')
       .eq('shared_with', user.username)
     const sharedIds = new Set((sharedData || []).map((s: Record<string, unknown>) => s.todo_id as string))
-    return (data || []).map((raw: Record<string, unknown>) => {
+    return ((data || []) as unknown as Record<string, unknown>[]).map((raw) => {
       const t = normalizeTodo(raw, user.username)
       t.is_shared = sharedIds.has(t.id) || undefined
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
@@ -555,15 +593,16 @@ export async function getTodos(): Promise<Todo[]> {
 
   // Parallel queries
   const [ownedRes, assignedRes, completedByRes, pendingApproverRes, sharedRes, deptQueueRes] = await Promise.all([
-    supabase.from('todos').select('*').eq('username', user.username),
-    supabase.from('todos').select('*').eq('assigned_to', user.username),
-    supabase.from('todos').select('*').eq('completed_by', user.username),
-    supabase.from('todos').select('*').eq('pending_approver', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('username', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('assigned_to', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('completed_by', user.username),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('pending_approver', user.username),
     supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username),
     user.department
       ? supabase
           .from('todos')
-          .select('*')
+          .select(TASK_LIST_SELECT)
+          .eq('archived', false)
           .eq('queue_status', 'queued')
           .or('assigned_to.is.null,assigned_to.eq.')
       : Promise.resolve({ data: [] }),
@@ -576,7 +615,8 @@ export async function getTodos(): Promise<Todo[]> {
   // Tasks where I'm manager_id
   const { data: managedData } = await supabase
     .from('todos')
-    .select('*')
+    .select(TASK_LIST_SELECT)
+    .eq('archived', false)
     .ilike('manager_id', `%${user.username}%`)
 
   const allTasks: Todo[] = []
@@ -609,10 +649,10 @@ export async function getTodos(): Promise<Todo[]> {
     }
   }
 
-  ;(ownedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r))
-  ;(assignedRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_assigned_to_me: true }))
-  ;(completedByRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_completed_by_me: true }))
-  ;(pendingApproverRes.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_chain_member: true }))
+  ;((ownedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r))
+  ;((assignedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_assigned_to_me: true }))
+  ;((completedByRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_completed_by_me: true }))
+  ;((pendingApproverRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_chain_member: true }))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => {
     const queueDept = String(r.queue_department || '')
     const queueDeptKey = canonicalDepartmentKey(queueDept)
@@ -621,7 +661,7 @@ export async function getTodos(): Promise<Todo[]> {
     }
   })
 
-  ;(managedData || []).forEach((r: Record<string, unknown>) => {
+  ;((managedData || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     const managers = String(r.manager_id || '').split(',').map((m) => m.trim().toLowerCase())
     if (managers.includes(user.username.toLowerCase())) {
       addTask(r, { is_managed: true })
@@ -631,11 +671,11 @@ export async function getTodos(): Promise<Todo[]> {
   // Team tasks
   if (myTeamUsernames.length > 0) {
     const [teamCreated, teamAssigned] = await Promise.all([
-      supabase.from('todos').select('*').in('username', myTeamUsernames),
-      supabase.from('todos').select('*').in('assigned_to', myTeamUsernames),
+      supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('username', myTeamUsernames),
+      supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('assigned_to', myTeamUsernames),
     ])
-    ;(teamCreated.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_team_task: true }))
-    ;(teamAssigned.data || []).forEach((r: Record<string, unknown>) => addTask(r, { is_team_task: true }))
+    ;((teamCreated.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_team_task: true }))
+    ;((teamAssigned.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_team_task: true }))
   }
 
   // Shared tasks
@@ -643,13 +683,13 @@ export async function getTodos(): Promise<Todo[]> {
     .map((s: Record<string, unknown>) => s.todo_id as string)
     .filter((id: string) => !taskIds.has(id))
   if (sharedIds.length > 0) {
-    const { data: sharedTasks } = await supabase.from('todos').select('*').in('id', sharedIds)
-    ;(sharedTasks || []).forEach((r: Record<string, unknown>) => addTask(r, { is_shared: true }))
+    const { data: sharedTasks } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).in('id', sharedIds)
+    ;((sharedTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_shared: true }))
   }
 
   // Multi-assignment tasks
-  const { data: maTasks } = await supabase.from('todos').select('*').not('multi_assignment', 'is', null)
-  ;(maTasks || []).forEach((r: Record<string, unknown>) => {
+  const { data: maTasks } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null)
+  ;((maTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     const ma = parseJson<MultiAssignment | null>(r.multi_assignment, null)
     if (ma?.enabled && Array.isArray(ma.assignees)) {
       const isAssignee = ma.assignees.some(

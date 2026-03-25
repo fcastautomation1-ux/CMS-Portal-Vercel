@@ -1,6 +1,8 @@
 -- Task and notification performance indexes for CMS Portal
 -- Run in Supabase SQL Editor.
 
+create extension if not exists pg_trgm;
+
 create index if not exists idx_todos_archived_created_at
   on public.todos (archived, created_at desc);
 
@@ -13,8 +15,20 @@ create index if not exists idx_todos_assigned_to_archived
 create index if not exists idx_todos_completed_by_archived
   on public.todos (completed_by, archived);
 
+create index if not exists idx_todos_pending_approver_archived
+  on public.todos (pending_approver, archived);
+
+create index if not exists idx_todos_queue_status_assigned_archived
+  on public.todos (queue_status, assigned_to, archived);
+
+create index if not exists idx_todos_archived_due_date
+  on public.todos (archived, due_date);
+
 create index if not exists idx_todos_queue_status_department
   on public.todos (queue_status, queue_department);
+
+create index if not exists idx_todos_manager_id_trgm
+  on public.todos using gin (manager_id gin_trgm_ops);
 
 create index if not exists idx_todo_shares_shared_with_todo_id
   on public.todo_shares (shared_with, todo_id);
