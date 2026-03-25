@@ -12,7 +12,7 @@ interface SignedUrlCapableStorageClient {
   }
 }
 
-const signedUrlCache = new Map<string, Promise<string | null>>()
+const signedUrlCache = new Map<string, { promise: Promise<string | null>; expiresAt: number }>()
 
 function sanitizeSegment(value: string) {
   return value
@@ -53,7 +53,8 @@ export async function resolveStorageUrl(
 
   const cacheKey = `${expiresIn}:${pathOrUrl}`
   const cached = signedUrlCache.get(cacheKey)
-  if (cached) return cached
+  // Return cached promise only while the signed URL is still fresh (90% of lifetime)
+  if (cached && Date.now() < cached.expiresAt) return cached.promise
 
   const pending = supabase.storage
     .from(CMS_STORAGE_BUCKET)
@@ -61,7 +62,7 @@ export async function resolveStorageUrl(
     .then(({ data }) => data?.signedUrl ?? null)
     .catch(() => null)
 
-  signedUrlCache.set(cacheKey, pending)
+  signedUrlCache.set(cacheKey, { promise: pending, expiresAt: Date.now() + expiresIn * 900 })
 
   return pending
 }

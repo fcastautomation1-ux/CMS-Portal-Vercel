@@ -30,7 +30,8 @@ export async function getPortalBranding(): Promise<PortalBranding> {
   const portalName = (data.portal_name as string | null)?.trim() || DEFAULT_BRANDING.portal_name
   const portalTagline = (data.portal_tagline as string | null)?.trim() || DEFAULT_BRANDING.portal_tagline
   const logoPath = (data.logo_path as string | null) ?? null
-  const logoUrl = await resolveStorageUrl(supabase, logoPath)
+  // Use a 7-day signed URL for the logo — it changes rarely and long expiry prevents stale-cache breakage
+  const logoUrl = await resolveStorageUrl(supabase, logoPath, 7 * 24 * 60 * 60)
 
   return {
     portal_name: portalName,
