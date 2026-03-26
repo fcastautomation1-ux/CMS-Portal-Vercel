@@ -178,9 +178,15 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const userLower = username.toLowerCase()
     if ((task.assigned_to || '').toLowerCase() === userLower) return true
     const assignees = task.multi_assignment?.assignees ?? []
-    return assignees.some((a: MultiAssignmentEntry) =>
+    if (assignees.some((a: MultiAssignmentEntry) =>
       (a.username || '').toLowerCase() === userLower ||
       (Array.isArray(a.delegated_to) && a.delegated_to.some((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower))
+    )) return true
+    // Also visible if user was part of the assignment chain (e.g. they routed the task to a dept queue)
+    const chain = task.assignment_chain ?? []
+    return chain.some((e) =>
+      (e.user || '').toLowerCase() === userLower ||
+      (e.next_user || '').toLowerCase() === userLower
     )
   }, [])
 
@@ -267,8 +273,12 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       scheduleRefresh
     )
 
+    // Polling fallback: refresh every 30 s in case realtime misses an event
+    const pollingInterval = window.setInterval(() => { void refresh() }, 30_000)
+
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      window.clearInterval(pollingInterval)
       unsubscribe()
     }
   }, [currentUsername, refresh])

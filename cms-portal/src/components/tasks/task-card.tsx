@@ -127,7 +127,14 @@ function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | 
     for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
       const entry = task.assignment_chain[i]
       if ((entry.role || '').trim() === 'claimed_from_department' && (entry.user || '').trim().toLowerCase() === target) {
-        return entry.user.trim()
+        // Walk backward to find who originally routed to the department queue
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const prev = task.assignment_chain[j]
+          if ((prev.role || '').trim() === 'routed_to_department_queue') {
+            return prev.user?.trim() || null
+          }
+        }
+        return task.username || null
       }
     }
     return task.username || null

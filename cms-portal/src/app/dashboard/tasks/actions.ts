@@ -320,7 +320,17 @@ function findAssignmentStepOwner(
       const role = normalizeChainUsername(entry?.role)
       const actor = normalizeChainUsername(entry?.user)
       if (role === 'claimed_from_department' && actor.toLowerCase() === targetLower) {
-        return actor
+        // Walk backwards to find who routed this task to the department queue
+        for (let j = i - 1; j >= 0; j -= 1) {
+          const router = chain[j]
+          const routerRole = normalizeChainUsername(router?.role)
+          const routerActor = normalizeChainUsername(router?.user)
+          if (routerRole === 'routed_to_department_queue' && routerActor && routerActor.toLowerCase() !== targetLower) {
+            return routerActor
+          }
+        }
+        // No router found — fall back to creator below
+        break
       }
     }
 
@@ -1940,9 +1950,9 @@ export async function addCommentAction(
   for (const u of notifyUsers) {
     await createNotification(supabase, {
       userId: u,
-      type: 'task_assigned',
-      title: 'New Comment on Task',
-      body: `${user.username} commented on "${task.title}": ${message.trim().slice(0, 80)}`,
+      type: 'task_comment',
+      title: `💬 New message on "${task.title as string}"`,
+      body: `${user.username}: ${message.trim().slice(0, 100)}`,
       relatedId: todoId,
     })
   }
@@ -3191,6 +3201,28 @@ export async function sendTaskToDepartmentQueueAction(
         relatedId: todoId,
       })
     }
+    // Notify users in the target department about the new queued task
+    try {
+      const { data: deptUsers } = await supabase
+        .from('users')
+        .select('username')
+        .ilike('department', `%${targetDepartment}%`)
+      if (deptUsers && deptUsers.length > 0) {
+        for (const deptUser of deptUsers as Array<{ username: string }>) {
+          if (deptUser.username && deptUser.username !== user.username) {
+            await createNotification(supabase, {
+              userId: deptUser.username,
+              type: 'task_assigned',
+              title: 'New Task in Your Department Queue',
+              body: `${user.username} added "${task.title as string}" to the ${targetDepartment} queue.`,
+              relatedId: todoId,
+            })
+          }
+        }
+      }
+    } catch {
+      // Non-critical: don't fail if dept notifications fail
+    }
   }
 
   revalidateTasksData()
@@ -3714,7 +3746,7 @@ export async function updateMaAssigneeStatusAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,multi_assignment,history,title')
+    .select('username,assigned_to,multi_assignment,history,title,assignment_chain')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -4015,7 +4047,7 @@ export async function reopenMaAssigneeAction(
 
   const idx = ma.assignees.findIndex((entry) => (entry.username || '').toLowerCase() === assigneeUsername.toLowerCase())
   if (idx === -1) return { success: false, error: 'Assignee not found.' }
-  if (ma.assignees[idx].status !== 'accepted') return { success: false, error: 'Only accepted work can be reopened.' }
+  if (ma.assignees[idx].status !== 'accepted' && ma.assignees[idx].status !== 'completed') return { success: false, error: 'Only submitted or accepted work can be reopened.' }
 
   const now = new Date().toISOString()
   ma.assignees[idx] = {

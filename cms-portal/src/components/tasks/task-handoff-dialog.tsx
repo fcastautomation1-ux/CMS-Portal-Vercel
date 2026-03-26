@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Building2, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { pakistanNowInputValue } from '@/lib/pakistan-time'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   getDepartmentsForTaskForm,
   getUsersForAssignment,
@@ -84,7 +85,9 @@ export function TaskHandoffDialog({
         user.username.toLowerCase().includes(search.toLowerCase()) ||
         (user.department || '').toLowerCase().includes(search.toLowerCase()) ||
         (user.role || '').toLowerCase().includes(search.toLowerCase())
-      const matchesDepartment = !deptFilter || user.department === deptFilter
+      const matchesDepartment = !deptFilter || splitDepartmentsCsv(user.department || '').some(
+        (d) => canonicalDepartmentKey(d) === canonicalDepartmentKey(deptFilter)
+      )
       return matchesSearch && matchesDepartment
     })
   }, [currentAssignee, currentUsername, deptFilter, search, users])
@@ -135,14 +138,14 @@ export function TaskHandoffDialog({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
-        <div className="border-b border-slate-100 px-6 py-5">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+      <div className="w-full max-w-3xl flex flex-col overflow-hidden rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] shadow-[0_28px_80px_rgba(15,23,42,0.22)]" style={{ maxHeight: 'min(90vh, 780px)' }}>
+        <div className="shrink-0 border-b border-slate-100 px-6 py-5">
           <h3 className="text-xl font-bold tracking-[-0.02em] text-slate-900">Assign To Next</h3>
           <p className="mt-1 text-sm text-slate-500">Choose how this task should move forward in the workflow.</p>
         </div>
 
-        <div className="space-y-5 px-6 py-5">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-5 px-6 py-5">
           <div className="grid gap-3 md:grid-cols-2">
             <button
               type="button"
@@ -328,7 +331,7 @@ export function TaskHandoffDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-5">
+        <div className="shrink-0 flex justify-end gap-3 border-t border-slate-100 px-6 py-5">
           <button
             type="button"
             onClick={handleClose}

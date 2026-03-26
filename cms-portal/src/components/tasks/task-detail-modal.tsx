@@ -1075,10 +1075,10 @@ export function TaskDetailModal({
     })
   }
 
-  const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>) => {
+  const openTaskDialog = (dialog: NonNullable<TaskActionDialogState>, initialValue = '', initialExtraValue = '') => {
     setTaskDialog(dialog)
-    setDialogValue('')
-    setDialogExtraValue('')
+    setDialogValue(initialValue)
+    setDialogExtraValue(initialExtraValue)
   }
 
   const closeTaskDialog = () => {
@@ -1483,9 +1483,11 @@ export function TaskDetailModal({
           {showSingleDueDateBtn && (
             <button
                 onClick={() => {
-                  setDialogValue(pakistanInputValue(t.actual_due_date))
-                  setDialogExtraValue(getAssignmentStepNote(t, t.assigned_to!))
-                  openTaskDialog({ type: 'step-edit', assigneeUsername: t.assigned_to! })
+                  openTaskDialog(
+                    { type: 'step-edit', assigneeUsername: t.assigned_to! },
+                    pakistanInputValue(t.actual_due_date),
+                    getAssignmentStepNote(t, t.assigned_to!)
+                  )
                 }}
               className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100"
             >
@@ -1693,16 +1695,18 @@ export function TaskDetailModal({
                         {((getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
                           <button
                             onClick={() => {
-                              setDialogValue(pakistanInputValue(a.actual_due_date))
-                              setDialogExtraValue(getAssignmentStepNote(t, a.username))
-                              openTaskDialog({ type: 'step-edit', assigneeUsername: a.username })
+                              openTaskDialog(
+                                { type: 'step-edit', assigneeUsername: a.username },
+                                pakistanInputValue(a.actual_due_date),
+                                getAssignmentStepNote(t, a.username)
+                              )
                             }}
                             className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                           >
                             Edit
                           </button>
                         )}
-                        {isCreator && a.status === 'completed' && (
+                        {(getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase() && a.status === 'completed' && (
                           <>
                             <button onClick={() => void doAction(() => acceptMaAssigneeAction(t.id, a.username))} className="rounded-xl bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">
                               Accept
@@ -1712,7 +1716,7 @@ export function TaskDetailModal({
                             </button>
                           </>
                         )}
-                        {isCreator && a.status === 'accepted' && (
+                        {(getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase() && a.status === 'accepted' && (
                           <button onClick={() => openTaskDialog({ type: 'reopen-assignee', assigneeUsername: a.username })} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
                             Reopen
                           </button>
