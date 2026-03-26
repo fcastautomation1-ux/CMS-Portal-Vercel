@@ -273,8 +273,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       scheduleRefresh
     )
 
+    // Fallback polling every 10 seconds — catches updates when Supabase Realtime
+    // is not fully configured or the websocket drops.
+    const pollingInterval = window.setInterval(() => { void refresh() }, 10_000)
+
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      window.clearInterval(pollingInterval)
       unsubscribe()
     }
   }, [currentUsername, refresh])

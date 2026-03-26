@@ -253,6 +253,7 @@ export interface MultiAssignmentSubEntry {
   completed_at?: string
   notes?: string               // feedback note when submitting
   delegation_instructions?: string
+  actual_due_date?: string     // due date set during delegation
   delegated_to?: MultiAssignmentSubEntry[]
 }
 

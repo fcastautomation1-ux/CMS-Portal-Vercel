@@ -80,6 +80,11 @@ const TaskHandoffDialog = dynamic(
   { ssr: false }
 )
 
+const TaskDelegateDialog = dynamic(
+  () => import('@/components/tasks/task-delegate-dialog').then((mod) => mod.TaskDelegateDialog),
+  { ssr: false }
+)
+
 const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000
 const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 
@@ -795,6 +800,7 @@ export function TaskDetailModal({
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
+  const [showDelegateDialog, setShowDelegateDialog] = useState(false)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
@@ -1186,8 +1192,7 @@ export function TaskDetailModal({
         return
       }
       case 'delegate':
-        if (!dialogValue.trim()) return
-        void doAction(() => delegateMaAssigneeAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        // Delegation is now handled by the full TaskDelegateDialog, but keep this case as a no-op for safety
         closeTaskDialog()
         return
       case 'sub-submit': {
@@ -1542,7 +1547,7 @@ export function TaskDetailModal({
             <PrimaryBtn icon={<CheckCircle2 size={14}/>} label="MA Submit" color="green" onClick={() => openTaskDialog({ type: 'ma-submit' })} loading={isPending} />
           )}
           {myMaEntry && !isCompleted && (
-            <button onClick={() => openTaskDialog({ type: 'delegate' })} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100">
+            <button onClick={() => setShowDelegateDialog(true)} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100">
               Delegate
             </button>
           )}
@@ -2135,11 +2140,6 @@ export function TaskDetailModal({
             </div>
           ) : taskDialog.type === 'single-due-date' ? (
             <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
-          ) : taskDialog.type === 'step-edit' ? (
-            <div className="space-y-3">
-              <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
-              <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
-            </div>
           ) : taskDialog.type === 'split-multi' ? (
             <DialogTextarea
               label="Assignees"
@@ -2148,9 +2148,28 @@ export function TaskDetailModal({
               placeholder={'user1|2026-03-20T18:00\nuser2|2026-03-22T12:00\nuser3'}
             />
           ) : taskDialog.type === 'delegate' ? (
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-3 text-sm text-slate-600">
+              Use the <span className="font-semibold text-violet-700">Delegate</span> button to open the full delegation dialog with user search and due date.
+            </div>
+          ) : taskDialog.type === 'step-edit' ? (
             <div className="space-y-3">
-              <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
-              <DialogTextarea label="Instructions (optional)" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add delegation notes or instructions" />
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500 mb-1">Editing Step For</div>
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-full bg-slate-200 flex items-center justify-center">
+                    <span className="text-xs font-bold text-slate-600">{taskDialog.assigneeUsername?.[0]?.toUpperCase() ?? '?'}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-800">{taskDialog.assigneeUsername}</span>
+                </div>
+                {dialogValue && (
+                  <div className="mt-2 text-xs text-slate-500">Current due date: <span className="font-medium text-slate-700">{dialogValue}</span></div>
+                )}
+                {dialogExtraValue && (
+                  <div className="mt-1 text-xs text-slate-500">Current note: <span className="italic text-slate-700">{dialogExtraValue}</span></div>
+                )}
+              </div>
+              <DialogInput label="New Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+              <DialogTextarea label="Step Detail / Instructions" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             </div>
           ) : taskDialog.type === 'remove-delegation' ? (
             <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>
@@ -2189,6 +2208,17 @@ export function TaskDetailModal({
           onAssignMulti={(assignees, note) => {
             setShowHandoffDialog(false)
             void doAction(() => convertTaskToMultiAssignmentAction(t.id, assignees, note))
+          }}
+        />
+      )}
+      {showDelegateDialog && (
+        <TaskDelegateDialog
+          open={showDelegateDialog}
+          currentUsername={currentUsername}
+          onClose={() => setShowDelegateDialog(false)}
+          onDelegate={(toUsername, dueDate, instructions) => {
+            setShowDelegateDialog(false)
+            void doAction(() => delegateMaAssigneeAction(t.id, toUsername, instructions, dueDate))
           }}
         />
       )}

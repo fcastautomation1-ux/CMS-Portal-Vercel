@@ -715,17 +715,23 @@ export async function getTodos(): Promise<Todo[]> {
   }
 
   // Multi-assignment tasks — filtered at DB level to avoid full-table scan
-  const [maAssigneeRes, maDelegatedRes] = await Promise.all([
+  const [maAssigneeRes, maDelegatedRes, chainMemberRes] = await Promise.all([
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
       .contains('multi_assignment', { assignees: [{ username: user.username }] }),
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
       .contains('multi_assignment', { assignees: [{ delegated_to: [{ username: user.username }] }] }),
+    // Tasks where the user appears in assignment_chain (e.g. routed to dept queue — keep visible to the router)
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
+      .contains('assignment_chain', JSON.stringify([{ user: user.username }])),
   ])
   ;((maAssigneeRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     addTask(r, { is_multi_assigned: true })
   })
   ;((maDelegatedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     addTask(r, { is_multi_assigned: true, is_delegated_to_me: true })
+  })
+  ;((chainMemberRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
+    addTask(r, { is_chain_member: true })
   })
 
   allTasks.sort((a, b) => {
@@ -3093,6 +3099,23 @@ export async function sendTaskToDepartmentQueueAction(
         last_handoff_at: now,
         updated_at: now,
       }).eq('id', todoId)
+      // Notify dept users about the queued task
+      try {
+        const { data: deptUsers } = await supabase.from('users').select('username').ilike('department', `%${targetDepartment}%`)
+        if (deptUsers && deptUsers.length > 0) {
+          for (const deptUser of deptUsers as Array<{ username: string }>) {
+            if (deptUser.username && deptUser.username !== user.username) {
+              await createNotification(supabase, {
+                userId: deptUser.username,
+                type: 'task_assigned',
+                title: 'New Task in Your Department Queue',
+                body: `${user.username} added "${task.title as string}" to the ${targetDepartment} queue.`,
+                relatedId: todoId,
+              })
+            }
+          }
+        }
+      } catch { /* non-critical */ }
     } else {
       const autoMa = buildAutoMultiAssignment(autoRoute.usernames, dueIso, user.username)
       const rolledDue = getMaxMaDueDate(autoMa) ?? dueIso
@@ -3879,26 +3902,27 @@ export async function acceptMaAssigneeAction(
   }
 
   if (allAccepted) {
-    const pendingChain = buildPendingApprovalChain(task, user.username, now)
-    const nextApprover = pendingChain[0]?.user || (task.username as string)
+    // All sub-assignees accepted — notify the step owner (User B) to manually submit.
+    // Do NOT auto-submit to approval chain: User B should explicitly complete the task
+    // so they can optionally reassign or review before sending up the chain.
+    updatePayload.task_status = 'done'
+    updatePayload.workflow_state = 'ma_all_accepted'
     updatePayload.completed = false
     updatePayload.completed_at = null
-    updatePayload.completed_by = user.username
-    updatePayload.task_status = 'done'
-    updatePayload.approval_status = 'pending_approval'
-    updatePayload.pending_approver = nextApprover
-    updatePayload.approval_chain = JSON.stringify(pendingChain)
-    updatePayload.approval_requested_at = now
-    updatePayload.approval_sla_due_at = addHoursIso(now, 48)
-    updatePayload.workflow_state = 'submitted_for_approval'
+    updatePayload.completed_by = null
+    updatePayload.approval_status = 'approved'
+    updatePayload.pending_approver = null
+    updatePayload.approval_chain = JSON.stringify([])
+    updatePayload.approval_requested_at = null
+    updatePayload.approval_sla_due_at = null
 
     history.push({
-      type: 'completion_submitted',
+      type: 'completed',
       user: user.username,
-      details: `${user.username} submitted fully accepted multi-assignment for approval by ${nextApprover}`,
+      details: `${user.username} accepted all sub-assignee work. Task is ready for final submission.`,
       timestamp: now,
-      icon: '📨',
-      title: 'MA Submitted For Approval',
+      icon: '🎯',
+      title: 'All Work Accepted',
     })
     updatePayload.history = JSON.stringify(history)
   } else {
@@ -3916,14 +3940,18 @@ export async function acceptMaAssigneeAction(
   })
 
   if (allAccepted) {
-    const nextApprover = buildPendingApprovalChain(task, user.username, now)[0]?.user || (task.username as string)
-    await createNotification(supabase, {
-      userId: nextApprover,
-      type: 'task_assigned',
-      title: 'Approval Required',
-      body: `${user.username} submitted fully accepted work for "${task.title}".`,
-      relatedId: todoId,
-    })
+    // Notify the task owner (User B) that all work is accepted and they can now complete the task
+    const maCreatedBy = normalizeChainUsername(parseJson<MultiAssignment | null>(task.multi_assignment, null)?.created_by || '')
+    const stepOwnerToNotify = maCreatedBy || normalizeChainUsername(task.assigned_to) || normalizeChainUsername(task.username)
+    if (stepOwnerToNotify && stepOwnerToNotify.toLowerCase() !== user.username.toLowerCase()) {
+      await createNotification(supabase, {
+        userId: stepOwnerToNotify,
+        type: 'task_assigned',
+        title: 'All Assigned Work Accepted',
+        body: `All sub-assignee work on "${task.title as string}" has been accepted. You can now submit the task for your own approval.`,
+        relatedId: todoId,
+      })
+    }
   }
 
   revalidateTasksData()
@@ -4099,7 +4127,8 @@ export async function reopenMaAssigneeAction(
 export async function delegateMaAssigneeAction(
   todoId: string,
   toUsername: string,
-  instructions?: string
+  instructions?: string,
+  dueDate?: string
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
@@ -4128,16 +4157,23 @@ export async function delegateMaAssigneeAction(
   if (alreadyDelegated) return { success: false, error: 'Already delegated to that user.' }
 
   const now = new Date().toISOString()
+  const parsedDueDate = dueDate ? new Date(dueDate) : null
+  const dueDateIso = parsedDueDate && !Number.isNaN(parsedDueDate.getTime()) ? parsedDueDate.toISOString() : undefined
   ma.assignees[myIdx].delegated_to = [
     ...existing_delegates,
-    { username: toUsername, status: 'pending', delegation_instructions: instructions || undefined },
+    {
+      username: toUsername,
+      status: 'pending',
+      delegation_instructions: instructions || undefined,
+      actual_due_date: dueDateIso,
+    },
   ]
 
   const history = parseJson<HistoryEntry[]>(task.history, [])
   history.push({
     type: 'assigned',
     user: user.username,
-    details: `${user.username} delegated their assignment to ${toUsername}${instructions ? `: "${instructions}"` : ''}`,
+    details: `${user.username} delegated their assignment to ${toUsername}${instructions ? `: "${instructions}"` : ''}${dueDateIso ? ` (due: ${dueDateIso})` : ''}`,
     timestamp: now,
     icon: '🔄',
     title: 'Task Delegated',

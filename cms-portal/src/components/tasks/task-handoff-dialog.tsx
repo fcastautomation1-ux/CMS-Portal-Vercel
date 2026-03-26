@@ -87,10 +87,23 @@ export function TaskHandoffDialog({
         (user.role || '').toLowerCase().includes(search.toLowerCase())
       const matchesDepartment = !deptFilter || splitDepartmentsCsv(user.department || '').some(
         (d) => canonicalDepartmentKey(d) === canonicalDepartmentKey(deptFilter)
-      )
+      ) || (user.department || '').toLowerCase().includes(deptFilter.toLowerCase())
       return matchesSearch && matchesDepartment
     })
   }, [currentAssignee, currentUsername, deptFilter, search, users])
+
+  // Build department options: union of departments table + unique user departments
+  const departmentOptions = useMemo(() => {
+    const fromUsers = new Set<string>()
+    users.forEach((u) => {
+      splitDepartmentsCsv(u.department || '').forEach((d) => {
+        if (d.trim()) fromUsers.add(d.trim())
+      })
+    })
+    const all = Array.from(new Set([...departments, ...Array.from(fromUsers)]))
+    all.sort((a, b) => a.localeCompare(b))
+    return all
+  }, [departments, users])
 
   const toggleUser = (username: string) => {
     setSelectedUsers((current) => {
@@ -250,7 +263,7 @@ export function TaskHandoffDialog({
                   className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 md:w-64"
                 >
                   <option value="">All Departments</option>
-                  {departments.map((department) => (
+                  {departmentOptions.map((department) => (
                     <option key={department} value={department}>
                       {department}
                     </option>
