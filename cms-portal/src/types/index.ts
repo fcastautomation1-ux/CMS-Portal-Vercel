@@ -380,6 +380,7 @@ export interface SidebarTaskCounts {
   completed: number
   pending: number
   overdue: number
+  queue: number
 }
 
 export type TaskRouting = 'self' | 'department' | 'manager' | 'multi'

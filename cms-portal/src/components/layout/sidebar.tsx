@@ -179,13 +179,13 @@ export function Sidebar({
 
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
-    queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0 } satisfies SidebarTaskCounts)),
+    queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 } satisfies SidebarTaskCounts)),
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
   })
-  const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, pending: 0, overdue: 0 }
+  const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 }
 
   const teamStatsQuery = useQuery({
     queryKey: queryKeys.teamStats(user.username),
@@ -236,16 +236,18 @@ export function Sidebar({
     { label: 'Pending', scope: 'tasks_pending', badge: 'bg-amber-500/15 text-amber-700' },
     { label: 'Overdue', scope: 'tasks_overdue', badge: 'bg-rose-500/15 text-rose-700' },
   ]
-  const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue', active: boolean) => {
+  const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue' | 'queue', active: boolean) => {
     if (active) {
       if (tone === 'completed') return 'bg-green-100 text-green-700'
       if (tone === 'pending') return 'bg-amber-100 text-amber-700'
       if (tone === 'overdue') return 'bg-rose-100 text-rose-700'
+      if (tone === 'queue') return 'bg-violet-100 text-violet-700'
       return 'bg-blue-100 text-blue-700'
     }
     if (tone === 'completed') return 'bg-green-600/15 text-green-700'
     if (tone === 'pending') return 'bg-amber-500/15 text-amber-700'
     if (tone === 'overdue') return 'bg-rose-500/15 text-rose-700'
+    if (tone === 'queue') return 'bg-violet-500/15 text-violet-700'
     return 'bg-blue-500/15 text-blue-700'
   }
   const taskPrefetchUrls = useMemo(
@@ -254,6 +256,7 @@ export function Sidebar({
       '/dashboard/tasks?scope=my_all&status=completed',
       '/dashboard/tasks?scope=my_all&status=pending',
       '/dashboard/tasks?scope=my_all&status=overdue',
+      '/dashboard/tasks?scope=my_all&status=queue',
     ],
     []
   )
@@ -576,6 +579,7 @@ export function Sidebar({
                                     { label: 'Complete', status: 'completed', count: myAllCounts.completed, tone: 'completed' as const },
                                     { label: 'Pending', status: 'pending', count: myAllCounts.pending, tone: 'pending' as const },
                                     { label: 'Overdue', status: 'overdue', count: myAllCounts.overdue, tone: 'overdue' as const },
+                                    { label: 'Queue', status: 'queue', count: myAllCounts.queue, tone: 'queue' as const },
                                   ] as const).map((statusLink) => {
                                     const isSubActive = pathname === '/dashboard/tasks' && activeTaskStatus === statusLink.status
                                     return (

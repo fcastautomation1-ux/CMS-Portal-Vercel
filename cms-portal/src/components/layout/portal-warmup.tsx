@@ -80,6 +80,7 @@ function getAccessibleRoutes(user: SessionUser) {
     '/dashboard/tasks?scope=my_all&status=completed',
     '/dashboard/tasks?scope=my_all&status=pending',
     '/dashboard/tasks?scope=my_all&status=overdue',
+    '/dashboard/tasks?scope=my_all&status=queue',
   ])
 
   const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'

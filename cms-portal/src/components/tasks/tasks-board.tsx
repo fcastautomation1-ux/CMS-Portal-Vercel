@@ -196,6 +196,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     if (statusFilter === 'completed') return 'completed'
     if (statusFilter === 'pending') return 'pending'
     if (statusFilter === 'overdue') return 'overdue'
+    if (statusFilter === 'queue') return 'queue'
     return ''
   }, [statusFilter])
 
@@ -209,6 +210,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       nextStatus = 'pending'
     } else if (key === 'overdue') {
       nextStatus = 'overdue'
+    } else if (key === 'queue') {
+      nextStatus = 'queue'
     }
 
     router.replace(`/dashboard/tasks?scope=${quickFilter}&status=${nextStatus}`, { scroll: false })
@@ -262,6 +265,22 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       .some((d: string) => !!d && d === queueDeptKey)
   }, [currentUserDept, currentUsername])
 
+  const canViewAllQueueTasks = useMemo(
+    () => currentUserRole === 'Admin' || currentUserRole === 'Super Manager' || currentUserRole === 'Manager' || currentUserRole === 'Supervisor',
+    [currentUserRole]
+  )
+
+  const matchesQueueVisibility = useCallback((task: Todo) => {
+    if (task.queue_status !== 'queued') return false
+    if (!task.queue_department) return false
+    if (canViewAllQueueTasks) return true
+
+    const userDepts = splitDepartmentsCsv(currentUserDept || '')
+    if (userDepts.length === 0) return false
+    const taskDepts = splitDepartmentsCsv(task.queue_department)
+    return taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))
+  }, [canViewAllQueueTasks, currentUserDept])
+
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()
     if (task.archived) return false
@@ -290,20 +309,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return true
     }).length
 
-    // Queue: regular users see dept queue, managers see team member queues
-    const queue = tasks.filter((task) => {
-      if (task.queue_status !== 'queued') return false
-      if (!task.queue_department) return false
-      // Regular user: task in their department
-      const userDepts = splitDepartmentsCsv(currentUserDept || '')
-      const taskDepts = splitDepartmentsCsv(task.queue_department)
-      if (userDepts.length > 0 && taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))) return true
-      // Manager/Supervisor: can also see queues of their team members' departments
-      if (currentUserRole === 'Manager' || currentUserRole === 'Supervisor') {
-        return true // Managers/supervisors can see all queues in their scope
-      }
-      return false
-    }).length
+    const queue = tasks.filter((task) => matchesQueueVisibility(task)).length
 
     return {
       total: scopedTasksForKpis.length,
@@ -312,7 +318,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, currentUserDept, currentUserRole])
+  }, [scopedTasksForKpis, tasks, matchesQueueVisibility])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -329,8 +335,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const now = new Date()
     let list = [...tasks]
     const userLower = effectiveUser.toLowerCase()
+    const isQueueStatusActive = statusFilter === 'queue'
 
-    if (quickFilter === 'created_by_me') {
+    if (isQueueStatusActive) {
+      list = list.filter((t) => !t.archived && matchesQueueVisibility(t))
+    } else if (quickFilter === 'created_by_me') {
       list = list.filter((t) => !t.archived && t.username.toLowerCase() === userLower)
     } else if (quickFilter === 'assigned_to_me') {
       list = list.filter((t) => !t.archived && (isTaskAssignedByOthersToUser(t, effectiveUser) || isQueuedTaskForDepartmentUser(t, effectiveUser)))
@@ -412,16 +421,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         if (statusFilter === 'pending') return !t.completed && t.task_status !== 'done' && !(t.due_date && new Date(t.due_date) < now) && !t.archived
         if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
         if (statusFilter === 'overdue') return !t.completed && !!t.due_date && new Date(t.due_date) < now
-        if (statusFilter === 'queue') {
-          if (t.queue_status !== 'queued' || !t.queue_department) return false
-          // Regular user: task in their department
-          const userDepts = splitDepartmentsCsv(currentUserDept || '')
-          const taskDepts = splitDepartmentsCsv(t.queue_department)
-          if (userDepts.length > 0 && taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))) return true
-          // Manager/Supervisor: can see and assign all queues
-          if (currentUserRole === 'Manager' || currentUserRole === 'Supervisor') return true
-          return false
-        }
+        if (statusFilter === 'queue') return !t.archived && matchesQueueVisibility(t)
         return true
       })
     }
@@ -454,7 +454,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, currentUserDept, currentUserRole])
+  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
 
   const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}`
   const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1

@@ -36,7 +36,8 @@ export default async function TasksPage({
     status === 'all' ||
     status === 'pending' ||
     status === 'completed' ||
-    status === 'overdue'
+    status === 'overdue' ||
+    status === 'queue'
       ? status
       : 'all'
 
