@@ -592,6 +592,12 @@ export async function getTodos(): Promise<Todo[]> {
     if (m && !myTeamUsernames.includes(m)) myTeamUsernames.push(m)
   })
 
+  const canViewAllQueues =
+    user.role === 'Admin' ||
+    user.role === 'Super Manager' ||
+    user.role === 'Manager' ||
+    user.role === 'Supervisor'
+
   // Parallel queries
   const [ownedRes, assignedRes, completedByRes, pendingApproverRes, sharedRes, deptQueueRes] = await Promise.all([
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('username', user.username),
@@ -599,7 +605,7 @@ export async function getTodos(): Promise<Todo[]> {
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('completed_by', user.username),
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).eq('pending_approver', user.username),
     supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username),
-    user.department
+    (canViewAllQueues || user.department)
       ? supabase
           .from('todos')
           .select(TASK_LIST_SELECT)
@@ -655,6 +661,10 @@ export async function getTodos(): Promise<Todo[]> {
   ;((completedByRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_completed_by_me: true }))
   ;((pendingApproverRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_chain_member: true }))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((r) => {
+    if (canViewAllQueues) {
+      addTask(r, { is_department_queue: true })
+      return
+    }
     const queueDept = String(r.queue_department || '')
     const queueDeptKey = canonicalDepartmentKey(queueDept)
     if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
