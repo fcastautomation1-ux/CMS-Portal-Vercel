@@ -5,6 +5,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
 import { canonicalDepartmentKey } from '@/lib/department-name'
+import { getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
 
 export interface OverviewStats {
   accounts: { total: number; running: number; error: number; pending: number }
@@ -307,21 +308,13 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   if (!user || (user.role !== 'Manager' && user.role !== 'Supervisor')) return empty
 
   return unstable_cache(async () => {
-    const supabase = createServerClient()
     const today = new Date().toISOString().split('T')[0]
+    const [teamMembers, teamTodos] = await Promise.all([
+      getTeamMembers(),
+      getTeamTodos(),
+    ])
 
-    const teamSet = new Set<string>()
-    if (user.teamMembers) user.teamMembers.forEach(m => { if (m) teamSet.add(m) })
-    const { data: managed } = await supabase.from('users').select('username,role,department').eq('manager_id', user.username)
-    if (managed) managed.forEach((u: Record<string, unknown>) => teamSet.add(u.username as string))
-
-    const memberList = Array.from(teamSet)
-    if (memberList.length === 0) return empty
-
-    const { data: usersData } = await supabase.from('users').select('username,role,department').in('username', memberList)
-    const { data: todos } = await supabase.from('todos').select('username,assigned_to,completed,task_status,due_date,archived').eq('archived', false).in('assigned_to', memberList)
-
-  const todoList = (todos ?? []) as Array<{ username: string; assigned_to: string | null; completed: boolean; task_status: string; due_date: string | null }>
+    if (teamMembers.length === 0) return empty
 
   let completed = 0
   let inProgress = 0
@@ -329,26 +322,30 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   let overdue = 0
   const userMap: Record<string, { completed: number; total: number }> = {}
 
-  for (const t of todoList) {
+  for (const t of teamTodos) {
     const owner = t.assigned_to || t.username
     if (!userMap[owner]) userMap[owner] = { completed: 0, total: 0 }
     userMap[owner].total++
-    if (t.completed) {
+    if (t.completed || t.task_status === 'done') {
       completed++
       userMap[owner].completed++
     } else {
-      if (t.task_status === 'in_progress') inProgress++
-      else pending++
-      if (t.due_date && t.due_date < today) overdue++
+      if (t.due_date && t.due_date < today) {
+        overdue++
+      } else if (t.task_status === 'in_progress') {
+        inProgress++
+      } else {
+        pending++
+      }
     }
   }
 
-  const teamMembers = (usersData ?? []).map((u: Record<string, unknown>) => ({
-    username: u.username as string,
-    role: u.role as string,
-    department: u.department as string | null,
-    completed: userMap[u.username as string]?.completed ?? 0,
-    total: userMap[u.username as string]?.total ?? 0,
+  const overviewMembers = teamMembers.map((member) => ({
+    username: member.username,
+    role: member.role,
+    department: member.department,
+    completed: userMap[member.username]?.completed ?? 0,
+    total: userMap[member.username]?.total ?? 0,
   }))
 
   const weeklyProgress = Array.from({ length: 7 }, (_, i) => {
@@ -356,14 +353,19 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     d.setDate(d.getDate() - (6 - i))
     const dayStr = d.toISOString().split('T')[0]
     const label = d.toLocaleDateString('en', { weekday: 'short' })
-    return { day: label, completed: 0, date: dayStr }
+    const dayCompleted = teamTodos.filter((task) => {
+      if (!(task.completed || task.task_status === 'done')) return false
+      const completedAt = String(task.completed_at || '')
+      return completedAt.startsWith(dayStr)
+    }).length
+    return { day: label, completed: dayCompleted }
   })
 
     return {
-      teamCount: memberList.length,
-      teamTasks: { total: todoList.length, completed, inProgress, pending, overdue },
-      teamMembers,
-      weeklyProgress: weeklyProgress.map(({ day, completed: dayCompleted }) => ({ day, completed: dayCompleted })),
+      teamCount: overviewMembers.length,
+      teamTasks: { total: teamTodos.length, completed, inProgress, pending, overdue },
+      teamMembers: overviewMembers,
+      weeklyProgress,
     }
   }, ['overview-manager', user.username, user.teamMembers.join(',')], { revalidate: 30 })()
 }

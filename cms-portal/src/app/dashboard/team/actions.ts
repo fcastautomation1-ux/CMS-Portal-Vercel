@@ -131,8 +131,16 @@ async function getTeamUsernames() {
     memberUsernames = (data ?? []).map((u) => (u as { username: string }).username)
   } else {
     const set = new Set<string>()
-    const { data: managed } = await supabase.from('users').select('username').eq('manager_id', user.username)
-    if (managed) managed.forEach((u) => set.add((u as { username: string }).username))
+    const { data: managed } = await supabase.from('users').select('username, manager_id')
+    ;((managed ?? []) as Array<{ username: string; manager_id: string | null }>).forEach((row) => {
+      const managers = String(row.manager_id || '')
+        .split(',')
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+      if (managers.includes(user.username.toLowerCase())) {
+        set.add(row.username)
+      }
+    })
     if (user.teamMembers) user.teamMembers.forEach((member) => { if (member) set.add(member) })
     memberUsernames = Array.from(set)
   }

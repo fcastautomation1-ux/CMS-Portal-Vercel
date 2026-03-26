@@ -735,6 +735,12 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
   const completionRate = stats.teamTasks.total > 0
     ? Math.round((stats.teamTasks.completed / stats.teamTasks.total) * 100)
     : 0
+  const statusChartData = [
+    { label: 'Completed', value: stats.teamTasks.completed, color: '#10B981' },
+    { label: 'In Progress', value: stats.teamTasks.inProgress, color: '#3B82F6' },
+    { label: 'Pending', value: stats.teamTasks.pending, color: '#F59E0B' },
+    { label: 'Overdue', value: stats.teamTasks.overdue, color: '#EF4444' },
+  ]
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -790,6 +796,70 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={16} style={{ color: 'var(--blue-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Team Task Status</h3>
+          </div>
+          {stats.teamTasks.total > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={statusChartData.filter((entry) => entry.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={70}
+                    dataKey="value"
+                    labelLine={false}
+                    label={renderCustomLabel}
+                    animationBegin={0}
+                    animationDuration={800}
+                  >
+                    {statusChartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-3 mt-2 justify-center">
+                {statusChartData.map((entry) => (
+                  <div key={entry.label} className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-sm" style={{ background: entry.color }} />
+                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      {entry.label} ({entry.value})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="h-45 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
+              No team tasks yet
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Calendar size={16} style={{ color: 'var(--violet-500)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Weekly Completions</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={stats.weeklyProgress}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.2)" />
+              <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={12} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="completed" fill="#8B5CF6" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
