@@ -243,6 +243,55 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
 
       const now = new Date().toISOString().split('T')[0]
 
+      const getUserTaskState = (task: TeamTodoStatsRow, username: string) => {
+        const userLower = username.toLowerCase()
+        const creatorLower = (task.username || '').toLowerCase()
+        const assigneeLower = (task.assigned_to || '').toLowerCase()
+        const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+
+        if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+          const directEntry = multiAssignment.assignees.find(
+            (entry) => (entry.username || '').toLowerCase() === userLower,
+          )
+          if (directEntry) {
+            const dueDate = directEntry.actual_due_date || task.due_date || null
+            const isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
+            return { included: true, isCompleted, dueDate }
+          }
+
+          for (const entry of multiAssignment.assignees) {
+            const delegatedEntry = Array.isArray(entry.delegated_to)
+              ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === userLower)
+              : null
+            if (delegatedEntry) {
+              const dueDate = task.due_date || null
+              const isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+              return { included: true, isCompleted, dueDate }
+            }
+          }
+
+          return { included: false, isCompleted: false, dueDate: null as string | null }
+        }
+
+        if (assigneeLower === userLower) {
+          return {
+            included: true,
+            isCompleted: task.completed || task.task_status === 'done',
+            dueDate: task.due_date || null,
+          }
+        }
+
+        if (creatorLower === userLower && !(task.assigned_to || '').trim()) {
+          return {
+            included: true,
+            isCompleted: task.completed || task.task_status === 'done',
+            dueDate: task.due_date || null,
+          }
+        }
+
+        return { included: false, isCompleted: false, dueDate: null as string | null }
+      }
+
       return Promise.all(
         (
           usersData as unknown as Array<{
@@ -254,82 +303,19 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
             avatar_data: string | null
           }>
         ).map(async (u) => {
-          const myTasks = (todos as TeamTodoStatsRow[]).filter((task) => {
-            const userLower = u.username.toLowerCase()
-            const creatorLower = (task.username || '').toLowerCase()
+          const taskStates = (todos as TeamTodoStatsRow[])
+            .map((task) => getUserTaskState(task, u.username))
+            .filter((state) => state.included)
 
-            // Include if assigned to user (including self-assigned tasks)
-            if ((task.assigned_to || '').toLowerCase() === userLower) return true
-            // Include if user created it and there is no other assignee (unassigned creator owns it)
-            if (creatorLower === userLower && !(task.assigned_to || '').trim()) return true
-
-            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-            if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return false
-            // For MA tasks: include if user is in the assignees (even if they created the task)
-
-            return multiAssignment.assignees.some((entry) => {
-              if ((entry.username || '').toLowerCase() === userLower) return true
-              return (
-                Array.isArray(entry.delegated_to) &&
-                entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower)
-              )
-            })
-          })
-
-          const completed = myTasks.filter((task) => {
-            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-            if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
-              const directEntry = multiAssignment.assignees.find(
-                (entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase(),
-              )
-              if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
-
-              for (const entry of multiAssignment.assignees) {
-                const delegatedEntry = Array.isArray(entry.delegated_to)
-                  ? entry.delegated_to.find(
-                      (sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase(),
-                    )
-                  : null
-                if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-              }
-            }
-
-            return task.completed || task.task_status === 'done'
-          }).length
-
-          const overdue = myTasks.filter((task) => {
-            const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-            let isCompleted = task.completed || task.task_status === 'done'
-
-            if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
-              const directEntry = multiAssignment.assignees.find(
-                (entry) => (entry.username || '').toLowerCase() === u.username.toLowerCase(),
-              )
-              if (directEntry) {
-                isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
-              } else {
-                for (const entry of multiAssignment.assignees) {
-                  const delegatedEntry = Array.isArray(entry.delegated_to)
-                    ? entry.delegated_to.find(
-                        (sub) => (sub.username || '').toLowerCase() === u.username.toLowerCase(),
-                      )
-                    : null
-                  if (delegatedEntry) {
-                    isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-                    break
-                  }
-                }
-              }
-            }
-
-            return !isCompleted && !!task.due_date && task.due_date < now
-          }).length
-          const pending = myTasks.length - completed - overdue
+          const completed = taskStates.filter((state) => state.isCompleted).length
+          const overdue = taskStates.filter((state) => !state.isCompleted && !!state.dueDate && state.dueDate < now).length
+          const total = taskStates.length
+          const pending = total - completed - overdue
 
           return {
             ...u,
             avatar_data: await resolveStorageUrl(supabase, u.avatar_data),
-            taskStats: { total: myTasks.length, completed, pending, overdue },
+            taskStats: { total, completed, pending, overdue },
           }
         }),
       )
