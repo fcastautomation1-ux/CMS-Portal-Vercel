@@ -1560,6 +1560,34 @@ export async function toggleTodoCompleteAction(
         relatedId: todoId,
       })
     }
+    // Post feedback as a comment so it surfaces in the activity/comments feed
+    if (note) {
+      const commentParticipants = new Set<string>()
+      if (task.username) commentParticipants.add(String(task.username))
+      if (task.assigned_to) commentParticipants.add(String(task.assigned_to))
+      if (task.manager_id) {
+        String(task.manager_id)
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .forEach((v) => commentParticipants.add(v))
+      }
+      const commentUnreadBy = Array.from(commentParticipants).filter(
+        (u) => u.toLowerCase() !== user.username.toLowerCase()
+      )
+      history.push({
+        type: 'comment',
+        user: user.username,
+        details: note,
+        timestamp: now,
+        icon: '💬',
+        title: 'Completion Feedback',
+        message_id: crypto.randomUUID(),
+        unread_by: commentUnreadBy,
+        read_by: [user.username],
+        mention_users: [],
+      })
+    }
   } else {
     if (!isOwner) return { success: false, error: 'Only the task creator can reopen a completed task.' }
     updateData = {
@@ -3690,6 +3718,30 @@ export async function updateMaAssigneeStatusAction(
     title: newStatus === 'completed' ? 'Work Submitted' : 'Work Started',
   })
 
+  // Post notes as a comment so it surfaces in the activity/comments feed
+  if (newStatus === 'completed' && notes?.trim()) {
+    const noteText = notes.trim()
+    const commentParticipants = new Set<string>()
+    if (task.username) commentParticipants.add(String(task.username))
+    if ((task as Record<string, unknown>).assigned_to) commentParticipants.add(String((task as Record<string, unknown>).assigned_to))
+    ma.assignees.forEach((a) => { if (a.username) commentParticipants.add(a.username) })
+    const commentUnreadBy = Array.from(commentParticipants).filter(
+      (u) => u.toLowerCase() !== user.username.toLowerCase()
+    )
+    history.push({
+      type: 'comment',
+      user: user.username,
+      details: noteText,
+      timestamp: now,
+      icon: '💬',
+      title: 'Completion Feedback',
+      message_id: crypto.randomUUID(),
+      unread_by: commentUnreadBy,
+      read_by: [user.username],
+      mention_users: [],
+    })
+  }
+
   await supabase.from('todos').update({
     multi_assignment: JSON.stringify(ma),
     workflow_state: 'split_to_multi',
@@ -4099,6 +4151,32 @@ export async function updateMaSubAssigneeStatusAction(
     icon: newStatus === 'completed' ? '📤' : '🚀',
     title: newStatus === 'completed' ? 'Delegated Work Submitted' : 'Delegated Work Started',
   })
+
+  // Post notes as a comment so it surfaces in the activity/comments feed
+  if (newStatus === 'completed' && notes?.trim()) {
+    const noteText = notes.trim()
+    const commentParticipants = new Set<string>()
+    if (task.username) commentParticipants.add(String(task.username))
+    ma.assignees.forEach((a) => {
+      if (a.username) commentParticipants.add(a.username)
+      ;(a.delegated_to || []).forEach((sub) => { if (sub.username) commentParticipants.add(sub.username) })
+    })
+    const commentUnreadBy = Array.from(commentParticipants).filter(
+      (u) => u.toLowerCase() !== user.username.toLowerCase()
+    )
+    history.push({
+      type: 'comment',
+      user: user.username,
+      details: noteText,
+      timestamp: now,
+      icon: '💬',
+      title: 'Completion Feedback',
+      message_id: crypto.randomUUID(),
+      unread_by: commentUnreadBy,
+      read_by: [user.username],
+      mention_users: [],
+    })
+  }
 
   await supabase.from('todos').update({
     multi_assignment: JSON.stringify(ma),

@@ -13,7 +13,7 @@ import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-na
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
   ChevronDown, ChevronUp, MessageCircle, CircleCheckBig,
-  Calendar, User, Clock,
+  Calendar, User, Clock, Paperclip, X as XIcon,
 } from 'lucide-react'
 import {
   toggleTodoCompleteAction,
@@ -41,7 +41,11 @@ import {
   rejectMaSubAssigneeAction,
   removeMaDelegationAction,
   getUsersForAssignment,
+  createTaskAttachmentUploadUrlAction,
+  saveTodoAttachmentAction,
 } from '@/app/dashboard/tasks/actions'
+import { createBrowserClient } from '@/lib/supabase/client'
+import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 
 const TaskHandoffDialog = dynamic(
   () => import('@/components/tasks/task-handoff-dialog').then((mod) => mod.TaskHandoffDialog),
@@ -570,6 +574,7 @@ export function TaskCard({
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
+  const [dialogFiles, setDialogFiles] = useState<File[]>([])
   const [dialogSearch, setDialogSearch] = useState('')
   const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
   const [assignableUsers, setAssignableUsers] = useState<Array<{ username: string; role: string; department: string | null }>>([])
@@ -716,6 +721,7 @@ export function TaskCard({
     setTaskDialog(dialog)
     setDialogValue('')
     setDialogExtraValue('')
+    setDialogFiles([])
     setDialogSearch('')
     setDialogSelectedUsers([])
     if (dialog.type === 'step-edit' && maEnabled) {
@@ -729,6 +735,7 @@ export function TaskCard({
     setTaskDialog(null)
     setDialogValue('')
     setDialogExtraValue('')
+    setDialogFiles([])
     setDialogSearch('')
     setDialogSelectedUsers([])
   }
@@ -744,15 +751,51 @@ export function TaskCard({
     if (!taskDialog) return
 
     switch (taskDialog.type) {
-      case 'ma-submit':
-        doAction(() => updateMaAssigneeStatusAction(task.id, 'completed', dialogValue.trim() || undefined))
+      case 'ma-submit': {
+        const note = dialogValue.trim() || undefined
+        const files = dialogFiles.slice()
         closeTaskDialog()
+        startTransition(async () => {
+          setActionError('')
+          if (files.length) {
+            const supabase = createBrowserClient()
+            for (const file of files) {
+              const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
+              if (upload.error) { setActionError(upload.error.message); return }
+              const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+            }
+          }
+          const result = await updateMaAssigneeStatusAction(task.id, 'completed', note)
+          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+        })
         return
-      case 'complete':
-        if (!dialogValue.trim()) return
-        doAction(() => toggleTodoCompleteAction(task.id, true, dialogValue.trim()))
+      }
+      case 'complete': {
+        const note = dialogValue.trim()
+        if (!note) return
+        const files = dialogFiles.slice()
         closeTaskDialog()
+        startTransition(async () => {
+          setActionError('')
+          if (files.length) {
+            const supabase = createBrowserClient()
+            for (const file of files) {
+              const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
+              if (upload.error) { setActionError(upload.error.message); return }
+              const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+            }
+          }
+          const result = await toggleTodoCompleteAction(task.id, true, note)
+          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+        })
         return
+      }
       case 'decline-approval':
         if (!dialogValue.trim()) return
         doAction(() => declineTodoAction(task.id, dialogValue.trim()))
@@ -791,10 +834,29 @@ export function TaskCard({
         doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
-      case 'sub-submit':
-        doAction(() => updateMaSubAssigneeStatusAction(task.id, taskDialog.delegatorUsername, 'completed', dialogValue.trim() || undefined))
+      case 'sub-submit': {
+        const note = dialogValue.trim() || undefined
+        const files = dialogFiles.slice()
+        const delegatorUsername = taskDialog.delegatorUsername
         closeTaskDialog()
+        startTransition(async () => {
+          setActionError('')
+          if (files.length) {
+            const supabase = createBrowserClient()
+            for (const file of files) {
+              const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
+              if (upload.error) { setActionError(upload.error.message); return }
+              const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+            }
+          }
+          const result = await updateMaSubAssigneeStatusAction(task.id, delegatorUsername, 'completed', note)
+          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+        })
         return
+      }
       case 'reject-assignee':
         if (!dialogValue.trim()) return
         doAction(() => rejectMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()))
@@ -1383,7 +1445,10 @@ export function TaskCard({
         onConfirm={submitTaskDialog}
       >
         {taskDialog.type === 'complete' ? (
-          <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
+          <div className="space-y-3">
+            <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
+            <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
+          </div>
         ) : taskDialog.type === 'decline-approval' ? (
           <DialogTextarea label="Decline Reason" value={dialogValue} onChange={setDialogValue} placeholder="Tell assignee what to fix before re-submitting." />
         ) : taskDialog.type === 'single-due-date' ? (
@@ -1486,12 +1551,17 @@ export function TaskCard({
             <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
           </div>
         ) : (
-          <DialogTextarea
-            label={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary (optional)' : 'Feedback'}
-            value={dialogValue}
-            onChange={setDialogValue}
-            placeholder={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Add work summary or notes' : 'Type feedback here'}
-          />
+          <div className="space-y-3">
+            <DialogTextarea
+              label={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary (optional)' : 'Feedback'}
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Add work summary or notes' : 'Type feedback here'}
+            />
+            {(taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit') && (
+              <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
+            )}
+          </div>
         )}
       </ActionDialog>
     )}
@@ -1607,5 +1677,44 @@ function DialogTextarea({ label, value, onChange, placeholder }: { label: string
         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
       />
     </label>
+  )
+}
+
+function CompletionFileInput({ files, onChange }: { files: File[]; onChange: (files: File[]) => void }) {
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-semibold text-slate-700">Attachments (optional)</span>
+      <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-500 transition-colors hover:border-blue-400 hover:bg-blue-50/50">
+        <Paperclip size={14} className="flex-shrink-0" />
+        <span>Click to attach files</span>
+        <input
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const selected = Array.from(e.target.files ?? [])
+            e.target.value = ''
+            if (selected.length) onChange([...files, ...selected])
+          }}
+        />
+      </label>
+      {files.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {files.map((file, i) => (
+            <div key={i} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <Paperclip size={11} className="flex-shrink-0 text-slate-400" />
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => onChange(files.filter((_, j) => j !== i))}
+                className="flex-shrink-0 text-slate-400 transition-colors hover:text-red-500"
+              >
+                <XIcon size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
