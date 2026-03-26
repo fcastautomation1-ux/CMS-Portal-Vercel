@@ -24,6 +24,19 @@ export function pakistanNowInputValue() {
   return `${partValue(parts, 'year')}-${partValue(parts, 'month')}-${partValue(parts, 'day')}T${partValue(parts, 'hour')}:${partValue(parts, 'minute')}`
 }
 
+export function pakistanInputValue(value: string | Date | null | undefined) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = getParts(date, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  return `${partValue(parts, 'year')}-${partValue(parts, 'month')}-${partValue(parts, 'day')}T${partValue(parts, 'hour')}:${partValue(parts, 'minute')}`
+}
+
 export function isPastPakistanDate(input: string | null | undefined) {
   if (!input) return false
   return new Date(input).getTime() < Date.now()

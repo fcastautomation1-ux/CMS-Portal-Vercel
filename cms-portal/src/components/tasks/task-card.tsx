@@ -6,7 +6,7 @@ import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry 
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { UserAvatar } from '@/components/ui/user-avatar'
-import { formatPakistanDate, formatPakistanTime } from '@/lib/pakistan-time'
+import { formatPakistanDate, formatPakistanTime, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
@@ -1033,7 +1033,7 @@ export function TaskCard({
                 <ActBtn
                   onClick={() => {
                     openTaskDialog({ type: 'step-edit', assigneeUsername: task.assigned_to! })
-                    setDialogValue(task.actual_due_date ? task.actual_due_date.slice(0, 16) : '')
+                    setDialogValue(pakistanInputValue(task.actual_due_date))
                     setDialogExtraValue(getAssignmentStepNote(task, task.assigned_to!))
                   }}
                   color="teal"
@@ -1452,10 +1452,10 @@ export function TaskCard({
         ) : taskDialog.type === 'decline-approval' ? (
           <DialogTextarea label="Decline Reason" value={dialogValue} onChange={setDialogValue} placeholder="Tell assignee what to fix before re-submitting." />
         ) : taskDialog.type === 'single-due-date' ? (
-          <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+          <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
         ) : taskDialog.type === 'step-edit' ? (
           <div className="space-y-3">
-            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
             <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             {maEnabled && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
@@ -1513,7 +1513,7 @@ export function TaskCard({
                           value={entry.dueDate}
                           onChange={(value) => setDialogSelectedUsers((current) => current.map((item) => item.username === entry.username ? { ...item, dueDate: value } : item))}
                           type="datetime-local"
-                          min={new Date().toISOString().slice(0, 16)}
+                          min={pakistanNowInputValue()}
                         />
                       </div>
                     ))}
@@ -1548,7 +1548,7 @@ export function TaskCard({
         ) : taskDialog.type === 'reopen-assignee' ? (
           <div className="space-y-3">
             <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-            <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanNowInputValue()} />
           </div>
         ) : (
           <div className="space-y-3">

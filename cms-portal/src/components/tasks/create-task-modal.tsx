@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { isPastPakistanDate, pakistanNowInputValue } from '@/lib/pakistan-time'
+import { isPastPakistanDate, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
@@ -134,9 +134,9 @@ export function CreateTaskModal({
   const [dueDate, setDueDate] = useState(
     initialDraft?.dueDate ??
       (editTask?.expected_due_date
-        ? editTask.expected_due_date.slice(0, 16)
+        ? pakistanInputValue(editTask.expected_due_date)
         : editTask?.due_date
-          ? editTask.due_date.slice(0, 16)
+          ? pakistanInputValue(editTask.due_date)
           : '')
   )
   const [notes, setNotes] = useState(initialDraft?.notes ?? editTask?.notes ?? '')
@@ -1833,10 +1833,7 @@ function RoutingCard({
 }
 
 function toInputDate(value?: string | null) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toISOString().slice(0, 16)
+  return pakistanInputValue(value)
 }
 
 function readDraft(key: string): DraftPayload | null {

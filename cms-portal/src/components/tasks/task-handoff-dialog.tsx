@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Building2, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { pakistanNowInputValue } from '@/lib/pakistan-time'
 import {
   getDepartmentsForTaskForm,
   getUsersForAssignment,
@@ -212,7 +213,7 @@ export function TaskHandoffDialog({
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
                     type="datetime-local"
-                    min={new Date().toISOString().slice(0, 16)}
+                    min={pakistanNowInputValue()}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                 </label>
@@ -267,7 +268,7 @@ export function TaskHandoffDialog({
                         value={userDueDates[username] || ''}
                         onChange={(e) => updateUserDueDate(username, e.target.value)}
                         type="datetime-local"
-                        min={new Date().toISOString().slice(0, 16)}
+                        min={pakistanNowInputValue()}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
                       />
                       <button

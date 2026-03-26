@@ -31,7 +31,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { formatPakistanDate, formatPakistanDateTime } from '@/lib/pakistan-time'
+import { formatPakistanDate, formatPakistanDateTime, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { normalizeTaskDescription } from '@/lib/task-description'
@@ -1483,7 +1483,7 @@ export function TaskDetailModal({
           {showSingleDueDateBtn && (
             <button
                 onClick={() => {
-                  setDialogValue(t.actual_due_date ? t.actual_due_date.slice(0, 16) : '')
+                  setDialogValue(pakistanInputValue(t.actual_due_date))
                   setDialogExtraValue(getAssignmentStepNote(t, t.assigned_to!))
                   openTaskDialog({ type: 'step-edit', assigneeUsername: t.assigned_to! })
                 }}
@@ -1693,7 +1693,7 @@ export function TaskDetailModal({
                         {((getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
                           <button
                             onClick={() => {
-                              setDialogValue(a.actual_due_date ? a.actual_due_date.slice(0, 16) : '')
+                              setDialogValue(pakistanInputValue(a.actual_due_date))
                               setDialogExtraValue(getAssignmentStepNote(t, a.username))
                               openTaskDialog({ type: 'step-edit', assigneeUsername: a.username })
                             }}
@@ -2130,10 +2130,10 @@ export function TaskDetailModal({
               <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
             </div>
           ) : taskDialog.type === 'single-due-date' ? (
-            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
           ) : taskDialog.type === 'step-edit' ? (
             <div className="space-y-3">
-              <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+              <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
               <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             </div>
           ) : taskDialog.type === 'split-multi' ? (
@@ -2155,7 +2155,7 @@ export function TaskDetailModal({
           ) : taskDialog.type === 'reopen-assignee' ? (
             <div className="space-y-3">
               <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={new Date().toISOString().slice(0, 16)} />
+              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanNowInputValue()} />
             </div>
           ) : (
             <div className="space-y-3">
