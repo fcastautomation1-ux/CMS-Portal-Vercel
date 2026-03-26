@@ -325,7 +325,6 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   if (!user || (user.role !== 'Manager' && user.role !== 'Supervisor')) return empty
 
   return unstable_cache(async () => {
-    const today = new Date().toISOString().split('T')[0]
     const [teamMembers, teamTodos] = await Promise.all([
       getTeamMembers(),
       getTeamTodos(),
@@ -333,31 +332,12 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
 
     if (teamMembers.length === 0) return empty
 
-  let completed = 0
-  let inProgress = 0
-  let pending = 0
-  let overdue = 0
-  const userMap: Record<string, { completed: number; total: number }> = {}
   const deptMap: Record<string, number> = {}
 
   for (const t of teamTodos) {
-    const owner = t.assigned_to || t.username
-    if (!userMap[owner]) userMap[owner] = { completed: 0, total: 0 }
-    userMap[owner].total++
-    if (t.completed || t.task_status === 'done') {
-      completed++
-      userMap[owner].completed++
-    } else {
-      if (t.due_date && t.due_date < today) {
-        overdue++
-      } else if (t.task_status === 'in_progress') {
-        inProgress++
-      } else {
-        pending++
-      }
-    }
-    if (t.category) {
-      deptMap[t.category] = (deptMap[t.category] || 0) + 1
+    const deptLabel = t.creator_department || t.category || t.queue_department || null
+    if (deptLabel) {
+      deptMap[deptLabel] = (deptMap[deptLabel] || 0) + 1
     }
   }
 
@@ -365,9 +345,17 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     username: member.username,
     role: member.role,
     department: member.department,
-    completed: userMap[member.username]?.completed ?? 0,
-    total: userMap[member.username]?.total ?? 0,
+    completed: member.taskStats.completed,
+    total: member.taskStats.total,
   }))
+
+  const completed = teamMembers.reduce((sum, member) => sum + member.taskStats.completed, 0)
+  const pending = teamMembers.reduce((sum, member) => sum + member.taskStats.pending, 0)
+  const overdue = teamMembers.reduce((sum, member) => sum + member.taskStats.overdue, 0)
+  const inProgress = Math.max(0, teamMembers.reduce(
+    (sum, member) => sum + member.taskStats.total - member.taskStats.completed - member.taskStats.pending - member.taskStats.overdue,
+    0,
+  ))
 
   const performerMeta = new Map(
     teamMembers.map((member) => [member.username, member])
@@ -422,7 +410,7 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
 
     return {
       teamCount: overviewMembers.length,
-      teamTasks: { total: teamTodos.length, completed, inProgress, pending, overdue },
+      teamTasks: { total: teamMembers.reduce((sum, member) => sum + member.taskStats.total, 0), completed, inProgress, pending, overdue },
       teamMembers: overviewMembers,
       weeklyProgress,
       topPerformers,
