@@ -793,11 +793,29 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   const tasks = Array.from(taskMap.values())
   const now = Date.now()
 
+  // For multi-assignment tasks, use the individual user's status instead of the task-level
+  // completed flag (which only becomes true when ALL assignees finish).
+  const isCompletedForUser = (task: Todo): boolean => {
+    if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+      const entry = task.multi_assignment.assignees.find(
+        (a) => (a.username || '').toLowerCase() === userLower,
+      )
+      if (entry) return entry.status === 'completed' || entry.status === 'accepted'
+      for (const a of task.multi_assignment.assignees) {
+        if (Array.isArray(a.delegated_to)) {
+          const sub = a.delegated_to.find((s) => (s.username || '').toLowerCase() === userLower)
+          if (sub) return sub.status === 'completed' || sub.status === 'accepted'
+        }
+      }
+    }
+    return task.completed || task.task_status === 'done'
+  }
+
   return {
     all: tasks.length,
-    completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+    completed: tasks.filter((task) => isCompletedForUser(task)).length,
     pending: tasks.filter((task) => {
-      if (task.completed || task.task_status === 'done') return false
+      if (isCompletedForUser(task)) return false
       if (task.due_date) {
         const dueTs = new Date(task.due_date).getTime()
         if (!Number.isNaN(dueTs) && dueTs < now) return false
@@ -805,7 +823,7 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
       return true
     }).length,
     overdue: tasks.filter((task) => {
-      if (task.completed) return false
+      if (isCompletedForUser(task)) return false
       if (!task.due_date) return false
       const dueTs = new Date(task.due_date).getTime()
       return !Number.isNaN(dueTs) && dueTs < now

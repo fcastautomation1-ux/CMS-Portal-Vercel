@@ -190,6 +190,27 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return isTaskAssignedToUser(task, username)
   }, [isTaskAssignedToUser])
 
+  // For multi-assignment tasks, use the individual user's status (accepted/completed)
+  // instead of the task-level completed flag (only true when ALL assignees finish).
+  const isTaskCompletedForUser = useCallback((task: Todo, username: string): boolean => {
+    const userLow = username.toLowerCase()
+    if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+      const entry = task.multi_assignment.assignees.find(
+        (a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLow,
+      )
+      if (entry) return entry.status === 'completed' || entry.status === 'accepted'
+      for (const a of task.multi_assignment.assignees) {
+        if (Array.isArray(a.delegated_to)) {
+          const sub = (a.delegated_to as MultiAssignmentSubEntry[]).find(
+            (s) => (s.username || '').toLowerCase() === userLow,
+          )
+          if (sub) return sub.status === 'completed' || sub.status === 'accepted'
+        }
+      }
+    }
+    return task.completed || task.task_status === 'done'
+  }, [])
+
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const activeKpi = useMemo(() => {
     if (statusFilter === 'all') return 'total'
@@ -296,10 +317,12 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
   const scopedKpiStats = useMemo(() => {
     const now = new Date()
-    const completed = scopedTasksForKpis.filter((task) => task.completed || task.task_status === 'done').length
-    const overdue = scopedTasksForKpis.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < now).length
+    const completed = scopedTasksForKpis.filter((task) => isTaskCompletedForUser(task, effectiveUser)).length
+    const overdue = scopedTasksForKpis.filter(
+      (task) => !isTaskCompletedForUser(task, effectiveUser) && !!task.due_date && new Date(task.due_date) < now,
+    ).length
     const pending = scopedTasksForKpis.filter((task) => {
-      if (task.completed || task.task_status === 'done') return false
+      if (isTaskCompletedForUser(task, effectiveUser)) return false
       if (task.due_date && new Date(task.due_date) < now) return false
       return true
     }).length
@@ -313,7 +336,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, matchesQueueVisibility])
+  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -340,20 +363,9 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       list = list.filter((t) => !t.archived && (isTaskAssignedByOthersToUser(t, effectiveUser) || isQueuedTaskForDepartmentUser(t, effectiveUser)))
     } else if (quickFilter === 'my_pending') {
       list = list.filter((t) => {
-        if (t.completed || t.archived) return false
+        if (isTaskCompletedForUser(t, effectiveUser) || t.archived) return false
         if (isTaskAssignedToUser(t, effectiveUser)) return true
         if (t.username.toLowerCase() === userLower && (!t.assigned_to || (t.assigned_to || '').toLowerCase() === userLower)) return true
-        const ma = t.multi_assignment
-        if (ma?.enabled && Array.isArray(ma.assignees)) {
-          const top = ma.assignees.find((a: MultiAssignmentEntry) => (a.username || '').toLowerCase() === userLower)
-          if (top && top.status !== 'accepted' && top.status !== 'completed') return true
-          for (const assignee of ma.assignees) {
-            if (Array.isArray(assignee.delegated_to)) {
-              const sub = assignee.delegated_to.find((s: MultiAssignmentSubEntry) => (s.username || '').toLowerCase() === userLower)
-              if (sub && sub.status !== 'accepted' && sub.status !== 'completed') return true
-            }
-          }
-        }
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
     } else if (quickFilter === 'my_all') {
@@ -413,9 +425,9 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'pending') return !t.completed && t.task_status !== 'done' && !(t.due_date && new Date(t.due_date) < now) && !t.archived
-        if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
-        if (statusFilter === 'overdue') return !t.completed && !!t.due_date && new Date(t.due_date) < now
+        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived
+        if (statusFilter === 'completed') return isTaskCompletedForUser(t, effectiveUser)
+        if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && !!t.due_date && new Date(t.due_date) < now
         if (statusFilter === 'queue') return !t.archived && matchesQueueVisibility(t)
         return true
       })
