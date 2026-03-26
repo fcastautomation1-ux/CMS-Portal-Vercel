@@ -29,6 +29,7 @@ import {
   UserMinus,
   UserPlus,
   Users,
+  X,
   XCircle,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
