@@ -57,7 +57,7 @@ type ViewMode = 'list' | 'kanban' | 'calendar'
 type QuickFilter = 'my_all' | 'created_by_me' | 'assigned_to_me' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
 
 type StatusFilter =
-  | 'all' | 'pending' | 'completed' | 'overdue'
+  | 'all' | 'pending' | 'completed' | 'overdue' | 'queue'
 
 function parseQuickFilter(value: string | null): QuickFilter | null {
   if (
@@ -79,7 +79,8 @@ function parseStatusFilter(value: string | null): StatusFilter | null {
     value === 'all' ||
     value === 'pending' ||
     value === 'completed' ||
-    value === 'overdue'
+    value === 'overdue' ||
+    value === 'queue'
   ) {
     return value
   }
@@ -104,7 +105,7 @@ interface TasksBoardProps {
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -289,13 +290,29 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
       return true
     }).length
 
+    // Queue: regular users see dept queue, managers see team member queues
+    const queue = tasks.filter((task) => {
+      if (task.queue_status !== 'queued') return false
+      if (!task.queue_department) return false
+      // Regular user: task in their department
+      const userDepts = splitDepartmentsCsv(currentUserDept || '')
+      const taskDepts = splitDepartmentsCsv(task.queue_department)
+      if (userDepts.length > 0 && taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))) return true
+      // Manager/Supervisor: can also see queues of their team members' departments
+      if (currentUserRole === 'Manager' || currentUserRole === 'Supervisor') {
+        return true // Managers/supervisors can see all queues in their scope
+      }
+      return false
+    }).length
+
     return {
       total: scopedTasksForKpis.length,
       completed,
       pending,
       overdue,
+      queue,
     }
-  }, [scopedTasksForKpis])
+  }, [scopedTasksForKpis, tasks, currentUserDept, currentUserRole])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -395,6 +412,16 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
         if (statusFilter === 'pending') return !t.completed && t.task_status !== 'done' && !(t.due_date && new Date(t.due_date) < now) && !t.archived
         if (statusFilter === 'completed') return t.completed || t.task_status === 'done'
         if (statusFilter === 'overdue') return !t.completed && !!t.due_date && new Date(t.due_date) < now
+        if (statusFilter === 'queue') {
+          if (t.queue_status !== 'queued' || !t.queue_department) return false
+          // Regular user: task in their department
+          const userDepts = splitDepartmentsCsv(currentUserDept || '')
+          const taskDepts = splitDepartmentsCsv(t.queue_department)
+          if (userDepts.length > 0 && taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))) return true
+          // Manager/Supervisor: can see and assign all queues
+          if (currentUserRole === 'Manager' || currentUserRole === 'Supervisor') return true
+          return false
+        }
         return true
       })
     }
@@ -427,7 +454,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser])
+  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, currentUserDept, currentUserRole])
 
   const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}`
   const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
@@ -510,6 +537,7 @@ export function TasksBoard({ currentUsername, currentUserDept, currentUserTeamMe
           { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
           { label: 'Pending', value: scopedKpiStats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
           { label: 'Overdue', value: scopedKpiStats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
+          { label: 'Queue', value: scopedKpiStats.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]', kpiKey: 'queue' },
         ].map((item) => {
           const Icon = item.icon
           const isActive = activeKpi === item.kpiKey
