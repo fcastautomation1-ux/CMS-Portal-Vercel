@@ -28,7 +28,7 @@ export function DeploymentWatcher() {
     }
 
     void checkVersion()
-    const id = window.setInterval(checkVersion, 60000)
+    const id = window.setInterval(checkVersion, 600_000) // check every 10 minutes
     return () => {
       cancelled = true
       window.clearInterval(id)

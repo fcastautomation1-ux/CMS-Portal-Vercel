@@ -207,6 +207,11 @@ function normalizeAssignmentChain(
 function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
   const t = raw as unknown as Todo
   t.history = parseJson<HistoryEntry[]>(raw.history, [])
+  // Pre-compute unread comment count server-side so the client doesn't need the full history array
+  t.unread_comment_count = t.history.filter(
+    (h) => h.type === 'comment' && !h.is_deleted &&
+      Array.isArray(h.unread_by) && h.unread_by.some((u) => u.toLowerCase() === username.toLowerCase())
+  ).length
   const rawChain = parseJson<AssignmentChainEntry[]>(raw.assignment_chain, [])
   // Normalize the chain to ensure it's in the new format regardless of what was stored
   t.assignment_chain = normalizeAssignmentChain(
@@ -566,6 +571,7 @@ export async function getTodos(): Promise<Todo[]> {
     const sharedIds = new Set((sharedData || []).map((s: Record<string, unknown>) => s.todo_id as string))
     return ((data || []) as unknown as Record<string, unknown>[]).map((raw) => {
       const t = normalizeTodo(raw, user.username)
+      t.history = [] // strip heavy history — unread_comment_count carries the badge info
       t.is_shared = sharedIds.has(t.id) || undefined
       t.creator_department = userDeptMap[t.username?.toLowerCase()] || null
       t.assignee_department = userDeptMap[(t.assigned_to || '').toLowerCase()] || null
@@ -708,24 +714,18 @@ export async function getTodos(): Promise<Todo[]> {
     ;((sharedTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_shared: true }))
   }
 
-  // Multi-assignment tasks
-  const { data: maTasks } = await supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null)
-  ;((maTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => {
-    const ma = parseJson<MultiAssignment | null>(r.multi_assignment, null)
-    if (ma?.enabled && Array.isArray(ma.assignees)) {
-      const isAssignee = ma.assignees.some(
-        (a) => (a.username || '').toLowerCase() === user.username.toLowerCase()
-      )
-      const isDelegated =
-        !isAssignee &&
-        ma.assignees.some((a) =>
-          Array.isArray(a.delegated_to) &&
-          a.delegated_to.some((sub) => (sub.username || '').toLowerCase() === user.username.toLowerCase())
-        )
-      if (isAssignee || isDelegated) {
-        addTask(r, { is_multi_assigned: true, is_delegated_to_me: isDelegated })
-      }
-    }
+  // Multi-assignment tasks — filtered at DB level to avoid full-table scan
+  const [maAssigneeRes, maDelegatedRes] = await Promise.all([
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
+      .contains('multi_assignment', { assignees: [{ username: user.username }] }),
+    supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
+      .contains('multi_assignment', { assignees: [{ delegated_to: [{ username: user.username }] }] }),
+  ])
+  ;((maAssigneeRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
+    addTask(r, { is_multi_assigned: true })
+  })
+  ;((maDelegatedRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
+    addTask(r, { is_multi_assigned: true, is_delegated_to_me: true })
   })
 
   allTasks.sort((a, b) => {
@@ -734,6 +734,9 @@ export async function getTodos(): Promise<Todo[]> {
     if (pa !== pb) return pa - pb
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
+
+  // Strip full history — unread_comment_count carries the badge info, full history loaded on task open
+  allTasks.forEach((task) => { task.history = [] })
 
   return allTasks
 }
@@ -767,7 +770,8 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
       .select(SIDEBAR_TASK_SELECT)
       .eq('queue_status', 'queued')
       .or('assigned_to.is.null,assigned_to.eq.'),
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT).not('multi_assignment', 'is', null),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT)
+      .contains('multi_assignment', { assignees: [{ username: user.username }] }),
   ])
 
   const taskMap = new Map<string, Todo>()
@@ -789,15 +793,7 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     }
   })
   ;(maRes.data || []).forEach((row: Record<string, unknown>) => {
-    const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
-    if (!ma?.enabled || !Array.isArray(ma.assignees)) return
-
-    const isRelevant = ma.assignees.some((assignee) =>
-      (assignee.username || '').toLowerCase() === userLower ||
-      (Array.isArray(assignee.delegated_to) && assignee.delegated_to.some((sub) => (sub.username || '').toLowerCase() === userLower))
-    )
-
-    if (isRelevant) addTask(row)
+    addTask(row)
   })
 
   const tasks = Array.from(taskMap.values())

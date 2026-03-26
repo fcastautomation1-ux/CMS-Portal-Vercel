@@ -273,12 +273,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       scheduleRefresh
     )
 
-    // Polling fallback: refresh every 30 s in case realtime misses an event
-    const pollingInterval = window.setInterval(() => { void refresh() }, 30_000)
-
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
-      window.clearInterval(pollingInterval)
       unsubscribe()
     }
   }, [currentUsername, refresh])

@@ -317,6 +317,7 @@ export interface Todo {
   decline_reason: string | null
   assignment_chain: AssignmentChainEntry[]
   history: HistoryEntry[]
+  unread_comment_count?: number
   created_at: string
   updated_at: string
   // Virtual fields added by getTodos

@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useTransition, type ReactNode } from 'react'
-import type { Todo, HistoryEntry, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
+import type { Todo, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { UserAvatar } from '@/components/ui/user-avatar'
@@ -667,10 +667,8 @@ export function TaskCard({
   const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
-  const comments = task.history.filter((h: HistoryEntry) => h.type === 'comment' && !h.is_deleted)
-  const unread = comments.filter((h: HistoryEntry) =>
-    Array.isArray(h.unread_by) && h.unread_by.some((username) => username.toLowerCase() === currentUsername.toLowerCase())
-  )
+  // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
+  const unreadCount = task.unread_comment_count ?? 0
   const appNames = splitTaskMeta(task.app_name)
   const packageNames = splitTaskMeta(task.package_name)
   const playPkg = packageNames.find((value) => value !== 'Others') ?? null
@@ -1383,18 +1381,18 @@ export function TaskCard({
         </div>
 
         <div className="flex shrink-0 flex-row items-center justify-end gap-2 border-t border-slate-200/80 px-4 py-3 opacity-95 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:bg-slate-50/50 md:px-2 md:py-3 md:flex-col md:justify-center">
-          {unread.length > 0 && (
+          {unreadCount > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               <span className="relative inline-flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
               </span>
-              {unread.length} new
+              {unreadCount} new
             </span>
           )}
-          {comments.length > 0 && unread.length === 0 && (
+          {unreadCount === 0 && (
             <span className="flex items-center gap-0.5 px-1 text-[10px] text-slate-400">
-              <MessageCircle size={10} />{comments.length}
+              <MessageCircle size={10} />
             </span>
           )}
           <button onClick={() => onViewDetail(task)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600" title="View">
