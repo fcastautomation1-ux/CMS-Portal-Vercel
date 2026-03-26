@@ -265,21 +265,16 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       .some((d: string) => !!d && d === queueDeptKey)
   }, [currentUserDept, currentUsername])
 
-  const canViewAllQueueTasks = useMemo(
-    () => currentUserRole === 'Admin' || currentUserRole === 'Super Manager' || currentUserRole === 'Manager' || currentUserRole === 'Supervisor',
-    [currentUserRole]
-  )
-
   const matchesQueueVisibility = useCallback((task: Todo) => {
     if (task.queue_status !== 'queued') return false
     if (!task.queue_department) return false
-    if (canViewAllQueueTasks) return true
+    if ((task.username || '').toLowerCase() === currentUsername.toLowerCase()) return true
 
     const userDepts = splitDepartmentsCsv(currentUserDept || '')
     if (userDepts.length === 0) return false
     const taskDepts = splitDepartmentsCsv(task.queue_department)
     return taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))
-  }, [canViewAllQueueTasks, currentUserDept])
+  }, [currentUserDept, currentUsername])
 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()

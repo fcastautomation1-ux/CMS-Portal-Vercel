@@ -744,8 +744,6 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   const supabase = createServerClient()
 
   const userLower = user.username.toLowerCase()
-  const isAdminOrSuperManager = user.role === 'Admin' || user.role === 'Super Manager'
-  const canViewAllQueues = isAdminOrSuperManager || user.role === 'Manager' || user.role === 'Supervisor'
   const userDeptKeys = splitDepartmentsCsv(user.department)
     .map((dept) => canonicalDepartmentKey(dept))
     .filter(Boolean)
@@ -775,10 +773,6 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   ;(assignedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
   ;(completedByRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((row: Record<string, unknown>) => {
-    if (canViewAllQueues) {
-      addTask(row)
-      return
-    }
     const queueDeptKey = canonicalDepartmentKey(String(row.queue_department || ''))
     if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
       addTask(row)
@@ -816,7 +810,12 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
       const dueTs = new Date(task.due_date).getTime()
       return !Number.isNaN(dueTs) && dueTs < now
     }).length,
-    queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
+    queue: tasks.filter((task) => {
+      if (task.queue_status !== 'queued' || !task.queue_department) return false
+      if ((task.username || '').toLowerCase() === userLower) return true
+      const queueDeptKey = canonicalDepartmentKey(task.queue_department)
+      return !!queueDeptKey && userDeptKeys.includes(queueDeptKey)
+    }).length,
   }
 }
 
