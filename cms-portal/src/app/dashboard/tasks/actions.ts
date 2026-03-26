@@ -8,6 +8,7 @@ import { buildTaskAttachmentPath, CMS_STORAGE_BUCKET, resolveStorageUrl } from '
 import { computeTodoStatsFromTodos } from '@/lib/todo-stats'
 import { canonicalDepartmentKey, mapDepartmentCsvToOfficial, splitDepartmentsCsv } from '@/lib/department-name'
 import { queueTaskWebhookEvent } from '@/lib/task-webhooks'
+import { resolvePackageAutoAssignment, buildAutoMultiAssignment } from '@/lib/package-assignment-resolver'
 import type {
   Todo,
   TodoAttachment,
@@ -1017,7 +1018,7 @@ export async function saveTodoAction(
       payload.actual_due_date = input.due_date
     }
 
-    const nextAssignedTo =
+    let nextAssignedTo: string | null =
       input.routing === 'manager' ? (input.assigned_to || null) : null
     const nextManagerId =
       input.routing === 'manager'
@@ -1027,11 +1028,25 @@ export async function saveTodoAction(
       input.routing === 'department'
         ? (input.queue_department || user.department || null)
         : null
-    const nextQueueStatus = input.routing === 'department' ? 'queued' : null
-    const nextMultiAssignment =
+    let nextQueueStatus: string | null = input.routing === 'department' ? 'queued' : null
+    let nextMultiAssignment: MultiAssignment | null =
       input.routing === 'multi' && input.multi_assignment?.enabled
         ? input.multi_assignment
         : null
+
+    // Auto-assign via package resolver when routing to a department
+    if (input.routing === 'department' && nextQueueDept) {
+      const autoEdit = await resolvePackageAutoAssignment(supabase, input.package_name, nextQueueDept)
+      if (autoEdit.type === 'single') {
+        nextAssignedTo = autoEdit.username
+        nextQueueStatus = 'auto_assigned'
+      } else if (autoEdit.type === 'multi') {
+        nextMultiAssignment = buildAutoMultiAssignment(autoEdit.usernames, input.due_date, user.username)
+        nextQueueStatus = 'auto_assigned'
+      }
+      // type === 'queue': keep defaults (nextAssignedTo=null, nextQueueStatus='queued', nextMultiAssignment=null)
+    }
+
     const rolledMaDue = getMaxMaDueDate(nextMultiAssignment)
 
     payload.assigned_to = nextAssignedTo
@@ -1047,7 +1062,11 @@ export async function saveTodoAction(
     }
     payload.workflow_state =
       input.routing === 'department'
-        ? 'queued_department'
+        ? (nextAssignedTo
+            ? 'claimed_by_department'
+            : nextMultiAssignment?.enabled
+              ? 'split_to_multi'
+              : 'queued_department')
         : input.routing === 'multi'
           ? 'split_to_multi'
           : nextAssignedTo
@@ -1072,10 +1091,54 @@ export async function saveTodoAction(
         title: 'Task Edited',
       })
     }
+    if (input.routing === 'department' && nextAssignedTo) {
+      oldHistory.push({
+        type: 'assigned',
+        user: user.username,
+        details: `Auto-assigned to ${nextAssignedTo} based on package ownership`,
+        timestamp: now,
+        icon: '🤖',
+        title: 'Auto-Assigned',
+      })
+    } else if (input.routing === 'department' && nextMultiAssignment?.enabled && Array.isArray(nextMultiAssignment.assignees)) {
+      oldHistory.push({
+        type: 'assigned',
+        user: user.username,
+        details: `Auto-assigned to ${nextMultiAssignment.assignees.map((a) => a.username).join(', ')} based on package ownership`,
+        timestamp: now,
+        icon: '🤖',
+        title: 'Auto-Assigned (Multi)',
+      })
+    }
     payload.history = JSON.stringify(oldHistory)
 
     const { error } = await supabase.from('todos').update(payload).eq('id', input.id)
     if (error) return { success: false, error: error.message }
+
+    // Notify auto-assigned user(s) when department routing resolved via packages
+    if (input.routing === 'department') {
+      if (nextAssignedTo && nextAssignedTo !== user.username) {
+        await createNotification(supabase, {
+          userId: nextAssignedTo,
+          type: 'task_assigned',
+          title: 'Task Auto-Assigned to You',
+          body: `${user.username} updated and re-routed a task that was auto-assigned to you based on package ownership: "${input.title.trim()}"`,
+          relatedId: input.id!,
+        })
+      } else if (nextMultiAssignment?.enabled && Array.isArray(nextMultiAssignment.assignees)) {
+        await notifyUsers(
+          supabase,
+          nextMultiAssignment.assignees.map((a) => a.username),
+          {
+            type: 'task_assigned',
+            title: 'Task Auto-Assigned to You',
+            body: `${user.username} updated and re-routed a task that was auto-assigned to you based on package ownership: "${input.title.trim()}"`,
+            relatedId: input.id!,
+          },
+          user.username,
+        )
+      }
+    }
   } else {
     // Create new
     const taskStatus =
@@ -1083,27 +1146,39 @@ export async function saveTodoAction(
         ? 'backlog'
         : 'todo'
 
-    const assignedTo =
-      input.routing === 'manager' ? (input.assigned_to || null) :
-      input.routing === 'multi' ? null : // multi uses multi_assignment
-      null
+    let assignedTo: string | null =
+      input.routing === 'manager' ? (input.assigned_to || null) : null
 
     const managerId = input.routing === 'manager' ? (input.manager_id || input.assigned_to || null) : null
 
     const queueDept = input.routing === 'department' ? (input.queue_department || user.department || null) : null
-    const queueStatus = input.routing === 'department' ? 'queued' : null
+    let queueStatus: string | null = input.routing === 'department' ? 'queued' : null
 
-    const multiAssignment: MultiAssignment | null =
+    let multiAssignment: MultiAssignment | null =
       input.routing === 'multi' && input.multi_assignment?.enabled
         ? input.multi_assignment
         : null
+
+    // Auto-assign via package resolver when routing to a department
+    if (input.routing === 'department' && queueDept) {
+      const autoCreate = await resolvePackageAutoAssignment(supabase, input.package_name, queueDept)
+      if (autoCreate.type === 'single') {
+        assignedTo = autoCreate.username
+        queueStatus = 'auto_assigned'
+      } else if (autoCreate.type === 'multi') {
+        multiAssignment = buildAutoMultiAssignment(autoCreate.usernames, input.due_date, user.username)
+        queueStatus = 'auto_assigned'
+      }
+      // type === 'queue': keep defaults (assignedTo=null, queueStatus='queued', multiAssignment=null)
+    }
+
     const rolledMaDue = getMaxMaDueDate(multiAssignment)
 
     const assignmentChain: AssignmentChainEntry[] = []
     if (assignedTo) {
       assignmentChain.push({
         user: user.username,
-        role: 'assignee',
+        role: input.routing === 'department' ? 'auto_assigned_by_package' : 'assignee',
         assignedAt: now,
         next_user: assignedTo,
       })
@@ -1114,6 +1189,17 @@ export async function saveTodoAction(
         role: 'manager',
         assignedAt: now,
       })
+    }
+    // Add chain entries for auto-multi assignment
+    if (input.routing === 'department' && multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+      for (const a of multiAssignment.assignees) {
+        assignmentChain.push({
+          user: user.username,
+          role: 'auto_assigned_by_package',
+          assignedAt: now,
+          next_user: a.username,
+        })
+      }
     }
 
     const history: HistoryEntry[] = [
@@ -1130,10 +1216,22 @@ export async function saveTodoAction(
       history.push({
         type: 'assigned',
         user: user.username,
-        details: `Task assigned to ${assignedTo}`,
+        details: input.routing === 'department'
+          ? `Auto-assigned to ${assignedTo} based on package ownership`
+          : `Task assigned to ${assignedTo}`,
         timestamp: now,
-        icon: '👤',
-        title: 'Task Assigned',
+        icon: input.routing === 'department' ? '🤖' : '👤',
+        title: input.routing === 'department' ? 'Auto-Assigned' : 'Task Assigned',
+      })
+    }
+    if (input.routing === 'department' && multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+      history.push({
+        type: 'assigned',
+        user: user.username,
+        details: `Auto-assigned to ${multiAssignment.assignees.map((a) => a.username).join(', ')} based on package ownership`,
+        timestamp: now,
+        icon: '🤖',
+        title: 'Auto-Assigned (Multi)',
       })
     }
 
@@ -1166,7 +1264,11 @@ export async function saveTodoAction(
       approval_status: 'approved',
       workflow_state:
         input.routing === 'department'
-          ? 'queued_department'
+          ? (assignedTo
+              ? 'claimed_by_department'
+              : multiAssignment?.enabled
+                ? 'split_to_multi'
+                : 'queued_department')
           : input.routing === 'multi'
             ? 'split_to_multi'
             : assignedTo
@@ -1198,23 +1300,29 @@ export async function saveTodoAction(
 
     // Notify assigned user if different from creator
     if (assignedTo && assignedTo !== user.username) {
+      const isAutoAssigned = input.routing === 'department'
       await createNotification(supabase, {
         userId: assignedTo,
         type: 'task_assigned',
-        title: 'New Task Assigned to You',
-        body: `${user.username} assigned you a task: "${input.title.trim()}"`,
+        title: isAutoAssigned ? 'Task Auto-Assigned to You' : 'New Task Assigned to You',
+        body: isAutoAssigned
+          ? `${user.username} created a task that was auto-assigned to you based on package ownership: "${input.title.trim()}"`
+          : `${user.username} assigned you a task: "${input.title.trim()}"`,
         relatedId: id,
       })
     }
     // Notify multi-assignment assignees
     if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+      const isAutoAssigned = input.routing === 'department'
       for (const a of multiAssignment.assignees) {
         if (a.username && a.username !== user.username) {
           await createNotification(supabase, {
             userId: a.username,
             type: 'task_assigned',
-            title: 'New Task Assigned to You',
-            body: `${user.username} assigned you a task: "${input.title.trim()}"`,
+            title: isAutoAssigned ? 'Task Auto-Assigned to You' : 'New Task Assigned to You',
+            body: isAutoAssigned
+              ? `${user.username} created a task that was auto-assigned to you based on package ownership: "${input.title.trim()}"`
+              : `${user.username} assigned you a task: "${input.title.trim()}"`,
             relatedId: id,
           })
         }
@@ -2789,7 +2897,7 @@ export async function sendTaskToDepartmentQueueAction(
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,task_status,completed,approval_status,title,history,assignment_chain')
+    .select('username,assigned_to,task_status,completed,approval_status,title,history,assignment_chain,package_name,multi_assignment')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -2813,6 +2921,14 @@ export async function sendTaskToDepartmentQueueAction(
   const history = parseJson<HistoryEntry[]>(task.history, [])
   const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
 
+  // ── Auto-assign via package resolver ────────────────────────────────────────
+  const autoRoute = await resolvePackageAutoAssignment(
+    supabase,
+    task.package_name as string | null,
+    targetDepartment,
+  )
+
+  // Record the routing intent regardless of auto-assign outcome
   assignmentChain.push({
     user: user.username,
     role: 'routed_to_department_queue',
@@ -2821,43 +2937,200 @@ export async function sendTaskToDepartmentQueueAction(
     feedback: note?.trim() || undefined,
   })
 
-  history.push({
-    type: 'assigned',
-    user: user.username,
-    details: `${user.username} routed task to ${targetDepartment} with due date ${dueIso}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
-    timestamp: now,
-    icon: '📤',
-    title: 'Sent To Department Queue',
-  })
-
-  await supabase.from('todos').update({
-    assigned_to: null,
-    manager_id: null,
-    queue_department: targetDepartment,
-    queue_status: 'queued',
-    task_status: 'backlog',
-    workflow_state: 'queued_for_department',
-    due_date: dueIso,
-    expected_due_date: dueIso,
-    actual_due_date: null,
-    assignment_chain: JSON.stringify(assignmentChain),
-    history: JSON.stringify(history),
-    pending_approver: null,
-    approval_chain: JSON.stringify([]),
-    approval_requested_at: null,
-    approval_sla_due_at: null,
-    last_handoff_at: now,
-    updated_at: now,
-  }).eq('id', todoId)
-
-  if ((task.username as string) && (task.username as string) !== user.username) {
-    await createNotification(supabase, {
-      userId: task.username as string,
-      type: 'task_assigned',
-      title: 'Task Sent To Department Queue',
-      body: `${user.username} routed "${task.title}" to ${targetDepartment} with due date ${dueIso}.`,
-      relatedId: todoId,
+  if (autoRoute.type === 'single') {
+    // ── Single auto-assign path ────────────────────────────────────────────
+    assignmentChain.push({
+      user: user.username,
+      role: 'auto_assigned_by_package',
+      assignedAt: now,
+      next_user: autoRoute.username,
     })
+    history.push({
+      type: 'assigned',
+      user: user.username,
+      details: `${user.username} routed task to ${targetDepartment} — auto-assigned to ${autoRoute.username} based on package ownership${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+      timestamp: now,
+      icon: '🤖',
+      title: 'Auto-Assigned',
+    })
+
+    await supabase.from('todos').update({
+      assigned_to: autoRoute.username,
+      manager_id: null,
+      queue_department: targetDepartment,
+      queue_status: 'auto_assigned',
+      task_status: 'backlog',
+      workflow_state: 'claimed_by_department',
+      due_date: dueIso,
+      expected_due_date: dueIso,
+      actual_due_date: dueIso,
+      assignment_chain: JSON.stringify(assignmentChain),
+      history: JSON.stringify(history),
+      pending_approver: null,
+      approval_chain: JSON.stringify([]),
+      approval_requested_at: null,
+      approval_sla_due_at: null,
+      last_handoff_at: now,
+      updated_at: now,
+    }).eq('id', todoId)
+
+    if (autoRoute.username !== user.username) {
+      await createNotification(supabase, {
+        userId: autoRoute.username,
+        type: 'task_assigned',
+        title: 'Task Auto-Assigned to You',
+        body: `${user.username} routed "${task.title as string}" to ${targetDepartment} — auto-assigned to you based on package ownership.`,
+        relatedId: todoId,
+      })
+    }
+    if (typeof task.username === 'string' && task.username && task.username !== user.username) {
+      await createNotification(supabase, {
+        userId: task.username,
+        type: 'task_assigned',
+        title: 'Task Auto-Assigned',
+        body: `${user.username} routed your task "${task.title as string}" to ${targetDepartment} — auto-assigned to ${autoRoute.username} based on package ownership.`,
+        relatedId: todoId,
+      })
+    }
+
+  } else if (autoRoute.type === 'multi') {
+    // ── Multi auto-assign path ─────────────────────────────────────────────
+    // Only proceed if the task does not already have an active multi-assignment.
+    const existingMa = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+    if (existingMa?.enabled) {
+      // Already multi-assigned — fall through to queue to avoid overwriting active work.
+      // (Handled by the queue block below; re-push with queue semantics.)
+      history.push({
+        type: 'assigned',
+        user: user.username,
+        details: `${user.username} routed task to ${targetDepartment} queue with due date ${dueIso}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+        timestamp: now,
+        icon: '📤',
+        title: 'Sent To Department Queue',
+      })
+      await supabase.from('todos').update({
+        assigned_to: null,
+        manager_id: null,
+        queue_department: targetDepartment,
+        queue_status: 'queued',
+        task_status: 'backlog',
+        workflow_state: 'queued_for_department',
+        due_date: dueIso,
+        expected_due_date: dueIso,
+        actual_due_date: null,
+        assignment_chain: JSON.stringify(assignmentChain),
+        history: JSON.stringify(history),
+        pending_approver: null,
+        approval_chain: JSON.stringify([]),
+        approval_requested_at: null,
+        approval_sla_due_at: null,
+        last_handoff_at: now,
+        updated_at: now,
+      }).eq('id', todoId)
+    } else {
+      const autoMa = buildAutoMultiAssignment(autoRoute.usernames, dueIso, user.username)
+      const rolledDue = getMaxMaDueDate(autoMa) ?? dueIso
+      for (const username of autoRoute.usernames) {
+        assignmentChain.push({
+          user: user.username,
+          role: 'auto_assigned_by_package',
+          assignedAt: now,
+          next_user: username,
+        })
+      }
+      const assigneeNames = autoRoute.usernames.join(', ')
+      history.push({
+        type: 'assigned',
+        user: user.username,
+        details: `${user.username} routed task to ${targetDepartment} — auto-assigned to ${assigneeNames} based on package ownership${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+        timestamp: now,
+        icon: '🤖',
+        title: 'Auto-Assigned (Multi)',
+      })
+
+      await supabase.from('todos').update({
+        multi_assignment: JSON.stringify(autoMa),
+        assigned_to: null,
+        manager_id: null,
+        queue_department: targetDepartment,
+        queue_status: 'auto_assigned',
+        task_status: 'backlog',
+        workflow_state: 'split_to_multi',
+        due_date: rolledDue,
+        expected_due_date: rolledDue,
+        actual_due_date: null,
+        assignment_chain: JSON.stringify(assignmentChain),
+        history: JSON.stringify(history),
+        pending_approver: null,
+        approval_chain: JSON.stringify([]),
+        approval_requested_at: null,
+        approval_sla_due_at: null,
+        last_handoff_at: now,
+        updated_at: now,
+      }).eq('id', todoId)
+
+      await notifyUsers(
+        supabase,
+        autoRoute.usernames,
+        {
+          type: 'task_assigned',
+          title: 'Task Auto-Assigned to You',
+          body: `${user.username} routed "${task.title as string}" to ${targetDepartment} — auto-assigned to you based on package ownership.`,
+          relatedId: todoId,
+        },
+        user.username,
+      )
+      if (typeof task.username === 'string' && task.username && task.username !== user.username) {
+        await createNotification(supabase, {
+          userId: task.username,
+          type: 'task_assigned',
+          title: 'Task Auto-Assigned',
+          body: `${user.username} routed your task "${task.title as string}" to ${targetDepartment} — auto-assigned to ${assigneeNames} based on package ownership.`,
+          relatedId: todoId,
+        })
+      }
+    }
+
+  } else {
+    // ── Queue fallback path (existing behaviour) ───────────────────────────
+    history.push({
+      type: 'assigned',
+      user: user.username,
+      details: `${user.username} routed task to ${targetDepartment} with due date ${dueIso}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+      timestamp: now,
+      icon: '📤',
+      title: 'Sent To Department Queue',
+    })
+
+    await supabase.from('todos').update({
+      assigned_to: null,
+      manager_id: null,
+      queue_department: targetDepartment,
+      queue_status: 'queued',
+      task_status: 'backlog',
+      workflow_state: 'queued_for_department',
+      due_date: dueIso,
+      expected_due_date: dueIso,
+      actual_due_date: null,
+      assignment_chain: JSON.stringify(assignmentChain),
+      history: JSON.stringify(history),
+      pending_approver: null,
+      approval_chain: JSON.stringify([]),
+      approval_requested_at: null,
+      approval_sla_due_at: null,
+      last_handoff_at: now,
+      updated_at: now,
+    }).eq('id', todoId)
+
+    if (typeof task.username === 'string' && task.username && task.username !== user.username) {
+      await createNotification(supabase, {
+        userId: task.username,
+        type: 'task_assigned',
+        title: 'Task Sent To Department Queue',
+        body: `${user.username} routed "${task.title as string}" to ${targetDepartment} with due date ${dueIso}.`,
+        relatedId: todoId,
+      })
+    }
   }
 
   revalidateTasksData()
