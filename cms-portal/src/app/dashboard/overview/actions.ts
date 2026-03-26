@@ -55,6 +55,20 @@ export interface ManagerOverviewStats {
   teamTasks: { total: number; completed: number; inProgress: number; pending: number; overdue: number }
   teamMembers: Array<{ username: string; completed: number; total: number; role: string; department: string | null }>
   weeklyProgress: Array<{ day: string; completed: number }>
+  topPerformers: Array<{ username: string; completed: number; total: number; completion: number; avatarData: string | null }>
+  recentTasks: Array<{
+    id: string
+    title: string
+    username: string
+    assigned_to: string | null
+    task_status: string
+    completed: boolean
+    priority: string
+    due_date: string | null
+    category: string | null
+    created_at: string
+  }>
+  tasksByDept: Array<{ label: string; value: number }>
 }
 
 export interface PersonalStats {
@@ -304,6 +318,9 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     teamTasks: { total: 0, completed: 0, inProgress: 0, pending: 0, overdue: 0 },
     teamMembers: [],
     weeklyProgress: [],
+    topPerformers: [],
+    recentTasks: [],
+    tasksByDept: [],
   }
   if (!user || (user.role !== 'Manager' && user.role !== 'Supervisor')) return empty
 
@@ -321,6 +338,7 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
   let pending = 0
   let overdue = 0
   const userMap: Record<string, { completed: number; total: number }> = {}
+  const deptMap: Record<string, number> = {}
 
   for (const t of teamTodos) {
     const owner = t.assigned_to || t.username
@@ -338,6 +356,9 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
         pending++
       }
     }
+    if (t.category) {
+      deptMap[t.category] = (deptMap[t.category] || 0) + 1
+    }
   }
 
   const overviewMembers = teamMembers.map((member) => ({
@@ -347,6 +368,44 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
     completed: userMap[member.username]?.completed ?? 0,
     total: userMap[member.username]?.total ?? 0,
   }))
+
+  const performerMeta = new Map(
+    teamMembers.map((member) => [member.username, member])
+  )
+  const topPerformers = overviewMembers
+    .map((member) => ({
+      username: member.username,
+      completed: member.completed,
+      total: member.total,
+      completion: member.total > 0 ? Math.round((member.completed / member.total) * 100) : 0,
+      avatarData: performerMeta.get(member.username)?.avatar_data ?? null,
+    }))
+    .sort((a, b) => {
+      if (b.completed !== a.completed) return b.completed - a.completed
+      return b.completion - a.completion
+    })
+    .slice(0, 8)
+
+  const tasksByDept = Object.entries(deptMap)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8)
+
+  const recentTasks = [...teamTodos]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 8)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      username: task.username,
+      assigned_to: task.assigned_to,
+      task_status: task.task_status,
+      completed: task.completed,
+      priority: task.priority,
+      due_date: task.due_date,
+      category: task.category,
+      created_at: task.created_at,
+    }))
 
   const weeklyProgress = Array.from({ length: 7 }, (_, i) => {
     const d = new Date()
@@ -366,6 +425,9 @@ export async function getManagerOverview(): Promise<ManagerOverviewStats> {
       teamTasks: { total: teamTodos.length, completed, inProgress, pending, overdue },
       teamMembers: overviewMembers,
       weeklyProgress,
+      topPerformers,
+      recentTasks,
+      tasksByDept,
     }
   }, ['overview-manager', user.username, user.teamMembers.join(',')], { revalidate: 30 })()
 }

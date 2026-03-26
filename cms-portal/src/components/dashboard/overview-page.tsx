@@ -735,6 +735,7 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
   const completionRate = stats.teamTasks.total > 0
     ? Math.round((stats.teamTasks.completed / stats.teamTasks.total) * 100)
     : 0
+  const today = new Date().toISOString().split('T')[0]
   const statusChartData = [
     { label: 'Completed', value: stats.teamTasks.completed, color: '#10B981' },
     { label: 'In Progress', value: stats.teamTasks.inProgress, color: '#3B82F6' },
@@ -898,6 +899,122 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
             })}
           </div>
         )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity size={16} style={{ color: 'var(--emerald-500)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Tasks by Department</h3>
+          </div>
+          {stats.tasksByDept.length > 0 ? (
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={stats.tasksByDept} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} tickLine={false} axisLine={false} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(43,127,255,0.08)' }} />
+                <Bar dataKey="value" fill="#2B7FFF" radius={[4, 4, 0, 0]} name="Tasks" animationDuration={800} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-50 flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }}>
+              No department data
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Star size={16} style={{ color: 'var(--amber-500)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Top Performers</h3>
+          </div>
+          {stats.topPerformers.length === 0 ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No data yet</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {stats.topPerformers.slice(0, 6).map((p, i) => (
+                <div key={p.username} className="flex items-center gap-3">
+                  <span
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                    style={{ background: i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : i === 2 ? '#CD7C2F' : 'var(--slate-200)', color: i < 3 ? 'white' : 'var(--slate-600)' }}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #8B5CF6)' }}>
+                    {p.avatarData ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.avatarData} alt={p.username} className="w-full h-full object-cover" />
+                    ) : (
+                      p.username.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-semibold truncate" style={{ color: 'var(--color-text)' }}>{p.username}</span>
+                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{p.completion}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-100)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${p.completion}%`, background: 'linear-gradient(90deg, #2B7FFF, #8B5CF6)' }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium shrink-0" style={{ color: 'var(--emerald-600)' }}>
+                    {p.completed}✓
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock size={16} style={{ color: 'var(--blue-600)' }} />
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Recent Tasks</h3>
+          </div>
+          {stats.recentTasks.length === 0 ? (
+            <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>No tasks yet</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {stats.recentTasks.map((t) => {
+                const isOverdue = !t.completed && Boolean(t.due_date && t.due_date < today)
+                const st = isOverdue
+                  ? { bg: 'rgba(239,68,68,0.12)', color: '#EF4444', label: 'Overdue' }
+                  : STATUS_STYLES[t.task_status] ?? STATUS_STYLES.todo
+                const pr = PRIORITY_STYLES[t.priority] ?? { color: '#64748B' }
+                return (
+                  <div key={t.id} className="flex items-start gap-2.5">
+                    <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ background: pr.color }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate" style={{ color: 'var(--color-text)' }}>{t.title}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: st.bg, color: st.color }}>
+                          {st.label}
+                        </span>
+                        <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>
+                          → {t.assigned_to || t.username}
+                        </span>
+                        {t.category && (
+                          <span className="text-[10px]" style={{ color: 'var(--slate-400)' }}>
+                            • {t.category}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {t.due_date && (
+                      <div className="text-[10px] shrink-0 font-medium" style={{ color: isOverdue ? 'var(--rose-500)' : 'var(--slate-400)' }}>
+                        {t.due_date}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
