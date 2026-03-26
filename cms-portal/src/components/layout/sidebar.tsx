@@ -235,6 +235,7 @@ export function Sidebar({
     { label: 'Completed', scope: 'tasks_completed', badge: 'bg-green-600/15 text-green-700' },
     { label: 'Pending', scope: 'tasks_pending', badge: 'bg-amber-500/15 text-amber-700' },
     { label: 'Overdue', scope: 'tasks_overdue', badge: 'bg-rose-500/15 text-rose-700' },
+    { label: 'Queue', scope: 'tasks_queue', badge: 'bg-violet-500/15 text-violet-700' },
   ]
   const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue' | 'queue', active: boolean) => {
     if (active) {
@@ -267,6 +268,7 @@ export function Sidebar({
       '/dashboard/team?scope=tasks_completed',
       '/dashboard/team?scope=tasks_pending',
       '/dashboard/team?scope=tasks_overdue',
+      '/dashboard/team?scope=tasks_queue',
     ],
     []
   )

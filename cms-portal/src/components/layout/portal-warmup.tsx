@@ -92,6 +92,7 @@ function getAccessibleRoutes(user: SessionUser) {
     routes.add('/dashboard/team?scope=tasks_completed')
     routes.add('/dashboard/team?scope=tasks_pending')
     routes.add('/dashboard/team?scope=tasks_overdue')
+    routes.add('/dashboard/team?scope=tasks_queue')
   }
 
   if (isAdminOrSM || isManager) {

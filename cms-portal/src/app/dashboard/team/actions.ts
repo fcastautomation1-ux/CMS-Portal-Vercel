@@ -146,29 +146,28 @@ export async function getTeamStats(): Promise<{
   tasks_completed: number
   tasks_pending: number
   tasks_overdue: number
+  tasks_queue: number
 }> {
-  const empty = { users: 0, tasks_all: 0, tasks_completed: 0, tasks_pending: 0, tasks_overdue: 0 }
+  const empty = { users: 0, tasks_all: 0, tasks_completed: 0, tasks_pending: 0, tasks_overdue: 0, tasks_queue: 0 }
   const { user, memberUsernames } = await getTeamUsernames()
   if (!user) return empty
 
-  const supabase = createServerClient()
-
   if (memberUsernames.length === 0) return { ...empty, users: 0 }
 
-  const { data: todos } = await supabase
-    .from('todos')
-    .select('username, completed, due_date, archived')
-    .eq('archived', false)
-    .in('username', memberUsernames)
+  const tasks = await getTeamTodos()
+  const now = new Date()
 
-  const now = new Date().toISOString().split('T')[0]
-  const tasks = (todos ?? []) as Array<{ username: string; completed: boolean; due_date: string | null; archived: boolean }>
   return {
     users: memberUsernames.length,
     tasks_all: tasks.length,
-    tasks_completed: tasks.filter(t => t.completed).length,
-    tasks_pending: tasks.filter(t => !t.completed).length,
-    tasks_overdue: tasks.filter(t => !t.completed && !!t.due_date && t.due_date < now).length,
+    tasks_completed: tasks.filter((t) => t.completed || t.task_status === 'done').length,
+    tasks_pending: tasks.filter((t) => {
+      if (t.completed || t.task_status === 'done') return false
+      if (t.due_date && new Date(t.due_date) < now) return false
+      return true
+    }).length,
+    tasks_overdue: tasks.filter((t) => !t.completed && !!t.due_date && new Date(t.due_date) < now).length,
+    tasks_queue: tasks.filter((t) => t.queue_status === 'queued' && !!t.queue_department).length,
   }
 }
 
@@ -342,11 +341,17 @@ export async function getTeamTodos(): Promise<Todo[]> {
     async () => {
       const supabase = createServerClient()
 
-      const [usersRes, createdRes, assignedRes, maRes] = await Promise.all([
+      const [usersRes, createdRes, assignedRes, maRes, deptQueueRes] = await Promise.all([
         supabase.from('users').select('username, department'),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null),
+        supabase
+          .from('todos')
+          .select(TEAM_TASK_LIST_SELECT)
+          .eq('archived', false)
+          .eq('queue_status', 'queued')
+          .or('assigned_to.is.null,assigned_to.eq.'),
       ])
 
       const deptMap = new Map<string, string | null>()
@@ -356,6 +361,12 @@ export async function getTeamTodos(): Promise<Todo[]> {
       })
 
       const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
+      const teamDeptSet = new Set(
+        memberUsernames
+          .map((username) => (deptMap.get(username.toLowerCase()) || '').toString().trim().toLowerCase())
+          .filter((department) => department.length > 0)
+      )
+      const canViewAllQueueTasks = user.role === 'Admin' || user.role === 'Super Manager'
       const taskMap = new Map<string, Record<string, unknown>>()
       ;((createdRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
       ;((assignedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
@@ -370,6 +381,18 @@ export async function getTeamTodos(): Promise<Todo[]> {
         })
 
         if (isRelevant) {
+          taskMap.set(String(raw.id), raw)
+        }
+      })
+
+      ;((deptQueueRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
+        if (canViewAllQueueTasks) {
+          taskMap.set(String(raw.id), raw)
+          return
+        }
+
+        const queueDept = String(raw.queue_department || '').trim().toLowerCase()
+        if (queueDept && teamDeptSet.has(queueDept)) {
           taskMap.set(String(raw.id), raw)
         }
       })

@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
@@ -34,7 +34,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   User: { bg: 'rgba(100,116,139,0.12)', color: '#475569' },
 }
 
-type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_pending' | 'tasks_overdue'
+type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_pending' | 'tasks_overdue' | 'tasks_queue'
 const TASKS_PER_PAGE = 20
 
 function getInitials(username: string) {
@@ -88,8 +88,9 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       tasks_completed: members.reduce((sum, member) => sum + member.taskStats.completed, 0),
       tasks_pending: members.reduce((sum, member) => sum + member.taskStats.pending, 0),
       tasks_overdue: members.reduce((sum, member) => sum + member.taskStats.overdue, 0),
+      tasks_queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
     }),
-    [members]
+    [members, tasks]
   )
 
   const filtered = useMemo(() => {
@@ -111,9 +112,22 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     if (scope === 'tasks_completed') return list.filter((member) => member.taskStats.completed > 0)
     if (scope === 'tasks_pending') return list.filter((member) => member.taskStats.pending > 0)
     if (scope === 'tasks_overdue') return list.filter((member) => member.taskStats.overdue > 0)
+    if (scope === 'tasks_queue') return list.filter((member) => {
+      const memberLower = member.username.toLowerCase()
+      return tasks.some((task) => {
+        if (task.queue_status !== 'queued' || !task.queue_department) return false
+        if ((task.username || '').toLowerCase() === memberLower) return true
+        if ((task.assigned_to || '').toLowerCase() === memberLower) return true
+        const assignees = task.multi_assignment?.assignees ?? []
+        return assignees.some((entry) => {
+          if ((entry.username || '').toLowerCase() === memberLower) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === memberLower)
+        })
+      })
+    })
 
     return list
-  }, [members, search, deptFilter, memberFilter, scope])
+  }, [members, tasks, search, deptFilter, memberFilter, scope])
 
   const filteredTasks = useMemo(() => {
     let list = tasks
@@ -157,6 +171,8 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       })
     } else if (scope === 'tasks_overdue') {
       list = list.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today)
+    } else if (scope === 'tasks_queue') {
+      list = list.filter((task) => task.queue_status === 'queued' && !!task.queue_department)
     }
 
     return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -182,6 +198,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
         return true
       }).length,
       overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today).length,
+      queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
     }
   }, [tasks])
 
@@ -190,6 +207,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     if (scope === 'tasks_completed') return 'Completed Task'
     if (scope === 'tasks_pending') return 'Pending Task'
     if (scope === 'tasks_overdue') return 'Overdue Task'
+    if (scope === 'tasks_queue') return 'Queue Task'
     return 'User'
   }, [scope])
 
@@ -206,12 +224,13 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
         </div>
 
         {isTaskScope && (
-          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               { key: 'tasks_all', label: 'Total Task', value: taskKpis.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]' },
               { key: 'tasks_completed', label: 'Completed Task', value: taskKpis.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
               { key: 'tasks_pending', label: 'Pending', value: taskKpis.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
               { key: 'tasks_overdue', label: 'Overdue', value: taskKpis.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
+              { key: 'tasks_queue', label: 'Queue', value: taskKpis.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]' },
             ].map((item) => {
               const Icon = item.icon
               const isActive = scope === item.key
