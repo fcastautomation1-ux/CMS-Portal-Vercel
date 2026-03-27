@@ -141,6 +141,7 @@ const EVT_META: Record<string, { label: string; iconBg: string; iconText: string
   acknowledged:         { label: 'Acknowledged',          iconBg: 'bg-slate-100',  iconText: 'text-slate-600',  emoji: '👀' },
   comment:              { label: 'Comment Added',         iconBg: 'bg-slate-100',  iconText: 'text-slate-600',  emoji: '💬' },
   uncompleted:          { label: 'Reopened',              iconBg: 'bg-orange-100', iconText: 'text-orange-600', emoji: '↩️' },
+  file_attached:        { label: 'File Attached',          iconBg: 'bg-teal-100',   iconText: 'text-teal-600',   emoji: '📎' },
 }
 
 // ── next step label logic ────────────────────────────────────────────────────
@@ -1075,7 +1076,16 @@ export function TaskDetailModal({
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
 
   const comments     = t.history.filter((h: HistoryEntry) => h.type === 'comment' && (!h.is_deleted || isAdminOrSuperManager))
-  const historyEvts  = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
+  const historyEvts  = [
+    ...t.history.filter((h: HistoryEntry) => h.type !== 'comment'),
+    ...t.attachments.map((a) => ({
+      type: 'file_attached',
+      user: a.uploaded_by,
+      title: 'File Attached',
+      details: a.file_name,
+      timestamp: a.created_at,
+    } as HistoryEntry)),
+  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const nextStep     = nextStepLabel(t)
   const assignedSummary = getAssignedSummary(t)
   const departmentSummary = getDepartmentSummary(t)

@@ -1081,7 +1081,16 @@ export function TaskDetailPage({
   const pm = PRIORITY_META[t.priority] ?? PRIORITY_META.medium
   const comments = t.history.filter((h: HistoryEntry) => h.type === 'comment' && (!h.is_deleted || isAdminOrSuperManager))
   const historyEvents = t.history.filter((h: HistoryEntry) => h.type !== 'comment')
-  const activityTimeline = [...historyEvents].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  const activityTimeline = [
+    ...historyEvents,
+    ...t.attachments.map((a) => ({
+      type: 'file_attached',
+      user: a.uploaded_by,
+      title: 'File Attached',
+      details: a.file_name,
+      timestamp: a.created_at,
+    } as HistoryEntry)),
+  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const combinedTimeline = [...t.history].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const nextStep = nextStepLabel(t)
   const participants = getTaskParticipants(t)

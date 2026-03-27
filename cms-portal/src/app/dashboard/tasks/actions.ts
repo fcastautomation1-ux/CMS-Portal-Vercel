@@ -222,8 +222,21 @@ function normalizeTodo(raw: Record<string, unknown>, username: string): Todo {
   t.multi_assignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
   t.approval_chain = parseJson<ApprovalChainEntry[]>(raw.approval_chain, [])
   if (!t.archived) t.archived = false
-  // Assignee sees their actual_due_date; everyone else sees expected_due_date
-  const isAssignee = (t.assigned_to || '').toLowerCase() === username.toLowerCase()
+
+  const userLower = username.toLowerCase()
+  const isAssignee = (t.assigned_to || '').toLowerCase() === userLower
+
+  // Multi-assignment specific deadlines: if the user is a sub-assignee, their personal deadline is primary
+  if (t.multi_assignment?.enabled && Array.isArray(t.multi_assignment.assignees)) {
+    const maEntry = t.multi_assignment.assignees.find(
+      (a) => (a.username || '').toLowerCase() === userLower
+    )
+    if (maEntry && maEntry.actual_due_date) {
+      t.due_date = maEntry.actual_due_date
+    }
+  }
+
+  // Direct assignee/creator fallbacks
   if (isAssignee && t.actual_due_date) {
     t.due_date = t.actual_due_date
   } else if (!t.due_date && t.expected_due_date) {
@@ -761,114 +774,130 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 }
 
   const supabase = createServerClient()
-
   const userLower = user.username.toLowerCase()
   const userDeptKeys = splitDepartmentsCsv(user.department)
     .map((dept) => canonicalDepartmentKey(dept))
     .filter(Boolean)
 
-  const [ownedRes, assignedRes, completedByRes, deptQueueRes, maRes, managedRes] = await Promise.all([
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('username', user.username),
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('assigned_to', user.username),
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('completed_by', user.username),
-    supabase
+  const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
+
+  // We fetch a base set of tasks that mirrors the board's reach to ensure consistency.
+  // For Admins, we get all active tasks. For others, we get related tasks.
+  let rawTasks: any[] = []
+
+  if (isAdminOrSM) {
+    const { data } = await supabase
       .from('todos')
-      .select(SIDEBAR_TASK_SELECT)
-      .eq('queue_status', 'queued')
-      .or('assigned_to.is.null,assigned_to.eq.'),
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT)
-      .contains('multi_assignment', { assignees: [{ username: user.username }] }),
-    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('archived', false)
-      .ilike('manager_id', `%${user.username}%`),
-  ])
+      .select(SIDEBAR_TASK_SELECT + ',assignment_chain') // assignment_chain is needed for "related" check
+      .eq('archived', false)
+    rawTasks = data || []
+  } else {
+    // Non-admins: check ownership, assignment, chain participation, and department queue
+    const [ownedRes, assignedRes, completedByRes, maRes, chainRes, managedRes, sharedRes] = await Promise.all([
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').ilike('username', user.username).eq('archived', false) as any),
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').ilike('assigned_to', user.username).eq('archived', false) as any),
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').ilike('completed_by', user.username).eq('archived', false) as any),
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').contains('multi_assignment', { assignees: [{ username: user.username }] }).eq('archived', false) as any),
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').contains('assignment_chain', [{ user: user.username }]).eq('archived', false) as any),
+      (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').ilike('manager_id', `%${user.username}%`).eq('archived', false) as any),
+      (supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username) as any)
+    ])
 
-  const taskMap = new Map<string, Todo>()
+    const uniqueMap = new Map<string, any>()
+    const addMany = (res: any) => (res.data || []).forEach((r: any) => uniqueMap.set(r.id, r))
+    addMany(ownedRes); addMany(assignedRes); addMany(completedByRes); addMany(maRes); addMany(chainRes); addMany(managedRes);
 
-  const addTask = (raw: Record<string, unknown>) => {
-    const task = normalizeTodo(raw, user.username)
-    if (!task.archived) {
-      taskMap.set(task.id, task)
+    if (sharedRes.data && sharedRes.data.length > 0) {
+      const ids = sharedRes.data.map((s: any) => s.todo_id)
+      const { data: sharedTasks } = await supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').in('id', ids).eq('archived', false) as any
+      if (sharedTasks) sharedTasks.forEach((r: any) => uniqueMap.set(r.id, r))
     }
+
+    // Always include the department queue baseline for non-admins too
+    // (Wait, only if it's the user's department)
+    const { data: qData } = await (supabase
+      .from('todos')
+      .select(SIDEBAR_TASK_SELECT + ',assignment_chain')
+      .eq('queue_status', 'queued')
+      .or('assigned_to.is.null,assigned_to.eq.')
+      .eq('archived', false) as any)
+    
+    if (qData) {
+      qData.forEach((r: any) => {
+        const qDept = canonicalDepartmentKey(r.queue_department || '')
+        if (qDept && userDeptKeys.includes(qDept)) uniqueMap.set(r.id, r)
+      })
+    }
+
+    rawTasks = Array.from(uniqueMap.values())
   }
 
-  ;(ownedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
-  ;(assignedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
-  ;(completedByRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
-  ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((row: Record<string, unknown>) => {
-    // Only add dept-queue tasks that belong to this user's department(s),
-    // OR that the user themselves created.
-    // Do NOT add all queued tasks when userDeptKeys is empty — that inflates counts
-    // for Admin/SM who have no department set.
-    const isOwner = String(row.username || '').toLowerCase() === userLower
-    if (isOwner) { addTask(row); return }
-    if (userDeptKeys.length === 0) return // admin with no dept — skip others' queue tasks
-    const queueDeptKey = canonicalDepartmentKey(String(row.queue_department || ''))
-    if (queueDeptKey && userDeptKeys.includes(queueDeptKey)) {
-      addTask(row)
-    }
-  })
-  ;(maRes.data || []).forEach((row: Record<string, unknown>) => {
-    addTask(row)
-  })
-  ;(managedRes.data || []).forEach((row: Record<string, unknown>) => {
-    addTask(row)
-  })
-
-  const tasks = Array.from(taskMap.values())
+  const tasks = rawTasks.map((row) => normalizeTodo(row, user.username))
   const now = Date.now()
 
-  // For multi-assignment tasks, use the individual user's status instead of the task-level
-  // completed flag (which only becomes true when ALL assignees finish).
   const isCompletedForUser = (task: Todo): boolean => {
     if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
       const entry = task.multi_assignment.assignees.find(
-        (a) => (a.username || '').toLowerCase() === userLower,
+        (a) => (a.username || '').toLowerCase() === userLower
       )
       if (entry) return entry.status === 'completed' || entry.status === 'accepted'
-      for (const a of task.multi_assignment.assignees) {
-        if (Array.isArray(a.delegated_to)) {
-          const sub = a.delegated_to.find((s) => (s.username || '').toLowerCase() === userLower)
-          if (sub) return sub.status === 'completed' || sub.status === 'accepted'
-        }
-      }
     }
-    // A task is completed for a specific user if the task is globally completed,
-    // OR if that user was the one who submitted it (and it is no longer awaiting their action).
     const isGloballyDone = task.completed || task.task_status === 'done'
     const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
     const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
-
-    // If globally done, it's done for everyone.
     if (isGloballyDone) return true
-
-    // If I submitted it and it's not assigned back to me, it's done for me (awaiting someone else).
     if (isMySubmission && !isCurrentlyAssignedToMe) return true
+    return false
+  }
+
+  const matchesPersonalScopeLogic = (task: Todo): boolean => {
+    if (task.username.toLowerCase() === userLower) return true
+    if ((task.completed_by || '').toLowerCase() === userLower) return true
+    if ((task.assigned_to || '').toLowerCase() === userLower) return true
+    
+    // Chain check
+    const chain = task.assignment_chain || []
+    if (chain.some(e => (e.user || '').toLowerCase() === userLower || (e.next_user || '').toLowerCase() === userLower)) return true
+    
+    // MA check
+    if (task.multi_assignment?.enabled) {
+      if (task.multi_assignment.assignees.some(a => (a.username || '').toLowerCase() === userLower)) return true
+    }
+
+    // Queue check
+    if (task.queue_status === 'queued') {
+      const qDept = canonicalDepartmentKey(task.queue_department || '')
+      if (qDept && userDeptKeys.includes(qDept)) return true
+    }
 
     return false
   }
 
+  // Final filtered list for "My Tasks" view
+  const scopedTasks = isAdminOrSM ? tasks.filter(matchesPersonalScopeLogic) : tasks
+
   return {
-    all: tasks.length,
-    completed: tasks.filter((task) => isCompletedForUser(task)).length,
-    pending: tasks.filter((task) => {
-      if (isCompletedForUser(task)) return false
-      if (task.due_date) {
-        const dueTs = new Date(task.due_date).getTime()
+    all: scopedTasks.length,
+    completed: scopedTasks.filter((t) => isCompletedForUser(t)).length,
+    pending: scopedTasks.filter((t) => {
+      if (isCompletedForUser(t)) return false
+      if (t.due_date) {
+        const dueTs = new Date(t.due_date).getTime()
         if (!Number.isNaN(dueTs) && dueTs < now) return false
       }
       return true
     }).length,
-    overdue: tasks.filter((task) => {
-      if (isCompletedForUser(task)) return false
-      if (!task.due_date) return false
-      const dueTs = new Date(task.due_date).getTime()
+    overdue: scopedTasks.filter((t) => {
+      if (isCompletedForUser(t)) return false
+      if (!t.due_date) return false
+      const dueTs = new Date(t.due_date).getTime()
       return !Number.isNaN(dueTs) && dueTs < now
     }).length,
-    queue: tasks.filter((task) => {
-      if (task.queue_status !== 'queued' || !task.queue_department) return false
-      if ((task.username || '').toLowerCase() === userLower) return true
-      const queueDeptKey = canonicalDepartmentKey(task.queue_department)
-      return !!queueDeptKey && userDeptKeys.includes(queueDeptKey)
+    queue: tasks.filter((t) => {
+      if (t.queue_status !== 'queued' || !t.queue_department) return false
+      if (t.username.toLowerCase() === userLower) return true
+      const qDept = canonicalDepartmentKey(t.queue_department)
+      return !!qDept && userDeptKeys.includes(qDept)
     }).length,
   }
 }
