@@ -1702,7 +1702,7 @@ export async function toggleTodoCompleteAction(
 
 // ── Approve completion ────────────────────────────────────────────────────────
 
-export async function approveTodoAction(todoId: string): Promise<{ success: boolean; error?: string }> {
+export async function approveTodoAction(todoId: string, note?: string): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { success: false, error: 'Not authenticated.' }
 
@@ -1744,9 +1744,9 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   history.push({
     type: 'approved',
     user: user.username,
-    details: nextPending
+    details: note || (nextPending
       ? `Task completion approved by ${user.username} and forwarded to ${nextPending.user}`
-      : `Task completion approved by ${user.username}`,
+      : `Task completion approved by ${user.username}`),
     timestamp: now,
     icon: '✅',
     title: nextPending ? 'Approval Forwarded' : 'Completion Approved',

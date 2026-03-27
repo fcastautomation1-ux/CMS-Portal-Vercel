@@ -67,6 +67,7 @@ interface TaskCardProps {
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'approve' }
   | { type: 'decline-approval' }
   | { type: 'single-due-date' }
   | { type: 'step-edit'; assigneeUsername: string }
@@ -106,6 +107,23 @@ function formatDuration(fromIso: string, toIso: string): string {
   if (days > 0) return `${days}d ${hrs}h`
   if (hrs > 0) return `${hrs}h`
   return `${Math.floor((ms % 3_600_000) / 60_000)}m`
+}
+
+function getCompletionStatusText(dueIso: string, completedIso: string): string {
+  if (!dueIso || !completedIso) return ''
+  const ms = new Date(completedIso).getTime() - new Date(dueIso).getTime()
+  const isEarly = ms < 0
+  const absMs = Math.abs(ms)
+  const days = Math.floor(absMs / 86_400_000)
+  const hrs = Math.floor((absMs % 86_400_000) / 3_600_000)
+  const mins = Math.floor((absMs % 3_600_000) / 60_000)
+  
+  let val = ''
+  if (days > 0) val = `${days}d ${hrs}h`
+  else if (hrs > 0) val = `${hrs}h ${mins}m`
+  else val = `${mins}m`
+  
+  return `${val} ${isEarly ? 'early' : 'late'}`
 }
 
 function isOverdue(dateStr: string | null): boolean {
@@ -585,7 +603,6 @@ export function TaskCard({
   const [isPending, startTransition] = useTransition()
   const [showMa, setShowMa] = useState(false)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
-  const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
   const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
@@ -691,7 +708,11 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
-  const completionLabel = task.completed_at ? `Completed ${fmtDate(task.completed_at)}` : 'Completed'
+  const completionLabel = task.completed_at && task.due_date 
+    ? `Completed ${getCompletionStatusText(task.due_date, task.completed_at)}` 
+    : task.completed_at 
+      ? `Completed ${fmtDate(task.completed_at)}` 
+      : 'Completed'
   const currentStepOwner =
     taskDialog?.type === 'step-edit'
       ? getAssignmentStepOwner(task, taskDialog.assigneeUsername)
@@ -773,7 +794,11 @@ export function TaskCard({
 
     switch (taskDialog.type) {
       case 'ma-submit': {
-        const note = dialogValue.trim() || undefined
+        const note = dialogValue.trim()
+        if (!note) {
+          setActionError('Please provide completion feedback.')
+          return
+        }
         const files = dialogFiles.slice()
         closeTaskDialog()
         startTransition(async () => {
@@ -796,7 +821,10 @@ export function TaskCard({
       }
       case 'complete': {
         const note = dialogValue.trim()
-        if (!note) return
+        if (!note) {
+          setActionError('Please provide completion feedback.')
+          return
+        }
         const files = dialogFiles.slice()
         closeTaskDialog()
         startTransition(async () => {
@@ -818,8 +846,19 @@ export function TaskCard({
         return
       }
       case 'decline-approval':
-        if (!dialogValue.trim()) return
+        if (!dialogValue.trim()) {
+          setActionError('Please provide a reason for declining.')
+          return
+        }
         doAction(() => declineTodoAction(task.id, dialogValue.trim()))
+        closeTaskDialog()
+        return
+      case 'approve':
+        if (!dialogValue.trim()) {
+          setActionError('Please provide approval feedback.')
+          return
+        }
+        doAction(() => approveTodoAction(task.id, dialogValue.trim()))
         closeTaskDialog()
         return
       case 'single-due-date':
@@ -856,7 +895,11 @@ export function TaskCard({
         closeTaskDialog()
         return
       case 'sub-submit': {
-        const note = dialogValue.trim() || undefined
+        const note = dialogValue.trim()
+        if (!note) {
+          setActionError('Please provide completion feedback.')
+          return
+        }
         const files = dialogFiles.slice()
         const delegatorUsername = taskDialog.delegatorUsername
         closeTaskDialog()
@@ -994,11 +1037,27 @@ export function TaskCard({
         <div className="min-w-0 flex-1">
           {/* Row 1: App names + KPI type + Task title */}
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            {appNames.map((appName) => (
-              <span key={appName} className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">
-                {appName}
-              </span>
-            ))}
+            {appNames.map((appName, idx) => {
+              const pkg = packageNames[idx] || packageNames[0]
+              const isPlay = pkg && pkg !== 'Others'
+              return isPlay ? (
+                <a
+                  key={appName}
+                  href={`https://play.google.com/store/apps/details?id=${pkg}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700 transition-colors hover:bg-slate-300 hover:text-blue-600"
+                >
+                  <ExternalLink size={10} className="opacity-60" />
+                  {appName}
+                </a>
+              ) : (
+                <span key={appName} className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">
+                  {appName}
+                </span>
+              )
+            })}
             {task.kpi_type && (
               <span className="rounded-full border border-violet-100 bg-violet-50/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-400">
                 {task.kpi_type}
@@ -1113,7 +1172,7 @@ export function TaskCard({
                 <ActBtn
                   onClick={() => {
                     if (isCreator) {
-                      setShowCreatorCompleteConfirm(true)
+                      openTaskDialog({ type: 'complete' })
                       return
                     }
                     openTaskDialog({ type: 'complete' })
@@ -1126,7 +1185,7 @@ export function TaskCard({
               )}
               {showApproveBtn && (
                 <>
-                  <ActBtn onClick={() => doAction(() => approveTodoAction(task.id))} color="green" disabled={isPending}>Approve</ActBtn>
+                  <ActBtn onClick={() => openTaskDialog({ type: 'approve' })} color="green" disabled={isPending}>Approve</ActBtn>
                   <ActBtn onClick={() => openTaskDialog({ type: 'decline-approval' })} color="red" disabled={isPending}>Decline</ActBtn>
                 </>
               )}
@@ -1332,7 +1391,11 @@ export function TaskCard({
               </div>
               {task.due_date && (
                 <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
-                  {isCompleted && task.completed_at ? fmtDate(task.completed_at) : fmtTime(task.due_date)}
+                  {isCompleted && task.completed_at ? (
+                    getCompletionStatusText(task.due_date, task.completed_at)
+                  ) : (
+                    fmtTime(task.due_date)
+                  )}
                 </div>
               )}
             </div>
@@ -1374,17 +1437,6 @@ export function TaskCard({
               >
                 Assign to Team
               </button>
-            )}
-            {playPkg && (
-              <a
-                href={`https://play.google.com/store/apps/details?id=${playPkg}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-teal-700"
-              >
-                <ExternalLink size={10} /> Play Store
-              </a>
             )}
             {showReopenBtn && (
               <button
@@ -1443,6 +1495,7 @@ export function TaskCard({
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
             taskDialog.type === 'decline-approval' ? 'Decline completion request' :
+            taskDialog.type === 'approve' ? 'Approve completion request' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
           taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
             taskDialog.type === 'queue-assign' ? 'Assign queued task' :
@@ -1455,7 +1508,8 @@ export function TaskCard({
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
             taskDialog.type === 'decline-approval' ? 'Explain why this completion is declined so assignee can fix it.' :
-            taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
+          taskDialog.type === 'approve' ? 'Add a brief note about the approved work.' :
+          taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
           taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
             taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
@@ -1464,9 +1518,10 @@ export function TaskCard({
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'approve' ? 'Approve & Pass' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
+        error={actionError}
       >
         {taskDialog.type === 'complete' ? (
           <div className="space-y-3">
@@ -1577,10 +1632,18 @@ export function TaskCard({
         ) : (
           <div className="space-y-3">
             <DialogTextarea
-              label={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary (optional)' : 'Feedback'}
+              label={
+                taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Summary' :
+                taskDialog.type === 'approve' ? 'Approval Note' :
+                'Feedback'
+              }
               value={dialogValue}
               onChange={setDialogValue}
-              placeholder={taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'Add work summary or notes' : 'Type feedback here'}
+              placeholder={
+                taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit' ? 'What work was completed?' :
+                taskDialog.type === 'approve' ? 'Good job, moving to next step...' :
+                'Type feedback here'
+              }
             />
             {(taskDialog.type === 'ma-submit' || taskDialog.type === 'sub-submit') && (
               <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
@@ -1606,20 +1669,6 @@ export function TaskCard({
       />
     )}
     <ConfirmDialog
-      open={showCreatorCompleteConfirm}
-      title="Complete this task?"
-      description="You created this task. Are you sure you want to complete it? Once confirmed, this task will show as completed for all users."
-      confirmLabel={isPending ? 'Completing...' : 'Complete task'}
-      onCancel={() => {
-        if (isPending) return
-        setShowCreatorCompleteConfirm(false)
-      }}
-      onConfirm={() => {
-        doAction(() => toggleTodoCompleteAction(task.id, true))
-        setShowCreatorCompleteConfirm(false)
-      }}
-    />
-    <ConfirmDialog
       open={showCreatorReopenConfirm}
       title="Reopen this task?"
       description="Only the task creator can reopen a completed task. This will move the task back to in-progress."
@@ -1644,6 +1693,7 @@ function ActionDialog({
   onClose,
   onConfirm,
   children,
+  error,
 }: {
   title: string
   description: string
@@ -1651,6 +1701,7 @@ function ActionDialog({
   onClose: () => void
   onConfirm: () => void
   children: ReactNode
+  error?: string
 }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
@@ -1659,7 +1710,14 @@ function ActionDialog({
           <h3 className="text-lg font-bold text-slate-900">{title}</h3>
           <p className="mt-1 text-sm text-slate-500">{description}</p>
         </div>
-        <div className="space-y-4">{children}</div>
+        <div className="space-y-4">
+          {error && (
+            <div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-semibold text-red-600 border border-red-100">
+              {error}
+            </div>
+          )}
+          {children}
+        </div>
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50">
             Cancel

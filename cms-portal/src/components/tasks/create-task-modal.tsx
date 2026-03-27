@@ -446,16 +446,22 @@ export function CreateTaskModal({
     setAppSearch('')
     setAppNames((current) => {
       const exists = current.includes(nextApp)
-      const next = exists ? current.filter((item) => item !== nextApp) : [...current, nextApp]
-      const autoSelectedPackages = Array.from(
-        new Set([
-          ...packages
-            .filter((item) => item.app_name && next.includes(item.app_name))
-            .map((item) => item.name),
-          ...(next.includes('Others') ? ['Others'] : []),
-        ])
-      )
-      setPackageNames(autoSelectedPackages)
+      const next = exists ? [] : [nextApp]
+      
+      // Auto-select the first package for this app if selecting a new app
+      if (!exists) {
+        const firstPkg = packages.find((item) => item.app_name === nextApp)
+        if (firstPkg) {
+          setPackageNames([firstPkg.name])
+        } else if (nextApp === 'Others') {
+          setPackageNames(['Others'])
+        } else {
+          setPackageNames([])
+        }
+      } else {
+        setPackageNames([])
+      }
+      
       return next
     })
   }
@@ -464,16 +470,23 @@ export function CreateTaskModal({
     setPackageSearch('')
     setPackageNames((current) => {
       const exists = current.includes(nextPackage)
-      return exists ? current.filter((item) => item !== nextPackage) : [...current, nextPackage]
+      const next = exists ? [] : [nextPackage]
+      
+      if (!exists) {
+        if (nextPackage === 'Others') {
+          setAppNames(['Others'])
+        } else {
+          const pkg = packages.find((item) => item.name === nextPackage)
+          if (pkg?.app_name) {
+            setAppNames([pkg.app_name])
+          }
+        }
+      } else {
+        setAppNames([])
+      }
+      
+      return next
     })
-    if (nextPackage === 'Others') {
-      setAppNames((current) => (current.includes('Others') ? current : [...current, 'Others']))
-      return
-    }
-    const pkg = packages.find((item) => item.name === nextPackage)
-    if (pkg?.app_name) {
-      setAppNames((current) => (current.includes(pkg.app_name as string) ? current : [...current, pkg.app_name as string]))
-    }
   }
 
   const toggleMultiAssignee = (user: User) => {
@@ -872,7 +885,7 @@ export function CreateTaskModal({
     if (!kpiType) return { message: 'Please select a KPI type.', field: 'kpi' }
     if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
     if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
-    if (packageNames.length === 0) return { message: 'Please select at least one package.', field: 'package' }
+    if (packageNames.length === 0) return { message: 'Please select a package.', field: 'package' }
     if (routing !== 'self' && routing !== 'multi' && !dueDate) {
       return { message: 'Please set a due date for this task.', field: 'dueDate' }
     }
@@ -1014,8 +1027,9 @@ export function CreateTaskModal({
                     onSearchChange={setAppSearch}
                     onToggle={toggleApp}
                     options={filteredApps.map((app) => ({ value: app, label: app }))}
-                    placeholder="Select apps"
+                    placeholder="Select app"
                     searchPlaceholder="Search app name..."
+                    multi={false}
                   />
                 </Field>
                 <Field label="Package Name" required>
@@ -1025,8 +1039,9 @@ export function CreateTaskModal({
                     onSearchChange={setPackageSearch}
                     onToggle={togglePackage}
                     options={filteredPackages.map((pkg) => ({ value: pkg.name, label: pkg.name }))}
-                    placeholder="Select packages"
+                    placeholder="Select package"
                     searchPlaceholder="Search package name..."
+                    multi={false}
                   />
                 </Field>
               </div>
@@ -1678,6 +1693,7 @@ function MultiSearchableDropdown({
   onSearchChange,
   onToggle,
   searchPlaceholder,
+  multi = true,
 }: {
   values: string[]
   options: Array<{ value: string; label: string }>
@@ -1686,6 +1702,7 @@ function MultiSearchableDropdown({
   onSearchChange: (value: string) => void
   onToggle: (value: string) => void
   searchPlaceholder: string
+  multi?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -1750,6 +1767,7 @@ function MultiSearchableDropdown({
                   type="button"
                   onClick={() => {
                     onToggle(option.value)
+                    if (multi === false) setOpen(false)
                   }}
                   className={cn(
                     'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition',
@@ -1759,7 +1777,7 @@ function MultiSearchableDropdown({
                   )}
                 >
                   <span>{option.label}</span>
-                  {values.includes(option.value) ? <span className="text-xs font-semibold">Selected</span> : null}
+                  {values.includes(option.value) ? <span className="text-xs font-semibold">{multi ? 'Selected' : ''}</span> : null}
                 </button>
               ))
             )}
