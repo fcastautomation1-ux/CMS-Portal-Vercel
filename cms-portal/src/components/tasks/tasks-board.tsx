@@ -258,6 +258,15 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     }
   }, [currentUsername, queryClient])
 
+  // On mount: always do a silent refresh so the board matches the sidebar counts.
+  // refetchOnMount:false + staleTime:60s means React Query won't auto-refetch, but
+  // the sidebar uses a live server action so counts can diverge. This one-shot fetch
+  // keeps them in sync without showing a loading spinner.
+  useEffect(() => {
+    void refresh(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally empty — only run once on mount
+
   useEffect(() => {
     const scheduleRefresh = () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
