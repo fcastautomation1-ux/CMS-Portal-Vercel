@@ -214,7 +214,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         }
       }
     }
-    return task.completed || task.task_status === 'done'
+    return task.completed || task.task_status === 'done' ||
+      // User C's step: their completion was approved by User B (completed_by = them, not currently pending)
+      ((task.completed_by || '').toLowerCase() === username.toLowerCase() &&
+        task.approval_status !== 'pending_approval' &&
+        (task.assigned_to || '').toLowerCase() !== username.toLowerCase())
   }, [])
 
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

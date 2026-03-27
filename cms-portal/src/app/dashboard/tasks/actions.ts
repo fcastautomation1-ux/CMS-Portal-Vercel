@@ -832,7 +832,11 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
         }
       }
     }
-    return task.completed || task.task_status === 'done'
+    return task.completed || task.task_status === 'done' ||
+      // User's step was completed and approved by an intermediate approver
+      (task.completed_by?.toLowerCase() === userLower &&
+        task.approval_status !== 'pending_approval' &&
+        (task.assigned_to || '').toLowerCase() !== userLower)
   }
 
   return {
@@ -1237,6 +1241,14 @@ export async function saveTodoAction(
         role: input.routing === 'department' ? 'auto_assigned_by_package' : 'assignee',
         assignedAt: now,
         next_user: assignedTo,
+      })
+    } else if (input.routing === 'department' && queueDept) {
+      // Queue fallback — record the routing in the chain so the dept node appears in the Assignment Flow
+      assignmentChain.push({
+        user: user.username,
+        role: 'routed_to_department_queue',
+        assignedAt: now,
+        next_user: queueDept,
       })
     }
     if (managerId && managerId !== assignedTo) {
@@ -1761,15 +1773,13 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     updatePayload.approval_sla_due_at = addHoursIso(now, 48)
     updatePayload.workflow_state = 'submitted_for_approval'
   } else {
-    // Check if approver is themselves an intermediate in the chain (has their own parent above them).
-    // If yes, return the task to the approver so they can submit upward — don't mark as fully complete.
+    // If approver is NOT the task creator, they are intermediate in the chain.
+    // Return the task to them so they can submit their own work upward.
+    // Keep completed_by intact so User C can still see their step as completed.
     const isCreator = String(task.username || '').toLowerCase() === user.username.toLowerCase()
-    const approverParent = !isCreator ? findAssignmentStepOwner(task, user.username) : null
-    if (approverParent && approverParent.toLowerCase() !== user.username.toLowerCase()) {
-      // Return task to approver for them to submit to their own parent
+    if (!isCreator) {
       updatePayload.completed = false
-      updatePayload.completed_at = null
-      updatePayload.completed_by = null
+      // DO NOT clear completed_by — preserves User C's completion so they see their step as done
       updatePayload.task_status = 'in_progress'
       updatePayload.approval_status = 'approved'
       updatePayload.pending_approver = null
@@ -1780,7 +1790,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
       updatePayload.workflow_state = 'in_progress'
       updatePayload.assigned_to = user.username
     } else {
-      // Approver is the final authority (task creator) — mark complete
+      // Creator approved — task is fully complete
       updatePayload.completed = true
       updatePayload.completed_at = now
       updatePayload.approval_status = 'approved'
