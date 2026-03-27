@@ -153,6 +153,18 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const parentRef = useRef<HTMLDivElement>(null)
   const [activeTask, setActiveTask] = useState<Todo | null>(null)
 
+
+  useEffect(() => {
+    const id = searchParams.get('id')
+    if (id) {
+      setSelectedTaskId(id)
+    }
+    const create = searchParams.get('create') === 'true'
+    if (create) {
+      setShowCreate(true)
+    }
+  }, [searchParams])
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })

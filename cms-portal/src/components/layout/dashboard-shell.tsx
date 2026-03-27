@@ -67,7 +67,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <DeploymentWatcher />
       <PortalWarmup user={user} />
-      <CommandPalette />
+      <CommandPalette user={user} />
       <Sidebar
         user={user}
         mobileOpen={mobileNavOpen}

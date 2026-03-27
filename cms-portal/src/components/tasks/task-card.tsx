@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useTransition, type ReactNode } from 'react'
+import { useState, useTransition, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import type { Todo, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -43,9 +43,13 @@ import {
   getUsersForAssignment,
   createTaskAttachmentUploadUrlAction,
   saveTodoAttachmentAction,
+  getTodoDetails,
+  addCommentAction,
 } from '@/app/dashboard/tasks/actions'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 const TaskHandoffDialog = dynamic(
   () => import('@/components/tasks/task-handoff-dialog').then((mod) => mod.TaskHandoffDialog),
@@ -737,14 +741,43 @@ export function TaskCard({
     if (aExisting !== bExisting) return aExisting - bExisting
     return a.username.localeCompare(b.username)
   })
-  const doAction = (fn: () => Promise<{ success: boolean; error?: string }>) => {
+  const queryClient = useQueryClient()
+
+  const prefetchTaskDetail = useCallback(() => {
+    queryClient.prefetchQuery({
+      queryKey: queryKeys.taskDetail(task.id),
+      queryFn: () => getTodoDetails(task.id),
+      staleTime: 30_000,
+    })
+  }, [queryClient, task.id])
+
+  const doAction = (
+    fn: () => Promise<{ success: boolean; error?: string }>,
+    optimisticData?: Partial<Todo>
+  ) => {
     setActionError('')
+    
+    // Optimistic Update
+    if (optimisticData) {
+      const queryKey = queryKeys.tasks(currentUsername)
+      const previousTasks = queryClient.getQueryData<Todo[]>(queryKey)
+      
+      if (previousTasks) {
+        queryClient.setQueryData<Todo[]>(queryKey, (old) => {
+          if (!old) return old
+          return old.map(t => t.id === task.id ? { ...t, ...optimisticData } : t)
+        })
+      }
+    }
+
     startTransition(async () => {
       const result = await fn()
       if (result.success) {
         onRefresh()
       } else {
+        // Rollback on error handled by onRefresh or manual logic if needed
         setActionError(result.error ?? 'Action failed. Please try again.')
+        onRefresh() // Ensure state is synced with server
       }
     })
   }
@@ -958,6 +991,7 @@ export function TaskCard({
   if (compact) {
     return (
       <div
+        onMouseEnter={prefetchTaskDetail}
         className={cn(
           'overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition-all hover:border-blue-300 hover:shadow-sm cursor-pointer',
           isPending && 'pointer-events-none opacity-60',
@@ -999,7 +1033,9 @@ export function TaskCard({
 
   return (
     <>
-    <div className={cn(
+    <div 
+      onMouseEnter={prefetchTaskDetail}
+      className={cn(
       'group/row relative flex overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_12px_28px_rgba(15,23,42,0.06)] transition-all',
       'flex-col md:flex-row',
       isPending && 'pointer-events-none opacity-60',
@@ -1095,9 +1131,9 @@ export function TaskCard({
 
           {hasActions && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id))} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
-              {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id))} color="blue" disabled={isPending}>Start Work</ActBtn>}
-              {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id))} color="violet" disabled={isPending}>Pick Task</ActBtn>}
+              {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
+              {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id), { task_status: 'in_progress' })} color="blue" disabled={isPending}>Start Work</ActBtn>}
+              {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id), { assigned_to: currentUsername, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
               {showReassignBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1422,7 +1458,7 @@ export function TaskCard({
             )}
             {showClaimBtn && (
               <button
-                onClick={() => doAction(() => claimQueuedTaskAction(task.id))}
+                onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })}
                 className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-violet-700"
               >
                 Pick Task

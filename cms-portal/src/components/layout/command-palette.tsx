@@ -1,10 +1,13 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Command, Plus, Home, Settings, LogOut, X, ArrowRight, User, Terminal } from 'lucide-react'
+import { Search, Command, Plus, Home, Settings, LogOut, X, ArrowRight, User, Terminal, ListChecks } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/cn'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
+import { Todo, SessionUser } from '@/types'
 
 interface CommandItem {
   id: string
@@ -15,24 +18,59 @@ interface CommandItem {
   shortcut?: string
 }
 
-export function CommandPalette() {
+interface CommandPaletteProps {
+  user: SessionUser
+}
+
+export function CommandPalette({ user }: CommandPaletteProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const router = useRouter()
   const listRef = useRef<HTMLDivElement>(null)
+  
+  const queryClient = useQueryClient()
+  
+  const activeTasks = useMemo(() => {
+    // We update this on every open to ensure fresh search results
+    const tasks = queryClient.getQueryData<Todo[]>(queryKeys.tasks(user.username)) || []
+    return tasks
+      .filter(t => !t.completed)
+      .slice(0, 10) // Show up to 10 active tasks in search
+  }, [queryClient, user.username, isOpen])
 
-  const commands: CommandItem[] = [
-    { id: 'home', label: 'Go to Dashboard', icon: <Home size={16} />, action: () => router.push('/dashboard'), category: 'Navigation', shortcut: 'G D' },
-    { id: 'tasks', label: 'View Tasks', icon: <Terminal size={16} />, action: () => router.push('/dashboard/tasks'), category: 'Navigation', shortcut: 'G T' },
-    { id: 'create-task', label: 'Create New Task', icon: <Plus size={16} />, action: () => { setIsOpen(false); /* Trigger dashboard create modal if possible */ }, category: 'Actions', shortcut: 'C T' },
-    { id: 'profile', label: 'Profile Settings', icon: <User size={16} />, action: () => router.push('/dashboard/profile'), category: 'Account' },
-    { id: 'logout', label: 'Logout', icon: <LogOut size={16} />, action: () => router.push('/logout'), category: 'Account' },
-  ]
+  const commands = useMemo(() => {
+    const items: CommandItem[] = [
+      { id: 'home', label: 'Go to Dashboard', icon: <Home size={16} />, action: () => router.push('/dashboard'), category: 'Navigation', shortcut: 'G D' },
+      { id: 'tasks', label: 'View All Tasks', icon: <ListChecks size={16} />, action: () => router.push('/dashboard/tasks'), category: 'Navigation', shortcut: 'G T' },
+      { id: 'create-task', label: 'Create New Task', icon: <Plus size={16} />, action: () => { 
+          setIsOpen(false)
+          router.push('/dashboard/tasks?create=true')
+        }, category: 'Actions', shortcut: 'C T' },
+      { id: 'profile', label: 'Profile Settings', icon: <User size={16} />, action: () => router.push('/dashboard/profile'), category: 'Account' },
+      { id: 'logout', label: 'Logout', icon: <LogOut size={16} />, action: () => router.push('/logout'), category: 'Account' },
+    ]
 
-  const filteredCommands = commands.filter(cmd => 
-    cmd.label.toLowerCase().includes(search.toLowerCase()) || 
-    cmd.category.toLowerCase().includes(search.toLowerCase())
+    // Add active tasks to results
+    activeTasks.forEach(task => {
+      items.push({
+        id: `task-${task.id}`,
+        label: task.title,
+        icon: <Terminal size={14} className="text-blue-500" />,
+        category: 'In Progress Tasks',
+        action: () => router.push(`/dashboard/tasks?id=${task.id}`)
+      })
+    })
+
+    return items
+  }, [router, activeTasks])
+
+  const filteredCommands = useMemo(() => 
+    commands.filter(cmd => 
+      cmd.label.toLowerCase().includes(search.toLowerCase()) || 
+      cmd.category.toLowerCase().includes(search.toLowerCase())
+    ),
+    [commands, search]
   )
 
   useEffect(() => {
