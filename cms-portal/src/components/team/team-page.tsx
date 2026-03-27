@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox } from 'lucide-react'
+import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
@@ -46,6 +46,9 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const [deptFilter, setDeptFilter] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
   const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
+  const [showDeptQueueModal, setShowDeptQueueModal] = useState(false)
+  const [modalDeptSearch, setModalDeptSearch] = useState('')
+  const [selectedQueueDept, setSelectedQueueDept] = useState('')
   const [, startTransition] = useTransition()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -92,6 +95,23 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     }),
     [members, tasks]
   )
+
+  const queueByDept = useMemo(() => {
+    const map: Record<string, number> = {}
+    tasks.forEach((task) => {
+      if (task.queue_status === 'queued' && task.queue_department) {
+        map[task.queue_department] = (map[task.queue_department] || 0) + 1
+      }
+    })
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [tasks])
+
+  const filteredModalDepts = useMemo(() => {
+    if (!modalDeptSearch.trim()) return queueByDept
+    const q = modalDeptSearch.toLowerCase()
+    return queueByDept.filter(([dept]) => dept.toLowerCase().includes(q))
+  }, [queueByDept, modalDeptSearch])
+
 
   const filtered = useMemo(() => {
     let list = members
@@ -295,8 +315,113 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                 <option key={member} value={member}>{member}</option>
               ))}
             </select>
+            <button
+              onClick={() => {
+                setModalDeptSearch('')
+                setSelectedQueueDept('')
+                setShowDeptQueueModal(true)
+              }}
+              className="flex h-10 items-center gap-2 rounded-lg border border-[#0ea5e9] bg-[#f0f9ff] px-4 text-sm font-semibold text-[#0284c7] transition-all hover:bg-[#e0f2fe]"
+            >
+              <Inbox size={15} />
+              Dept Queue
+            </button>
           </div>
         </div>
+
+        {showDeptQueueModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 pt-[10vh] backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between bg-[#0EA5E9] p-5 text-white">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center rounded-lg bg-white/20 p-2">
+                    <Building2 size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold leading-tight">Select Department</h2>
+                    <p className="text-xs font-medium text-white/80">View queued tasks and assign</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDeptQueueModal(false)}
+                  className="rounded-lg bg-white/10 p-1.5 transition-colors hover:bg-white/20"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex flex-col overflow-hidden p-5">
+                <h3 className="mb-2 text-[10px] font-bold tracking-wider text-slate-500 uppercase">Search</h3>
+                <div className="relative mb-5">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={modalDeptSearch}
+                    onChange={(e) => setModalDeptSearch(e.target.value)}
+                    placeholder="Type to search..."
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm outline-none transition-colors focus:border-[#0EA5E9] focus:ring-2 focus:ring-[#0EA5E9]/10"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2" style={{ maxHeight: '35vh' }}>
+                  {filteredModalDepts.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-slate-500">
+                      No departments found in queue.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredModalDepts.map(([dept, count]) => {
+                        const isSelected = selectedQueueDept === dept
+                        return (
+                          <div
+                            key={dept}
+                            onClick={() => setSelectedQueueDept(dept)}
+                            className={cn(
+                              'flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-all hover:bg-slate-50',
+                              isSelected ? 'border-[#0EA5E9] bg-[#f0f9ff]' : 'border-slate-200'
+                            )}
+                          >
+                            <label className="flex cursor-pointer items-center gap-3">
+                              <div className="flex items-center justify-center h-4 w-4 rounded-full border border-slate-300 bg-white">
+                                {isSelected && <div className="h-2 w-2 rounded-full bg-[#0EA5E9]" />}
+                              </div>
+                              <span className="text-sm font-semibold text-slate-700">{dept}</span>
+                            </label>
+                            <span className="rounded-full bg-[#0EA5E9] px-2.5 py-0.5 text-[11px] font-bold text-white">
+                              {count} queued
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/50 p-4">
+                <button
+                  type="button"
+                  onClick={() => setShowDeptQueueModal(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedQueueDept}
+                  onClick={() => {
+                    setDeptFilter(selectedQueueDept)
+                    router.replace('/dashboard/team?scope=tasks_queue', { scroll: false })
+                    setShowDeptQueueModal(false)
+                  }}
+                  className="rounded-xl bg-[#0EA5E9] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-[#0284c7] disabled:opacity-50"
+                >
+                  Open Queue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isTaskScope ? (
           filteredTasks.length === 0 ? (
