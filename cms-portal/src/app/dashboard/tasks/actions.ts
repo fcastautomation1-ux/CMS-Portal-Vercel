@@ -767,7 +767,7 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     .map((dept) => canonicalDepartmentKey(dept))
     .filter(Boolean)
 
-  const [ownedRes, assignedRes, completedByRes, deptQueueRes, maRes] = await Promise.all([
+  const [ownedRes, assignedRes, completedByRes, deptQueueRes, maRes, managedRes] = await Promise.all([
     supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('username', user.username),
     supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('assigned_to', user.username),
     supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('completed_by', user.username),
@@ -778,6 +778,8 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
       .or('assigned_to.is.null,assigned_to.eq.'),
     supabase.from('todos').select(SIDEBAR_TASK_SELECT)
       .contains('multi_assignment', { assignees: [{ username: user.username }] }),
+    supabase.from('todos').select(SIDEBAR_TASK_SELECT).eq('archived', false)
+      .ilike('manager_id', `%${user.username}%`),
   ])
 
   const taskMap = new Map<string, Todo>()
@@ -806,6 +808,9 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     }
   })
   ;(maRes.data || []).forEach((row: Record<string, unknown>) => {
+    addTask(row)
+  })
+  ;(managedRes.data || []).forEach((row: Record<string, unknown>) => {
     addTask(row)
   })
 
@@ -3035,7 +3040,7 @@ export async function sendTaskToDepartmentQueueAction(
 
     await supabase.from('todos').update({
       assigned_to: autoRoute.username,
-      manager_id: null,
+      manager_id: user.username,
       queue_department: targetDepartment,
       queue_status: 'auto_assigned',
       task_status: 'backlog',
@@ -3089,7 +3094,7 @@ export async function sendTaskToDepartmentQueueAction(
       })
       await supabase.from('todos').update({
         assigned_to: null,
-        manager_id: null,
+        manager_id: user.username,
         queue_department: targetDepartment,
         queue_status: 'queued',
         task_status: 'backlog',
@@ -3147,7 +3152,7 @@ export async function sendTaskToDepartmentQueueAction(
       await supabase.from('todos').update({
         multi_assignment: JSON.stringify(autoMa),
         assigned_to: null,
-        manager_id: null,
+        manager_id: user.username,
         queue_department: targetDepartment,
         queue_status: 'auto_assigned',
         task_status: 'backlog',
@@ -3200,7 +3205,7 @@ export async function sendTaskToDepartmentQueueAction(
 
     await supabase.from('todos').update({
       assigned_to: null,
-      manager_id: null,
+      manager_id: user.username,
       queue_department: targetDepartment,
       queue_status: 'queued',
       task_status: 'backlog',
