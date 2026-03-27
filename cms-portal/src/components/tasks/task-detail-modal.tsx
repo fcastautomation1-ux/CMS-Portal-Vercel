@@ -1004,7 +1004,6 @@ export function TaskDetailModal({
           mime_type: file.type || null,
           storage_path: signedUpload.path,
         })
-
         if (!saved.success) throw new Error(saved.error ?? `Failed to attach ${file.name}`)
       })
 
@@ -1019,17 +1018,20 @@ export function TaskDetailModal({
   }
 
   if (loading) return (
-    <DrawerShell onClose={onClose}>
-      <div className="flex items-center justify-center h-64">
-        <Loader2 size={28} className="animate-spin text-blue-400" />
+    <ModalShell onClose={onClose}>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={32} className="animate-spin text-blue-500" />
+          <p className="text-sm font-semibold text-slate-500">Loading task data...</p>
+        </div>
       </div>
-    </DrawerShell>
+    </ModalShell>
   )
 
   if (!details) return (
-    <DrawerShell onClose={onClose}>
-      <div className="flex items-center justify-center h-64 text-slate-400">Task not found.</div>
-    </DrawerShell>
+    <ModalShell onClose={onClose}>
+      <div className="flex items-center justify-center min-h-[400px] text-slate-400 font-medium">Task details not found.</div>
+    </ModalShell>
   )
 
   const t = details
@@ -1406,7 +1408,7 @@ export function TaskDetailModal({
   ] as const
 
   return (
-    <DrawerShell onClose={onClose}>
+    <ModalShell onClose={onClose}>
       {/* ── Colour accent bar ── */}
       <div className={cn('h-1.5 w-full rounded-t-2xl', sm.dot)} />
 
@@ -2295,7 +2297,7 @@ export function TaskDetailModal({
         }}
         onConfirm={() => { void confirmDeleteAttachment() }}
       />
-    </DrawerShell>
+    </ModalShell>
   )
 }
 
@@ -2407,28 +2409,27 @@ function CompletionFileInput({ files, onChange }: { files: File[]; onChange: (fi
   )
 }
 
-function DrawerShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-end overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10 overflow-hidden">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-slate-950/20 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-slate-950/60 backdrop-blur-md"
       />
       <motion.div
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-        className="relative z-50 flex h-full w-full flex-col bg-white shadow-[-20px_0_80px_rgba(0,0,0,0.15)] outline-none sm:w-[550px] md:w-[650px] lg:w-[850px] xl:w-[950px]"
+        initial={{ opacity: 0, scale: 0.9, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 30 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+        className="relative z-50 flex h-full max-h-[92vh] w-full max-w-6xl flex-col bg-white rounded-[32px] shadow-[0_32px_100px_rgba(0,0,0,0.3)] outline-none overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close button at top-right of drawer */}
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 z-[60] flex h-10 w-10 items-center justify-center rounded-full bg-white/80 text-slate-400 backdrop-blur-sm transition-all hover:bg-slate-50 hover:text-slate-600 active:scale-95 shadow-sm border border-slate-100"
+          className="absolute right-6 top-6 z-[60] flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 text-slate-400 transition-all hover:bg-slate-100 hover:text-slate-600 active:scale-95 shadow-sm border border-slate-100"
         >
           <X size={20} />
         </button>

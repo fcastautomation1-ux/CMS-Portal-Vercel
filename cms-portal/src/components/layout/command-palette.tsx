@@ -53,11 +53,19 @@ export function CommandPalette({ user }: CommandPaletteProps) {
 
     // Add active tasks to results
     activeTasks.forEach(task => {
+      const isCreator = task.username.toLowerCase() === user.username.toLowerCase()
+      const isAssignee = task.assigned_to?.toLowerCase() === user.username.toLowerCase()
+      
+      let roleLabel = 'Active Task'
+      if (isCreator && isAssignee) roleLabel = 'My Task'
+      else if (isCreator) roleLabel = 'Created by Me'
+      else if (isAssignee) roleLabel = 'Assigned to Me'
+
       items.push({
         id: `task-${task.id}`,
         label: task.title,
         icon: <Terminal size={14} className="text-blue-500" />,
-        category: 'In Progress Tasks',
+        category: roleLabel,
         action: () => router.push(`/dashboard/tasks?id=${task.id}`)
       })
     })
@@ -226,7 +234,7 @@ export function CommandPalette({ user }: CommandPaletteProps) {
                 <span className="flex items-center gap-1.5"><ArrowRight size={10} className="rotate-180"/> Navigate</span>
                 <span className="flex items-center gap-1.5"><kbd className="bg-slate-200 px-1 rounded">esc</kbd> Close</span>
               </div>
-              <div className="italic font-medium">Powered by Antigravity</div>
+              <div className="italic font-medium">Portal Operations Console</div>
             </div>
           </motion.div>
         </div>

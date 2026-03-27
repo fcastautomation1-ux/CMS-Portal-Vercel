@@ -135,7 +135,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const [loading, setLoading] = useState(false)
+  const isAdmin = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+
   const [, startTransition] = useTransition()
   const refreshTimerRef = useRef<number | null>(null)
 
@@ -257,7 +258,9 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     refetchOnMount: false,
   })
 
-  const tasks = tasksQuery.data ?? initialTasks
+  const { data: rawTasks = [], isLoading: queryLoading, isFetching: queryFetching } = tasksQuery
+  const loading = queryLoading || queryFetching || addTaskPending
+  const tasks = rawTasks as Todo[]
   const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
   const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
@@ -343,34 +346,20 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     router.replace(`/dashboard/tasks?scope=${quickFilter}&status=${nextStatus}`, { scroll: false })
   }, [quickFilter, router])
 
-  const refresh = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
-    const [ft, overdue] = await Promise.all([
-      getTodos().catch(() => [] as Todo[]),
-      getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
-    ])
-    queryClient.setQueryData(queryKeys.tasks(currentUsername), ft)
-    queryClient.setQueryData(['task-overdue-approvals', currentUsername], overdue)
-    if (!silent) {
-      setLoading(false)
-      setSelected(new Set())
-    }
-  }, [currentUsername, queryClient])
+  const refresh = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.tasks(currentUsername) })
+    await queryClient.invalidateQueries({ queryKey: ['task-overdue-approvals', currentUsername] })
+  }, [queryClient, currentUsername])
 
-  // On mount: always do a silent refresh so the board matches the sidebar counts.
-  // refetchOnMount:false + staleTime:60s means React Query won't auto-refetch, but
-  // the sidebar uses a live server action so counts can diverge. This one-shot fetch
-  // keeps them in sync without showing a loading spinner.
   useEffect(() => {
-    void refresh(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally empty — only run once on mount
+    void refresh()
+  }, []) 
 
   useEffect(() => {
     const scheduleRefresh = () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
-        void refresh(true)
+        void refresh()
       }, 250)
     }
 
@@ -426,7 +415,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // Silent fallback polling every 5 mins to save Vercel serverless costs
     // Real-time patching via WebSockets makes frequent polling obsolete.
     const pollingInterval = window.setInterval(() => {
-      if (!document.hidden) void refresh(true)
+      if (!document.hidden) void refresh()
     }, 300_000)
 
     return () => {

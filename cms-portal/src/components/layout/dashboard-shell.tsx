@@ -8,6 +8,8 @@ import { DeploymentWatcher } from '@/components/layout/deployment-watcher'
 import { PortalWarmup } from '@/components/layout/portal-warmup'
 import { CommandPalette } from '@/components/layout/command-palette'
 import { saveThemePreference } from '@/app/dashboard/profile/actions'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface DashboardShellProps {
   user: SessionUser
@@ -54,6 +56,17 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     saveThemePreference(next).catch(() => { })
   }, [theme])
 
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [isNavigating, setIsNavigating] = useState(false)
+
+  // Trigger brief progress bar on ANY navigation / param change
+  useEffect(() => {
+    setIsNavigating(true)
+    const t = setTimeout(() => setIsNavigating(false), 800)
+    return () => clearTimeout(t)
+  }, [pathname, searchParams])
+
   const handleCollapsedChange = useCallback((val: boolean) => {
     setSidebarCollapsed(val)
     localStorage.setItem('cms_sidebar_collapsed', val ? 'true' : 'false')
@@ -95,6 +108,17 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
         style={{ marginLeft: `max(0px, ${mainMargin})` }}
       >
         <div className="p-3 sm:p-4 md:p-5 md:ml-0" style={{ marginLeft: 0 }}>
+          <AnimatePresence>
+            {isNavigating && (
+              <motion.div
+                initial={{ width: '0%', opacity: 1 }}
+                animate={{ width: '100%', opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.5, ease: 'easeIn' }}
+                className="fixed top-0 left-0 h-1 z-[100] bg-gradient-to-r from-blue-500 via-blue-400 to-indigo-500 ring-1 ring-blue-300 shadow-[0_2px_10px_rgba(59,130,246,0.5)]"
+              />
+            )}
+          </AnimatePresence>
           {children}
         </div>
       </main>
