@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
 import { DeploymentWatcher } from '@/components/layout/deployment-watcher'
 import { PortalWarmup } from '@/components/layout/portal-warmup'
+import { CommandPalette } from '@/components/layout/command-palette'
 import { saveThemePreference } from '@/app/dashboard/profile/actions'
 
 interface DashboardShellProps {
@@ -66,6 +67,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <DeploymentWatcher />
       <PortalWarmup user={user} />
+      <CommandPalette />
       <Sidebar
         user={user}
         mobileOpen={mobileNavOpen}

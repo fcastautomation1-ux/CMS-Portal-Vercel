@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useState, useTransition, useCallback, useEffect, useMemo, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
   MessageCircle,
@@ -1018,17 +1019,17 @@ export function TaskDetailModal({
   }
 
   if (loading) return (
-    <ModalShell onClose={onClose}>
+    <DrawerShell onClose={onClose}>
       <div className="flex items-center justify-center h-64">
         <Loader2 size={28} className="animate-spin text-blue-400" />
       </div>
-    </ModalShell>
+    </DrawerShell>
   )
 
   if (!details) return (
-    <ModalShell onClose={onClose}>
+    <DrawerShell onClose={onClose}>
       <div className="flex items-center justify-center h-64 text-slate-400">Task not found.</div>
-    </ModalShell>
+    </DrawerShell>
   )
 
   const t = details
@@ -1405,7 +1406,7 @@ export function TaskDetailModal({
   ] as const
 
   return (
-    <ModalShell onClose={onClose}>
+    <DrawerShell onClose={onClose}>
       {/* ── Colour accent bar ── */}
       <div className={cn('h-1.5 w-full rounded-t-2xl', sm.dot)} />
 
@@ -2294,7 +2295,7 @@ export function TaskDetailModal({
         }}
         onConfirm={() => { void confirmDeleteAttachment() }}
       />
-    </ModalShell>
+    </DrawerShell>
   )
 }
 
@@ -2406,17 +2407,37 @@ function CompletionFileInput({ files, onChange }: { files: File[]; onChange: (fi
   )
 }
 
-function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function DrawerShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6" onClick={onClose}>
-      <div className="rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl"
-        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-        onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex justify-end overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-slate-950/20 backdrop-blur-[2px]"
+      />
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+        className="relative z-50 flex h-full w-full flex-col bg-white shadow-[-20px_0_80px_rgba(0,0,0,0.15)] outline-none sm:w-[550px] md:w-[650px] lg:w-[850px] xl:w-[950px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button at top-right of drawer */}
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 z-[60] flex h-10 w-10 items-center justify-center rounded-full bg-white/80 text-slate-400 backdrop-blur-sm transition-all hover:bg-slate-50 hover:text-slate-600 active:scale-95 shadow-sm border border-slate-100"
+        >
+          <X size={20} />
+        </button>
         {children}
-      </div>
+      </motion.div>
     </div>
   )
 }
+
 
 function MetaCard({
   icon, label, value, sub, accent,

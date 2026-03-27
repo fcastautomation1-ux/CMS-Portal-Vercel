@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition, useCallback, useMemo, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { ChangeEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -38,6 +39,29 @@ import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-na
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { TaskCard } from './task-card'
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { TaskSkeleton, KanbanSkeleton } from './task-skeleton'
+import { TaskDetailModal } from './task-detail-modal'
+import {
   getTodos,
   deleteTodoAction,
   archiveTodoAction,
@@ -47,6 +71,7 @@ import {
   getDepartmentsForTaskForm,
   duplicateTodoAction,
   getSingleTaskLiveUpdateAction,
+  updateTaskStatusAction,
 } from '@/app/dashboard/tasks/actions'
 
 const CreateTaskModal = dynamic(
@@ -122,8 +147,59 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const [showCreate, setShowCreate] = useState(false)
   const [addTaskPending, setAddTaskPending] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [, setShareTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const parentRef = useRef<HTMLDivElement>(null)
+  const [activeTask, setActiveTask] = useState<Todo | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event
+    const task = filteredTasks.find((t) => t.id === active.id)
+    if (task) setActiveTask(task)
+  }
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveTask(null)
+    const { active, over } = event
+    if (!over) return
+
+    const activeId = active.id.toString()
+    const overId = over.id.toString()
+
+    const draggedTask = filteredTasks.find((t) => t.id === activeId)
+    if (!draggedTask) return
+
+    // If dropped over a column header or an empty area designated with the column key
+    let targetStatus: TaskStatus | null = null
+    if (KANBAN_COLUMNS.some((col) => col.key === overId)) {
+      targetStatus = overId as TaskStatus
+    } else {
+      const overTask = filteredTasks.find((t) => t.id === overId)
+      if (overTask) targetStatus = overTask.task_status
+    }
+
+    if (targetStatus && targetStatus !== draggedTask.task_status) {
+      // Optimistic update
+      queryClient.setQueryData(['todos', currentUsername], (old: Todo[] | undefined) => {
+        if (!old) return old
+        return old.map((t) => (t.id === activeId ? { ...t, task_status: targetStatus! } : t))
+      })
+
+      try {
+        await updateTaskStatusAction(activeId, targetStatus)
+      } catch (error) {
+        console.error('Failed to update status:', error)
+        void refresh()
+      }
+    }
+  }
+
   const [showBulkMenu, setShowBulkMenu] = useState(false)
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
   const [pendingScopeSwitch, setPendingScopeSwitch] = useState<string | null>(null)
@@ -547,6 +623,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return filteredTasks.slice(start, start + TASKS_PER_PAGE)
   }, [filteredTasks, visiblePage])
 
+  const virtualizer = useVirtualizer({
+    count: paginatedTasks.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 100,
+    overscan: 5,
+  })
+
   useEffect(() => {
     // Prefetch likely detail routes to reduce perceived navigation delay.
     paginatedTasks.slice(0, 20).forEach((task) => {
@@ -605,7 +688,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     currentUserDept,
     currentUserTeamMembers,
     onEdit: (t: Todo) => setEditTask(t),
-    onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
+    onViewDetail: (t: Todo) => setSelectedTaskId(t.id),
     onShare: (t: Todo) => setShareTask(t),
     onRefresh: refresh,
   })
@@ -824,11 +907,9 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-[#f5f7fc] px-4 py-4 sm:px-5">
+        <div ref={parentRef} className="flex-1 overflow-y-auto bg-[#f5f7fc] px-4 py-4 sm:px-5">
           {loading && (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 size={24} className="animate-spin text-blue-400" />
-            </div>
+            viewMode === 'kanban' ? <KanbanSkeleton /> : <TaskSkeleton count={10} />
           )}
 
           {!loading && filteredTasks.length === 0 && (
@@ -842,50 +923,107 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           )}
 
           {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
-            <div className="space-y-3">
-              {paginatedTasks.map((task) => (
-                <div key={task.id} className="group/row flex items-start gap-2">
-                  <button
-                    onClick={() => toggleSelect(task.id)}
-                    className="mt-5 shrink-0 text-slate-300 opacity-0 transition-opacity hover:text-[#3559d8] group-hover/row:opacity-100"
-                  >
-                    {selected.has(task.id) ? <CheckSquare size={15} className="text-blue-600 opacity-100" /> : <Square size={15} />}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <TaskCard {...cardProps(task)} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!loading && viewMode === 'kanban' && (
-            <div className="flex min-h-full gap-3 overflow-x-auto py-1">
-              {KANBAN_COLUMNS.map((col) => {
-                const colTasks = paginatedTasks.filter((t) => t.task_status === col.key)
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualItem) => {
+                const task = paginatedTasks[virtualItem.index]
+                if (!task) return null
                 return (
-                  <div key={col.key} className="w-72 flex-none">
-                    <div className="mb-2 flex items-center justify-between px-1">
-                      <div className="flex items-center gap-2">
-                        <span className={cn('h-2.5 w-2.5 rounded-full', col.dot)} />
-                        <span className="text-sm font-bold text-slate-700">{col.label}</span>
+                  <div
+                    key={virtualItem.key}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                    className="pb-3"
+                  >
+                    <div className="group/row flex items-start gap-2">
+                      <button
+                        onClick={() => toggleSelect(task.id)}
+                        className="mt-5 shrink-0 text-slate-300 opacity-0 transition-opacity hover:text-[#3559d8] group-hover/row:opacity-100"
+                      >
+                        {selected.has(task.id) ? (
+                          <CheckSquare size={15} className="text-blue-600 opacity-100" />
+                        ) : (
+                          <Square size={15} />
+                        )}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <TaskCard {...cardProps(task)} />
                       </div>
-                      <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
-                        {colTasks.length}
-                      </span>
-                    </div>
-                    <div className="min-h-32 space-y-2 rounded-xl border border-slate-200 bg-white p-2">
-                      {colTasks.map((task) => (
-                        <TaskCard key={task.id} {...cardProps(task)} compact />
-                      ))}
-                      {colTasks.length === 0 && (
-                        <div className="py-8 text-center text-xs text-slate-300">No tasks</div>
-                      )}
                     </div>
                   </div>
                 )
               })}
             </div>
+          )}
+
+          {!loading && viewMode === 'kanban' && (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="flex min-h-full gap-3 overflow-x-auto py-1">
+                {KANBAN_COLUMNS.map((col) => {
+                  const colTasks = paginatedTasks.filter((t) => t.task_status === col.key)
+                  return (
+                    <div key={col.key} className="w-72 flex-none">
+                      <div className="mb-2 flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('h-2.5 w-2.5 rounded-full', col.dot)} />
+                          <span className="text-sm font-bold text-slate-700">{col.label}</span>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
+                          {colTasks.length}
+                        </span>
+                      </div>
+                      <SortableContext
+                        id={col.key}
+                        items={colTasks.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="min-h-[150px] space-y-2 rounded-xl border border-slate-200 bg-white/50 p-2">
+                          {colTasks.map((task) => (
+                            <SortableTask key={task.id} task={task} cardProps={cardProps(task)} />
+                          ))}
+                          {colTasks.length === 0 && (
+                            <div className="py-12 text-center text-xs text-slate-300">No tasks</div>
+                          )}
+                        </div>
+                      </SortableContext>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <DragOverlay dropAnimation={{
+                sideEffects: defaultDropAnimationSideEffects({
+                  styles: {
+                    active: {
+                      opacity: '0.4',
+                    },
+                  },
+                }),
+              }}>
+                {activeTask ? (
+                  <div className="w-72 rotate-3 scale-105 shadow-2xl opacity-90 cursor-grabbing">
+                    <TaskCard {...cardProps(activeTask)} compact />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
           )}
 
           {!loading && viewMode === 'calendar' && (
@@ -934,9 +1072,26 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           onSaved={refresh}
         />
       )}
+
+      <AnimatePresence>
+        {selectedTaskId && (
+          <TaskDetailModal
+            taskId={selectedTaskId}
+            currentUsername={currentUsername}
+            currentUserRole={currentUserRole}
+            onClose={() => setSelectedTaskId(null)}
+            onEdit={(task) => {
+              setSelectedTaskId(null)
+              setEditTask(task)
+            }}
+            onRefresh={refresh}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
+
 
 function CalendarView({ tasks, onTaskClick }: { tasks: Todo[]; onTaskClick: (task: Todo) => void }) {
   const today = new Date()
@@ -1022,6 +1177,29 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Todo[]; onTaskClick: (tas
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function SortableTask({ task, cardProps }: { task: Todo; cardProps: any }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing outline-none">
+      <TaskCard {...cardProps} compact />
     </div>
   )
 }
