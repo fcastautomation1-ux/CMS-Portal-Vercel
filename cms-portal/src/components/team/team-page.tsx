@@ -319,17 +319,19 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                 <option key={member} value={member}>{member}</option>
               ))}
             </select>
-            <button
-              onClick={() => {
-                setModalDeptSearch('')
-                setSelectedQueueDept('')
-                setShowDeptQueueModal(true)
-              }}
-              className="flex h-10 items-center gap-2 rounded-lg border border-[#0ea5e9] bg-[#f0f9ff] px-4 text-sm font-semibold text-[#0284c7] transition-all hover:bg-[#e0f2fe]"
-            >
-              <Inbox size={15} />
-              Dept Queue
-            </button>
+            {scope === 'tasks_queue' && (
+              <button
+                onClick={() => {
+                  setModalDeptSearch('')
+                  setSelectedQueueDept('')
+                  setShowDeptQueueModal(true)
+                }}
+                className="flex h-10 items-center gap-2 rounded-lg border border-[#0ea5e9] bg-[#f0f9ff] px-4 text-sm font-semibold text-[#0284c7] transition-all hover:bg-[#e0f2fe]"
+              >
+                <Inbox size={15} />
+                Dept Queue
+              </button>
+            )}
           </div>
         </div>
 
