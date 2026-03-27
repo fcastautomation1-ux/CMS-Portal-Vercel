@@ -1761,15 +1761,36 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
     updatePayload.approval_sla_due_at = addHoursIso(now, 48)
     updatePayload.workflow_state = 'submitted_for_approval'
   } else {
-    updatePayload.completed = true
-    updatePayload.completed_at = now
-    updatePayload.approval_status = 'approved'
-    updatePayload.pending_approver = null
-    updatePayload.approval_requested_at = null
-    updatePayload.approval_sla_due_at = null
-    updatePayload.approved_at = now
-    updatePayload.approved_by = user.username
-    updatePayload.workflow_state = 'final_approved'
+    // Check if approver is themselves an intermediate in the chain (has their own parent above them).
+    // If yes, return the task to the approver so they can submit upward — don't mark as fully complete.
+    const isCreator = String(task.username || '').toLowerCase() === user.username.toLowerCase()
+    const approverParent = !isCreator ? findAssignmentStepOwner(task, user.username) : null
+    if (approverParent && approverParent.toLowerCase() !== user.username.toLowerCase()) {
+      // Return task to approver for them to submit to their own parent
+      updatePayload.completed = false
+      updatePayload.completed_at = null
+      updatePayload.completed_by = null
+      updatePayload.task_status = 'in_progress'
+      updatePayload.approval_status = 'approved'
+      updatePayload.pending_approver = null
+      updatePayload.approval_requested_at = null
+      updatePayload.approval_sla_due_at = null
+      updatePayload.approved_at = now
+      updatePayload.approved_by = user.username
+      updatePayload.workflow_state = 'in_progress'
+      updatePayload.assigned_to = user.username
+    } else {
+      // Approver is the final authority (task creator) — mark complete
+      updatePayload.completed = true
+      updatePayload.completed_at = now
+      updatePayload.approval_status = 'approved'
+      updatePayload.pending_approver = null
+      updatePayload.approval_requested_at = null
+      updatePayload.approval_sla_due_at = null
+      updatePayload.approved_at = now
+      updatePayload.approved_by = user.username
+      updatePayload.workflow_state = 'final_approved'
+    }
   }
 
   await supabase.from('todos').update(updatePayload).eq('id', todoId)

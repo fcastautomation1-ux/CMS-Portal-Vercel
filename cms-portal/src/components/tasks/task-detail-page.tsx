@@ -359,17 +359,39 @@ function buildWorkflowTree(task: TodoDetails): WorkflowTreeNode[] {
   }
 
   ;(task.assignment_chain || []).forEach((entry, index) => {
+    const actor = String(entry.user || '').trim()
+    const role = String(entry.role || '').trim().toLowerCase()
+
+    // claimed_from_department: actor is the claimer — show them as child of the dept node
+    if (role === 'claimed_from_department') {
+      if (!actor) return
+      const deptRouteEntry = (task.assignment_chain || []).slice(0, index).reverse()
+        .find((e) => ['routed_to_department_queue', 'queued_department'].includes(String(e.role || '').toLowerCase()))
+      const deptName = String(deptRouteEntry?.next_user || task.queue_department || '').trim()
+      const deptParentKey = deptName ? latestKeyByUser.get(deptName.toLowerCase()) : undefined
+      const parentKey = deptParentKey ?? fallbackParentKey
+      const nodeKey = `step:${index}:${actor}`
+      const isCurrentOwner = actor.toLowerCase() === (task.assigned_to || '').toLowerCase()
+      addChild(parentKey, {
+        key: nodeKey,
+        label: actor,
+        tone: isCurrentOwner && task.task_status === 'in_progress' ? 'active' : 'user',
+        status: isCurrentOwner ? (task.task_status === 'in_progress' ? 'claimed' : 'assigned') : 'claimed',
+        timestamp: entry.assignedAt ?? null,
+        avatarUrl: task.participant_avatars?.[actor] ?? null,
+        title: `${actor} claimed from ${deptName || 'department queue'}`,
+        subtitle: `Claimed from ${deptName || 'department'}`,
+        focusTarget: actor,
+      })
+      fallbackParentKey = nodeKey
+      return
+    }
+
     const target = String(entry.next_user || '').trim()
     if (!target) return
-    const actor = String(entry.user || '').trim()
     const isDepartmentStep = ['routed_to_department_queue', 'queued_department'].includes(String(entry.role || ''))
-    const role = String(entry.role || '').trim().toLowerCase()
     const status: WorkflowTreeNode['status'] =
-      role === 'claimed_from_department'
-        ? 'claimed'
-        : isDepartmentStep
-          ? 'pending'
-          : 'assigned'
+      isDepartmentStep ? 'pending' : 'assigned'
 
     // If actor is not yet in the tree (their initial assignment was stored in task.assigned_to
     // rather than in assignment_chain), auto-insert the actor as a bridge node so their target
