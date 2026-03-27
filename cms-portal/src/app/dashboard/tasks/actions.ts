@@ -793,8 +793,15 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   ;(assignedRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
   ;(completedByRes.data || []).forEach((row: Record<string, unknown>) => addTask(row))
   ;((deptQueueRes as { data: Record<string, unknown>[] | null }).data || []).forEach((row: Record<string, unknown>) => {
+    // Only add dept-queue tasks that belong to this user's department(s),
+    // OR that the user themselves created.
+    // Do NOT add all queued tasks when userDeptKeys is empty — that inflates counts
+    // for Admin/SM who have no department set.
+    const isOwner = String(row.username || '').toLowerCase() === userLower
+    if (isOwner) { addTask(row); return }
+    if (userDeptKeys.length === 0) return // admin with no dept — skip others' queue tasks
     const queueDeptKey = canonicalDepartmentKey(String(row.queue_department || ''))
-    if (userDeptKeys.length === 0 || (queueDeptKey && userDeptKeys.includes(queueDeptKey))) {
+    if (queueDeptKey && userDeptKeys.includes(queueDeptKey)) {
       addTask(row)
     }
   })
