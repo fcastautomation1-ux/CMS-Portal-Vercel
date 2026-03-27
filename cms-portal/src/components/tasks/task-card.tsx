@@ -200,12 +200,21 @@ function Badge({ label, cls }: { label: string; cls: string }) {
   )
 }
 
-function StatusDot({ status, ackNeeded }: { status: string; ackNeeded?: boolean }) {
+function StatusDot({ status, approvalStatus, ackNeeded }: { status: string; approvalStatus?: string; ackNeeded?: boolean }) {
   if (ackNeeded) {
     const cfg = { label: 'Waiting Ack', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-400' }
     return (
       <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold', cfg.cls)}>
         <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', cfg.dot)} />
+        {cfg.label}
+      </span>
+    )
+  }
+  if (approvalStatus === 'pending_approval') {
+    const cfg = { label: 'In Review', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500' }
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold', cfg.cls)}>
+        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0 animate-pulse', cfg.dot)} />
         {cfg.label}
       </span>
     )
@@ -591,7 +600,14 @@ export function TaskCard({
 
   const isCreator = task.username === currentUsername
   const isAssignee = task.assigned_to === currentUsername
-  const isCompleted = task.completed
+  
+  // User-specific completion logic
+  const isGloballyDone = task.completed || task.task_status === 'done'
+  const isMySubmission = (task.completed_by || '').toLowerCase() === currentUsername.toLowerCase()
+  const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === currentUsername.toLowerCase()
+  
+  const isCompleted = isGloballyDone || (isMySubmission && !isCurrentlyAssignedToMe)
+  
   const isPendingApproval = task.approval_status === 'pending_approval'
   const pendingApprover = task.pending_approver || task.username
 
@@ -629,7 +645,7 @@ export function TaskCard({
   const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const currentAssigneeApproved = (task.approval_status === 'approved' || !task.approval_status) && !!task.completed_by
   
-  const showCompleteBtn = !isCompleted && !isPendingApproval && (
+  const showCompleteBtn = !task.completed && !isPendingApproval && (
     ((isAssignee && !maEnabled) && task.task_status === 'in_progress') || 
     (isStepOwner && currentAssigneeApproved)
   )
@@ -908,7 +924,7 @@ export function TaskCard({
       >
         <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
         <div className="mb-2 flex items-start justify-between gap-2">
-          <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+          <StatusDot status={task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
         {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
@@ -1001,7 +1017,7 @@ export function TaskCard({
 
           {/* Row 2: Status dot + Priority badge only */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={task.task_status} ackNeeded={ackNeeded} />
+            <StatusDot status={task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
 
@@ -1328,6 +1344,9 @@ export function TaskCard({
             )}
             {maEnabled && (
               <Badge label={`${maProgress}% · ${ma.assignees.length} Assignees`} cls="bg-cyan-50 text-cyan-700 border-cyan-200" />
+            )}
+            {isPendingApproval && (
+              <Badge label="Pending Approval" cls="bg-indigo-50 text-indigo-700 border-indigo-200" />
             )}
             {task.approval_status === 'declined' && (
               <Badge label="Declined" cls="bg-red-50 text-red-600 border-red-200" />

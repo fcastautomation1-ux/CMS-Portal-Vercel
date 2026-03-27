@@ -832,11 +832,19 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
         }
       }
     }
-    return task.completed || task.task_status === 'done' ||
-      // User's step was completed and approved by an intermediate approver
-      (task.completed_by?.toLowerCase() === userLower &&
-        task.approval_status !== 'pending_approval' &&
-        (task.assigned_to || '').toLowerCase() !== userLower)
+    // A task is completed for a specific user if the task is globally completed,
+    // OR if that user was the one who submitted it (and it is no longer awaiting their action).
+    const isGloballyDone = task.completed || task.task_status === 'done'
+    const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
+    const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
+
+    // If globally done, it's done for everyone.
+    if (isGloballyDone) return true
+
+    // If I submitted it and it's not assigned back to me, it's done for me (awaiting someone else).
+    if (isMySubmission && !isCurrentlyAssignedToMe) return true
+
+    return false
   }
 
   return {
@@ -1602,7 +1610,8 @@ export async function toggleTodoCompleteAction(
         completed: false,
         approval_status: 'pending_approval',
         completed_by: user.username,
-        task_status: 'done',
+        // Keep as in_progress so it stays active in the dashboard for the chain
+        task_status: 'in_progress',
         workflow_state: 'submitted_for_approval',
         pending_approver: nextApprover,
         approval_chain: JSON.stringify(pendingChain),
@@ -1758,7 +1767,8 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
   }
 
   const updatePayload: Record<string, unknown> = {
-    task_status: 'done',
+    // Default to in_progress during the approval cycle unless it's final
+    task_status: 'in_progress',
     multi_assignment: multiAssignment ? JSON.stringify(multiAssignment) : undefined,
     history: JSON.stringify(history),
     approval_chain: JSON.stringify(approvalChain),
@@ -1793,6 +1803,7 @@ export async function approveTodoAction(todoId: string): Promise<{ success: bool
       // Creator approved — task is fully complete
       updatePayload.completed = true
       updatePayload.completed_at = now
+      updatePayload.task_status = 'done'
       updatePayload.approval_status = 'approved'
       updatePayload.pending_approver = null
       updatePayload.approval_requested_at = null

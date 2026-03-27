@@ -214,11 +214,17 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         }
       }
     }
-    return task.completed || task.task_status === 'done' ||
-      // User C's step: their completion was approved by User B (completed_by = them, not currently pending)
-      ((task.completed_by || '').toLowerCase() === username.toLowerCase() &&
-        task.approval_status !== 'pending_approval' &&
-        (task.assigned_to || '').toLowerCase() !== username.toLowerCase())
+    
+    const isGloballyDone = task.completed || task.task_status === 'done'
+    const isMySubmission = (task.completed_by || '').toLowerCase() === userLow
+    const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLow
+
+    if (isGloballyDone) return true
+    
+    // If I submitted it and it's not assigned back to me, it's done for me (awaiting someone else/approval).
+    if (isMySubmission && !isCurrentlyAssignedToMe) return true
+
+    return false
   }, [])
 
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
