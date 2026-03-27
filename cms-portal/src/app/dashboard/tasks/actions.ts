@@ -722,7 +722,7 @@ export async function getTodos(): Promise<Todo[]> {
       .contains('multi_assignment', { assignees: [{ delegated_to: [{ username: user.username }] }] }),
     // Tasks where the user appears in assignment_chain (e.g. routed to dept queue — keep visible to the router)
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
-      .contains('assignment_chain', JSON.stringify([{ user: user.username }])),
+      .contains('assignment_chain', [{ user: user.username }]),
   ])
   ;((maAssigneeRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => {
     addTask(r, { is_multi_assigned: true })
@@ -3902,10 +3902,10 @@ export async function acceptMaAssigneeAction(
   }
 
   if (allAccepted) {
-    // All sub-assignees accepted — notify the step owner (User B) to manually submit.
-    // Do NOT auto-submit to approval chain: User B should explicitly complete the task
-    // so they can optionally reassign or review before sending up the chain.
-    updatePayload.task_status = 'done'
+    // All sub-assignees accepted — put task back to in_progress so User B (step owner)
+    // sees their "Submit for Approval" button and can explicitly send it up the chain.
+    // Do NOT set task_status='done' here — that hides the completion button from User B.
+    updatePayload.task_status = 'in_progress'
     updatePayload.workflow_state = 'ma_all_accepted'
     updatePayload.completed = false
     updatePayload.completed_at = null

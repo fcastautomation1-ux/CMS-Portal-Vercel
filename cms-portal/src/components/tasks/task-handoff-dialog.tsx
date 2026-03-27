@@ -85,9 +85,10 @@ export function TaskHandoffDialog({
         user.username.toLowerCase().includes(search.toLowerCase()) ||
         (user.department || '').toLowerCase().includes(search.toLowerCase()) ||
         (user.role || '').toLowerCase().includes(search.toLowerCase())
+      // deptFilter holds the canonical key (set as option value), so compare directly
       const matchesDepartment = !deptFilter || splitDepartmentsCsv(user.department || '').some(
-        (d) => canonicalDepartmentKey(d) === canonicalDepartmentKey(deptFilter)
-      ) || (user.department || '').toLowerCase().includes(deptFilter.toLowerCase())
+        (d) => canonicalDepartmentKey(d) === deptFilter
+      )
       return matchesSearch && matchesDepartment
     })
   }, [currentAssignee, currentUsername, deptFilter, search, users])
@@ -264,7 +265,7 @@ export function TaskHandoffDialog({
                 >
                   <option value="">All Departments</option>
                   {departmentOptions.map((department) => (
-                    <option key={department} value={department}>
+                    <option key={department} value={canonicalDepartmentKey(department)}>
                       {department}
                     </option>
                   ))}

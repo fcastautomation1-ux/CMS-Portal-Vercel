@@ -165,12 +165,12 @@ export function TaskDelegateDialog({
         user.username.toLowerCase().includes(search.toLowerCase()) ||
         (user.department || '').toLowerCase().includes(search.toLowerCase()) ||
         (user.role || '').toLowerCase().includes(search.toLowerCase())
+      // deptFilter holds the canonical key (set as option value), so compare directly
       const matchesDepartment =
         !deptFilter ||
         splitDepartmentsCsv(user.department || '').some(
-          (d) => canonicalDepartmentKey(d) === canonicalDepartmentKey(deptFilter)
-        ) ||
-        (user.department || '').toLowerCase().includes(deptFilter.toLowerCase())
+          (d) => canonicalDepartmentKey(d) === deptFilter
+        )
       return matchesSearch && matchesDepartment
     })
   }, [currentUsername, deptFilter, search, users])
@@ -333,7 +333,7 @@ export function TaskDelegateDialog({
               >
                 <option value="">All Departments</option>
                 {departmentOptions.map((dept) => (
-                  <option key={dept} value={dept}>
+                  <option key={dept} value={canonicalDepartmentKey(dept)}>
                     {dept}
                   </option>
                 ))}

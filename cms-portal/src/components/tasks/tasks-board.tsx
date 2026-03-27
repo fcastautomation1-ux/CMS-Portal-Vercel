@@ -275,8 +275,16 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       scheduleRefresh
     )
 
+    // Silent fallback polling every 30s — fires only when the tab is visible.
+    // Supabase Realtime requires explicit DB replication setup; this guarantees
+    // users always see fresh data even without a websocket event.
+    const pollingInterval = window.setInterval(() => {
+      if (!document.hidden) void refresh(true)
+    }, 30_000)
+
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      window.clearInterval(pollingInterval)
       unsubscribe()
     }
   }, [currentUsername, refresh])
