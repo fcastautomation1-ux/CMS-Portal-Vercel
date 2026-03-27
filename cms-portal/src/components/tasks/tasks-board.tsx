@@ -244,23 +244,25 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     router.replace(`/dashboard/tasks?scope=${quickFilter}&status=${nextStatus}`, { scroll: false })
   }, [quickFilter, router])
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [ft, overdue] = await Promise.all([
       getTodos().catch(() => [] as Todo[]),
       getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
     ])
     queryClient.setQueryData(queryKeys.tasks(currentUsername), ft)
     queryClient.setQueryData(['task-overdue-approvals', currentUsername], overdue)
-    setLoading(false)
-    setSelected(new Set())
+    if (!silent) {
+      setLoading(false)
+      setSelected(new Set())
+    }
   }, [currentUsername, queryClient])
 
   useEffect(() => {
     const scheduleRefresh = () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
-        void refresh()
+        void refresh(true)
       }, 250)
     }
 
@@ -273,13 +275,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       scheduleRefresh
     )
 
-    // Fallback polling every 10 seconds — catches updates when Supabase Realtime
-    // is not fully configured or the websocket drops.
-    const pollingInterval = window.setInterval(() => { void refresh() }, 10_000)
-
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
-      window.clearInterval(pollingInterval)
       unsubscribe()
     }
   }, [currentUsername, refresh])
@@ -672,7 +669,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <button
-                onClick={refresh}
+                onClick={() => void refresh()}
                 disabled={loading}
                 className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
               >
