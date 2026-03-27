@@ -46,6 +46,7 @@ import {
   getUsersForAssignment,
   getDepartmentsForTaskForm,
   duplicateTodoAction,
+  getSingleTaskLiveUpdateAction,
 } from '@/app/dashboard/tasks/actions'
 
 const CreateTaskModal = dynamic(
@@ -214,13 +215,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         }
       }
     }
-    
+
     const isGloballyDone = task.completed || task.task_status === 'done'
     const isMySubmission = (task.completed_by || '').toLowerCase() === userLow
     const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLow
 
     if (isGloballyDone) return true
-    
+
     // If I submitted it and it's not assigned back to me, it's done for me (awaiting someone else/approval).
     if (isMySubmission && !isCurrentlyAssignedToMe) return true
 
@@ -291,15 +292,54 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         { table: 'todos' },
         { table: 'todo_shares', filter: `shared_with=eq.${currentUsername}` },
       ],
-      scheduleRefresh
+      (payload) => {
+        if (payload.table === 'todo_shares') {
+          scheduleRefresh()
+          return
+        }
+
+        if (payload.table === 'todos') {
+          if (payload.eventType === 'DELETE') {
+            queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (old) => {
+              if (!old) return old
+              return old.filter(t => t.id !== payload.old.id)
+            })
+          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const taskId = payload.new?.id
+            if (taskId) {
+              getSingleTaskLiveUpdateAction(taskId).then((updatedTask) => {
+                if (!updatedTask) return
+                queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (old) => {
+                  if (!old) return [updatedTask]
+                  const index = old.findIndex(t => t.id === taskId)
+                  if (index > -1) {
+                    const next = [...old]
+                    next[index] = updatedTask
+                    return next
+                  }
+                  
+                  // Sort newly inserted tasks exactly like the server
+                  return [updatedTask, ...old].sort((a, b) => {
+                    const pa = a.position || 0
+                    const pb = b.position || 0
+                    if (pa !== pb) return pa - pb
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  })
+                })
+              }).catch(() => scheduleRefresh())
+            } else {
+              scheduleRefresh()
+            }
+          }
+        }
+      }
     )
 
-    // Silent fallback polling every 30s — fires only when the tab is visible.
-    // Supabase Realtime requires explicit DB replication setup; this guarantees
-    // users always see fresh data even without a websocket event.
+    // Silent fallback polling every 5 mins to save Vercel serverless costs
+    // Real-time patching via WebSockets makes frequent polling obsolete.
     const pollingInterval = window.setInterval(() => {
       if (!document.hidden) void refresh(true)
-    }, 30_000)
+    }, 300_000)
 
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
@@ -574,37 +614,37 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-5 relative z-0">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
-          { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
-          { label: 'Pending', value: scopedKpiStats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
-          { label: 'Overdue', value: scopedKpiStats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
-          { label: 'Queue', value: scopedKpiStats.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]', kpiKey: 'queue' },
-        ].map((item) => {
-          const Icon = item.icon
-          const isActive = activeKpi === item.kpiKey
-          return (
-            <div
-              key={item.label}
-              onClick={() => applyKpiFilter(item.kpiKey)}
-              className={cn(
-                'cursor-pointer rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
-                isActive && 'border-[#3559d8] bg-[#f8fbff] shadow-[inset_0_0_0_1px_rgba(53,89,216,0.24),0_12px_24px_rgba(15,23,42,0.08)]'
-              )}
-              style={{ borderColor: isActive ? '#3559d8' : 'var(--color-border)' }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', item.bg, item.border)}>
-                  <Icon size={18} className={item.tone} />
-                </div>
-                <div className="text-right">
-                  <div className={cn('text-[28px] font-extrabold leading-none', item.tone)}>{item.value}</div>
-                  <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.label}</div>
+          {[
+            { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
+            { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
+            { label: 'Pending', value: scopedKpiStats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
+            { label: 'Overdue', value: scopedKpiStats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
+            { label: 'Queue', value: scopedKpiStats.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]', kpiKey: 'queue' },
+          ].map((item) => {
+            const Icon = item.icon
+            const isActive = activeKpi === item.kpiKey
+            return (
+              <div
+                key={item.label}
+                onClick={() => applyKpiFilter(item.kpiKey)}
+                className={cn(
+                  'cursor-pointer rounded-[18px] border bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
+                  isActive && 'border-[#3559d8] bg-[#f8fbff] shadow-[inset_0_0_0_1px_rgba(53,89,216,0.24),0_12px_24px_rgba(15,23,42,0.08)]'
+                )}
+                style={{ borderColor: isActive ? '#3559d8' : 'var(--color-border)' }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl border', item.bg, item.border)}>
+                    <Icon size={18} className={item.tone} />
+                  </div>
+                  <div className="text-right">
+                    <div className={cn('text-[28px] font-extrabold leading-none', item.tone)}>{item.value}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.label}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
         </div>
       </div>
 

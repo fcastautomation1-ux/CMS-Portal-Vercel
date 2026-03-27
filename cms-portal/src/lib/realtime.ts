@@ -1,4 +1,4 @@
-import type { RealtimeChannel } from '@supabase/supabase-js'
+import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { createBrowserClient } from '@/lib/supabase/client'
 
 type PostgresConfig = {
@@ -11,7 +11,7 @@ type PostgresConfig = {
 export function subscribeToPostgresChanges(
   channelName: string,
   configs: PostgresConfig[],
-  onChange: () => void
+  onChange: (payload: RealtimePostgresChangesPayload<any>) => void
 ) {
   const client = createBrowserClient()
   let channel: RealtimeChannel = client.channel(channelName)
@@ -25,7 +25,7 @@ export function subscribeToPostgresChanges(
         table: config.table,
         filter: config.filter,
       },
-      onChange
+      (payload) => onChange(payload)
     )
   }
 

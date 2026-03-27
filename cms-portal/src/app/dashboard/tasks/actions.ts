@@ -4630,3 +4630,67 @@ async function createNotification(
     console.error('createNotification unexpected error:', error)
   }
 }
+
+export async function getSingleTaskLiveUpdateAction(todoId: string): Promise<Todo | null> {
+  const user = await getSession()
+  if (!user) return null
+
+  const supabase = createServerClient()
+
+  const { data: allDepartments } = await supabase.from('departments').select('name')
+  const canonicalToOfficial: Record<string, string> = {}
+  ;(allDepartments || []).forEach((d) => {
+    const key = canonicalDepartmentKey(d.name)
+    if (key && !canonicalToOfficial[key]) canonicalToOfficial[key] = d.name
+  })
+
+  const { data: rawTask } = await supabase
+    .from('todos')
+    .select(TASK_LIST_SELECT)
+    .eq('id', todoId)
+    .single()
+
+  if (!rawTask) return null
+
+  const usernamesToFetch = new Set<string>()
+  const rTask = rawTask as any
+  if (rTask.username) usernamesToFetch.add(String(rTask.username))
+  if (rTask.assigned_to) usernamesToFetch.add(String(rTask.assigned_to))
+
+  const { data: usersData } = await supabase
+    .from('users')
+    .select('username, department, avatar_data')
+    .in('username', Array.from(usernamesToFetch))
+
+  const userDeptMap: Record<string, string> = {}
+  const userAvatarMap: Record<string, string | null> = {}
+  ;(usersData || []).forEach((u: any) => {
+    if (u.username && u.department) {
+      userDeptMap[String(u.username).toLowerCase()] = mapDepartmentCsvToOfficial(String(u.department), canonicalToOfficial)
+    }
+    if (u.username) {
+      userAvatarMap[String(u.username)] = String(u.avatar_data || '').trim() || null
+    }
+  })
+
+  const { data: shares } = await supabase
+    .from('todo_shares')
+    .select('id')
+    .eq('todo_id', todoId)
+    .eq('shared_with', user.username)
+
+  const t = normalizeTodo(rawTask as unknown as Record<string, unknown>, user.username)
+  t.history = []
+  t.is_shared = (shares && shares.length > 0) ? true : undefined
+  t.creator_department = userDeptMap[t.username?.toLowerCase() || ''] || null
+  t.assignee_department = userDeptMap[(t.assigned_to || '').toLowerCase()] || null
+  t.participant_avatars = Object.fromEntries(
+    Object.entries(userAvatarMap).filter(([username]) => {
+      const lower = username.toLowerCase()
+      return lower === String(t.username || '').toLowerCase() ||
+        lower === String(t.assigned_to || '').toLowerCase()
+    })
+  )
+
+  return t
+}
