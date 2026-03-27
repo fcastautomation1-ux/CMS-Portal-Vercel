@@ -155,7 +155,11 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     const today = new Date()
 
     if (deptFilter) {
-      list = list.filter((task) => (task.creator_department || task.category || '').toLowerCase() === deptFilter.toLowerCase())
+      if (scope === 'tasks_queue') {
+        list = list.filter((task) => (task.queue_department || '').toLowerCase() === deptFilter.toLowerCase())
+      } else {
+        list = list.filter((task) => (task.creator_department || task.category || '').toLowerCase() === deptFilter.toLowerCase())
+      }
     }
 
     if (memberFilter) {
