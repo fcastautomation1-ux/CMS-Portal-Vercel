@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition, useCallback, useMemo, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import type { ChangeEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -60,7 +60,6 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { TaskSkeleton, KanbanSkeleton } from './task-skeleton'
-import { TaskDetailModal } from './task-detail-modal'
 import {
   getTodos,
   deleteTodoAction,
@@ -150,7 +149,6 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const [showCreate, setShowCreate] = useState(false)
   const [addTaskPending, setAddTaskPending] = useState(false)
   const [editTask, setEditTask] = useState<Todo | null>(null)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [, setShareTask] = useState<Todo | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const parentRef = useRef<HTMLDivElement>(null)
@@ -160,13 +158,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   useEffect(() => {
     const id = searchParams.get('id')
     if (id) {
-      setSelectedTaskId(id)
+      router.push(`/dashboard/tasks/${id}`)
     }
     const create = searchParams.get('create') === 'true'
     if (create) {
       setShowCreate(true)
     }
-  }, [searchParams])
+  }, [searchParams, router])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -694,7 +692,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     currentUserTeamMemberDeptKeys,
     enableQueueAssign,
     onEdit: (t: Todo) => setEditTask(t),
-    onViewDetail: (t: Todo) => setSelectedTaskId(t.id),
+    onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),
     onRefresh: refresh,
   })
@@ -1082,21 +1080,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         />
       )}
 
-      <AnimatePresence>
-        {selectedTaskId && (
-          <TaskDetailModal
-            taskId={selectedTaskId}
-            currentUsername={currentUsername}
-            currentUserRole={currentUserRole}
-            onClose={() => setSelectedTaskId(null)}
-            onEdit={(task) => {
-              setSelectedTaskId(null)
-              setEditTask(task)
-            }}
-            onRefresh={refresh}
-          />
-        )}
-      </AnimatePresence>
+
     </div>
   )
 }
