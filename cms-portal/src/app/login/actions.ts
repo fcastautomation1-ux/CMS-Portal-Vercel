@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSession, getCookieName } from '@/lib/auth'
 import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { SessionUser, UserRole, ModuleAccess, DriveAccessLevel } from '@/types'
 
 function normalizeRole(role: unknown): UserRole {
@@ -81,13 +82,18 @@ export async function loginAction(
   const managedUsername = (user.username as string).toLowerCase()
   const { data: managedUsers } = await supabase
     .from('users')
-    .select('username')
+    .select('username, department')
     .ilike('manager_id', `%${managedUsername}%`)
-  const managedUsernames = ((managedUsers ?? []) as Array<{ username: string }>)
-    .map((u) => u.username)
-    .filter((u) => u.toLowerCase() !== managedUsername)
+  const managedUsersTyped = ((managedUsers ?? []) as Array<{ username: string; department: string | null }>)
+    .filter((u) => u.username.toLowerCase() !== managedUsername)
+  const managedUsernames = managedUsersTyped.map((u) => u.username)
 
   const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
+  const teamMemberDeptKeys = Array.from(new Set(
+    managedUsersTyped.flatMap((u) =>
+      splitDepartmentsCsv(u.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
+    )
+  ))
 
   const sessionUser: SessionUser = {
     username: user.username as string,
@@ -101,6 +107,7 @@ export async function loginAction(
     allowedLookerReports: parseCSV((user.allowed_looker_reports as string | null) ?? null),
     moduleAccess: (user.module_access as ModuleAccess) ?? null,
     teamMembers: allTeamMembers,
+    teamMemberDeptKeys,
     managerId: (user.manager_id as string | null) ?? null,
     driveAccessLevel: ((user.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((user.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,

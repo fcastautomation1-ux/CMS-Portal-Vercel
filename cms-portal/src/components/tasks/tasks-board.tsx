@@ -126,12 +126,13 @@ interface TasksBoardProps {
   currentUserRole?: string
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
+  currentUserTeamMemberDeptKeys?: string[]
   initialTasks: Todo[]
   initialScope?: QuickFilter
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -688,6 +689,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     currentUsername,
     currentUserDept,
     currentUserTeamMembers,
+    currentUserTeamMemberDeptKeys,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => setSelectedTaskId(t.id),
     onShare: (t: Todo) => setShareTask(t),

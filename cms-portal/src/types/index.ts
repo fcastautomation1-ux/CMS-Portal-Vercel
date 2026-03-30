@@ -19,6 +19,7 @@ export interface SessionUser {
   allowedLookerReports: string[]
   moduleAccess: ModuleAccess | null
   teamMembers: string[]
+  teamMemberDeptKeys: string[]
   managerId: string | null
   driveAccessLevel: DriveAccessLevel
   themePreference?: 'light' | 'dark' | null

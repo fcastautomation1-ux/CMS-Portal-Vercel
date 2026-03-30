@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
+import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { SessionUser, UserRole, ModuleAccess, DriveAccessLevel } from '@/types'
 
 const SECRET = new TextEncoder().encode(
@@ -52,13 +53,18 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
   const managedUsername = (row.username as string).toLowerCase()
   const { data: managedUsers } = await supabase
     .from('users')
-    .select('username')
+    .select('username, department')
     .ilike('manager_id', `%${managedUsername}%`)
-  const managedUsernames = ((managedUsers ?? []) as Array<{ username: string }>)
-    .map((u) => u.username)
-    .filter((u) => u.toLowerCase() !== managedUsername)
+  const managedUsersTyped = ((managedUsers ?? []) as Array<{ username: string; department: string | null }>)
+    .filter((u) => u.username.toLowerCase() !== managedUsername)
+  const managedUsernames = managedUsersTyped.map((u) => u.username)
 
   const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
+  const teamMemberDeptKeys = Array.from(new Set(
+    managedUsersTyped.flatMap((u) =>
+      splitDepartmentsCsv(u.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
+    )
+  ))
 
   return {
     username: row.username as string,
@@ -72,6 +78,7 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
     allowedLookerReports: parseCSV((row.allowed_looker_reports as string | null) ?? null),
     moduleAccess: (row.module_access as ModuleAccess) ?? null,
     teamMembers: allTeamMembers,
+    teamMemberDeptKeys,
     managerId: (row.manager_id as string | null) ?? null,
     driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,

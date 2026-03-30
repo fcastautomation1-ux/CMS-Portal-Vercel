@@ -61,6 +61,7 @@ interface TaskCardProps {
   currentUsername: string
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
+  currentUserTeamMemberDeptKeys?: string[]
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -599,6 +600,7 @@ export function TaskCard({
   currentUsername,
   currentUserDept,
   currentUserTeamMembers = [],
+  currentUserTeamMemberDeptKeys = [],
   onEdit,
   onViewDetail,
   onRefresh,
@@ -678,7 +680,11 @@ export function TaskCard({
   const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
     (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
-  const showQueueAssignBtn = showClaimBtn && queueAssignableTeamMembers.length > 0
+  // Assign button only when task's queue_dept matches supervisor's own dept OR a team member's dept
+  const teamMemberDeptKeySet = new Set(currentUserTeamMemberDeptKeys)
+  const showQueueAssignBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
+    queueDeptKey !== '' && queueAssignableTeamMembers.length > 0 &&
+    (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))
 
   // ANY user in the chain can "Assign/Reassign" if they are the current assignee
   // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
@@ -1638,21 +1644,41 @@ export function TaskCard({
             )}
           </div>
         ) : taskDialog.type === 'queue-assign' ? (
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">Team Member</span>
-            <select
-              value={dialogValue}
-              onChange={(e) => setDialogValue(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="">Select team member</option>
-              {queueAssignableTeamMembers.map((member) => (
-                <option key={member} value={member}>
-                  {member}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Select a team member</p>
+            <div className="max-h-56 space-y-1.5 overflow-y-auto pr-0.5">
+              {queueAssignableTeamMembers.map((member) => {
+                const initials = member.slice(0, 2).toUpperCase()
+                const isSelected = dialogValue === member
+                return (
+                  <button
+                    key={member}
+                    type="button"
+                    onClick={() => setDialogValue(member)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-left transition-all',
+                      isSelected
+                        ? 'border-violet-400 bg-violet-50'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300'
+                    )}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                      style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : 'linear-gradient(135deg,#94a3b8,#64748b)' }}
+                    >
+                      {initials}
+                    </div>
+                    <span className={cn('text-sm font-medium flex-1', isSelected ? 'text-violet-700' : 'text-slate-700')}>{member}</span>
+                    {isSelected && (
+                      <svg className="w-4 h-4 text-violet-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                      </svg>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         ) : taskDialog.type === 'delegate' ? (
           <div className="space-y-3">
             <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />

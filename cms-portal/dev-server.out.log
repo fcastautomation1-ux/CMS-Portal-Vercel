@@ -141,3 +141,22 @@
  ✓ Compiled in 1031ms (3861 modules)
  ✓ Compiled in 1880ms (3861 modules)
  ✓ Compiled in 902ms (3861 modules)
+ ✓ Compiled in 698ms (3861 modules)
+ ○ Compiling /api/version ...
+ ✓ Compiled /api/version in 748ms (2167 modules)
+ GET /api/version 200 in 829ms
+ ✓ Compiled in 1160ms (3861 modules)
+ POST /dashboard/team?scope=tasks_queue 200 in 1594ms
+ ✓ Compiled in 2.8s (3861 modules)
+ ✓ Compiled in 1413ms (3861 modules)
+ ✓ Compiled in 980ms (3861 modules)
+ ✓ Compiled in 2.8s (3861 modules)
+ ✓ Compiled in 1191ms (3861 modules)
+ ✓ Compiled /api/version in 464ms (2167 modules)
+ GET /api/version 200 in 551ms
+ ✓ Compiled in 1528ms (3887 modules)
+ ✓ Compiled in 1195ms (3887 modules)
+ ✓ Compiled in 1106ms (3887 modules)
+ ✓ Compiled in 1059ms (3861 modules)
+ ✓ Compiled in 1138ms (3861 modules)
+ ✓ Compiled in 2.8s (3861 modules)

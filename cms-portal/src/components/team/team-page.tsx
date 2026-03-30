@@ -89,6 +89,16 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     ].sort(),
     [members]
   )
+
+  const teamMemberDeptKeys = useMemo(
+    () => Array.from(new Set(
+      departments.map((d) => {
+        const lower = d.toLowerCase().replace(/[''`]/g, '').replace(/\bapps?\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+        return lower
+      }).filter(Boolean)
+    )),
+    [departments]
+  )
   const memberOptions = useMemo(() => [...new Set(members.map((member) => member.username))].sort(), [members])
 
   const counts = useMemo(
@@ -468,6 +478,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                       currentUsername={user?.username ?? ''}
                       currentUserDept={user?.department ?? null}
                       currentUserTeamMembers={user?.teamMembers ?? []}
+                      currentUserTeamMemberDeptKeys={teamMemberDeptKeys}
                       onEdit={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onViewDetail={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onShare={() => undefined}

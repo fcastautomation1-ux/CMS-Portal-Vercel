@@ -336,7 +336,7 @@ export async function getTeamTodos(): Promise<Todo[]> {
     async () => {
       const supabase = createServerClient()
 
-      const [usersRes, createdRes, assignedRes, maRes, deptQueueRes] = await Promise.all([
+      const [usersRes, createdRes, assignedRes, maRes, deptQueueRes, deptsRes] = await Promise.all([
         supabase.from('users').select('username, department'),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
@@ -347,7 +347,15 @@ export async function getTeamTodos(): Promise<Todo[]> {
           .eq('archived', false)
           .eq('queue_status', 'queued')
           .or('assigned_to.is.null,assigned_to.eq.'),
+        supabase.from('departments').select('name'),
       ])
+
+      // Build canonical key → official name map for queue_department normalization
+      const officialDeptNameMap = new Map<string, string>()
+      ;((deptsRes.data ?? []) as Array<{ name: string }>).forEach((d) => {
+        const key = canonicalDepartmentKey(d.name)
+        if (key && !officialDeptNameMap.has(key)) officialDeptNameMap.set(key, d.name)
+      })
 
       const deptMap = new Map<string, string | null>()
       ;(usersRes.data ?? []).forEach((row) => {
@@ -409,6 +417,11 @@ export async function getTeamTodos(): Promise<Todo[]> {
           task.assignee_department = deptMap.get((task.assigned_to || '').toLowerCase()) ?? null
           if (!task.due_date && task.expected_due_date) {
             task.due_date = task.expected_due_date
+          }
+          // Normalize queue_department to official name (fixes stale old dept names)
+          if (task.queue_department) {
+            const normalized = officialDeptNameMap.get(canonicalDepartmentKey(task.queue_department))
+            if (normalized) task.queue_department = normalized
           }
           return task
         })
