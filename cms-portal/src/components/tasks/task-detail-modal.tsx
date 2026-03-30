@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useTransition, useCallback, useEffect, useMemo, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -1472,7 +1473,7 @@ export function TaskDetailModal({
             </div>
 
             {workflowTree.length > 0 && (
-              <div className="mt-4 max-w-[420px]">
+              <div className="mt-4 max-w-full">
                 <WorkflowTree nodes={workflowTree} onNodeClick={handleWorkflowNodeClick} />
               </div>
             )}
@@ -1631,7 +1632,7 @@ export function TaskDetailModal({
         {activeTab === 'info' && (
           <div className="space-y-5">
             {/* Two-column meta grid */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <MetaCard icon={<User size={13} className="text-purple-500" />} label="Assigned To" value={assignedSummary.value} sub={assignedSummary.sub} />
               <MetaCard icon={<Building2 size={13} className="text-blue-500" />} label={`Departments (${departmentSummary.count})`} value={departmentSummary.label} />
               {t.due_date && <MetaCard icon={<Calendar size={13} className="text-orange-500" />} label="Due Date"
@@ -2318,7 +2319,7 @@ function ActionDialog({
   onConfirm: () => void
   children: React.ReactNode
 }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-[28px] border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
         <div className="mb-4">
@@ -2335,7 +2336,8 @@ function ActionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

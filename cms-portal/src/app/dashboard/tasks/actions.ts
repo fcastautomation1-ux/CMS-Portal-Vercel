@@ -70,6 +70,10 @@ const TASK_LIST_SELECT = [
   'history',
   'created_at',
   'updated_at',
+  'cluster_id',
+  'cluster_inbox',
+  'cluster_origin_id',
+  'cluster_routed_by',
 ].join(',')
 
 const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,multi_assignment'
@@ -747,6 +751,27 @@ export async function getTodos(): Promise<Todo[]> {
     addTask(r, { is_chain_member: true })
   })
 
+  // Cluster inbox tasks — visible to owners/managers/supervisors of the destination cluster
+  {
+    const { data: clusterMemberships } = await supabase
+      .from('cluster_members')
+      .select('cluster_id')
+      .eq('username', user.username)
+      .in('cluster_role', ['owner', 'manager', 'supervisor'])
+    const clusterIds = (clusterMemberships || []).map((m: Record<string, unknown>) => m.cluster_id as string).filter(Boolean)
+    if (clusterIds.length > 0) {
+      const { data: inboxTasks } = await supabase
+        .from('todos')
+        .select(TASK_LIST_SELECT)
+        .eq('archived', false)
+        .eq('cluster_inbox', true)
+        .in('cluster_id', clusterIds)
+      ;((inboxTasks || []) as unknown as Record<string, unknown>[]).forEach((r) => {
+        addTask(r, { is_cluster_inbox: true })
+      })
+    }
+  }
+
   allTasks.sort((a, b) => {
     const pa = a.position || 0
     const pb = b.position || 0
@@ -771,7 +796,7 @@ export async function getTodoStats(): Promise<TodoStats> {
 
 export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   const user = await getSession()
-  if (!user) return { all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 }
+  if (!user) return { all: 0, completed: 0, in_progress: 0, pending: 0, overdue: 0, queue: 0 }
 
   const supabase = createServerClient()
   const userLower = user.username.toLowerCase()
@@ -879,6 +904,10 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
   return {
     all: scopedTasks.length,
     completed: scopedTasks.filter((t) => isCompletedForUser(t)).length,
+    in_progress: scopedTasks.filter((t) => {
+      if (isCompletedForUser(t)) return false
+      return t.task_status === 'in_progress'
+    }).length,
     pending: scopedTasks.filter((t) => {
       if (isCompletedForUser(t)) return false
       if (t.due_date) {
@@ -907,7 +936,7 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
 const _cachedGetTodos = unstable_cache(
   async (_username: string) => getTodos(),
   ['todos-for-user'],
-  { revalidate: 30, tags: ['tasks-data'] }
+  { revalidate: 300, tags: ['tasks-data'] }
 )
 
 /** Use in server components (page.tsx) for fast initial load. Client calls use getTodos() directly. */
@@ -4694,3 +4723,299 @@ export async function getSingleTaskLiveUpdateAction(todoId: string): Promise<Tod
 
   return t
 }
+
+// ── Cross-Cluster Routing ─────────────────────────────────────────────────────
+
+/**
+ * Sends a task to another cluster's inbox.
+ * - Records the origin cluster, who routed it, and marks cluster_inbox = true
+ * - Task becomes visible to all owners/managers/supervisors in the destination cluster
+ * - Task is removed from the current assignment and placed in the cluster inbox queue
+ */
+export async function sendTaskToClusterInboxAction(
+  todoId: string,
+  destinationClusterId: string,
+  dueDate: string,
+  note?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  if (!destinationClusterId) return { success: false, error: 'Destination cluster is required.' }
+  if (!dueDate) return { success: false, error: 'Due date is required.' }
+  const parsedDue = new Date(dueDate)
+  if (Number.isNaN(parsedDue.getTime()) || parsedDue.getTime() <= Date.now()) {
+    return { success: false, error: 'Due date must be in the future.' }
+  }
+  const dueIso = parsedDue.toISOString()
+
+  const supabase = createServerClient()
+
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,task_status,completed,approval_status,title,history,assignment_chain,cluster_id')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  const isCreator = (task.username as string) === user.username
+  const isCurrentAssignee = (task.assigned_to as string) === user.username
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+
+  if (!isCreator && !isCurrentAssignee && !isAdmin) {
+    return { success: false, error: 'Only the creator, current assignee, or admin can route this task to another cluster.' }
+  }
+  if ((task.completed as boolean) === true) {
+    return { success: false, error: 'Completed tasks cannot be routed to a cluster.' }
+  }
+  if ((task.approval_status as string) === 'pending_approval') {
+    return { success: false, error: 'Task is awaiting approval and cannot be routed right now.' }
+  }
+
+  // Verify destination cluster exists
+  const { data: destCluster } = await supabase
+    .from('clusters')
+    .select('id, name')
+    .eq('id', destinationClusterId)
+    .single()
+  if (!destCluster) return { success: false, error: 'Destination cluster not found.' }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+  const originClusterId = (task.cluster_id as string | null) ?? null
+  const clusterName = (destCluster as Record<string, string>).name
+
+  // Record in assignment chain
+  assignmentChain.push({
+    user: user.username,
+    role: 'routed_to_cluster_inbox',
+    assignedAt: now,
+    next_user: clusterName,
+    feedback: note?.trim() || undefined,
+  })
+
+  history.push({
+    type: 'cluster_route',
+    user: user.username,
+    details: `${user.username} routed task to cluster inbox: ${clusterName}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+    timestamp: now,
+    icon: '🔀',
+    title: 'Sent to Cluster Inbox',
+  })
+
+  await supabase.from('todos').update({
+    cluster_id: destinationClusterId,
+    cluster_inbox: true,
+    cluster_origin_id: originClusterId,
+    cluster_routed_by: user.username,
+    assigned_to: null,
+    manager_id: null,
+    queue_status: 'cluster_inbox',
+    task_status: 'backlog',
+    workflow_state: 'queued_department',
+    due_date: dueIso,
+    expected_due_date: dueIso,
+    actual_due_date: null,
+    pending_approver: null,
+    approval_chain: JSON.stringify([]),
+    approval_requested_at: null,
+    approval_sla_due_at: null,
+    assignment_chain: JSON.stringify(assignmentChain),
+    history: JSON.stringify(history),
+    last_handoff_at: now,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  // Notify all cluster owners, managers, and supervisors of the destination cluster
+  const { data: clusterMembers } = await supabase
+    .from('cluster_members')
+    .select('username, cluster_role')
+    .eq('cluster_id', destinationClusterId)
+    .in('cluster_role', ['owner', 'manager', 'supervisor'])
+
+  if (clusterMembers && clusterMembers.length > 0) {
+    await notifyUsers(
+      supabase,
+      (clusterMembers as Array<{ username: string }>).map((m) => m.username),
+      {
+        type: 'task_cluster_inbox',
+        title: `New Task in ${clusterName} Inbox`,
+        body: `${user.username} sent "${task.title as string}" to your cluster inbox.`,
+        relatedId: todoId,
+      },
+      user.username,
+    )
+  }
+
+  revalidateTasksData()
+  emitTaskWebhook('task.updated', todoId, user.username, {
+    action: 'routed_to_cluster_inbox',
+    destination_cluster: clusterName,
+  })
+
+  return { success: true }
+}
+
+/**
+ * Claim a task from the cluster inbox — assigns it to self,
+ * removes it from inbox, puts it in regular flow within the cluster.
+ */
+export async function claimClusterInboxTaskAction(todoId: string): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  const supabase = createServerClient()
+
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,cluster_id,cluster_inbox,task_status,completed,approval_status,title,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if (!(task.cluster_inbox as boolean)) return { success: false, error: 'This task is not in a cluster inbox.' }
+  if ((task.completed as boolean) === true) return { success: false, error: 'Task is already completed.' }
+
+  // Check user is a member (owner/manager/supervisor) of the task's cluster
+  const { data: membership } = await supabase
+    .from('cluster_members')
+    .select('cluster_role')
+    .eq('cluster_id', task.cluster_id as string)
+    .eq('username', user.username)
+    .single()
+
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!membership && !isAdmin) {
+    return { success: false, error: 'You are not a member of this cluster.' }
+  }
+  if (membership && !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role) && !isAdmin) {
+    return { success: false, error: 'Only cluster owners, managers, or supervisors can claim cluster inbox tasks.' }
+  }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  assignmentChain.push({
+    user: user.username,
+    role: 'claimed_cluster_inbox',
+    assignedAt: now,
+    next_user: user.username,
+  })
+
+  history.push({
+    type: 'claimed',
+    user: user.username,
+    details: `${user.username} claimed task from cluster inbox`,
+    timestamp: now,
+    icon: '✋',
+    title: 'Claimed from Cluster Inbox',
+  })
+
+  await supabase.from('todos').update({
+    cluster_inbox: false,
+    assigned_to: user.username,
+    manager_id: user.username,
+    queue_status: 'claimed',
+    task_status: 'todo',
+    workflow_state: 'claimed_by_department',
+    assignment_chain: JSON.stringify(assignmentChain),
+    history: JSON.stringify(history),
+    last_handoff_at: now,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  revalidateTasksData()
+  return { success: true }
+}
+
+/**
+ * Assign a cluster inbox task to a specific team member.
+ * Only cluster owners/managers/supervisors can do this.
+ */
+export async function assignClusterInboxTaskAction(
+  todoId: string,
+  toUsername: string,
+  note?: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+  if (!toUsername) return { success: false, error: 'Target user is required.' }
+
+  const supabase = createServerClient()
+
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,assigned_to,cluster_id,cluster_inbox,task_status,completed,approval_status,title,history,assignment_chain')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if (!(task.cluster_inbox as boolean)) return { success: false, error: 'This task is not in a cluster inbox.' }
+  if ((task.completed as boolean) === true) return { success: false, error: 'Task is already completed.' }
+
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  if (!isAdmin) {
+    const { data: membership } = await supabase
+      .from('cluster_members')
+      .select('cluster_role')
+      .eq('cluster_id', task.cluster_id as string)
+      .eq('username', user.username)
+      .single()
+    if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
+      return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+    }
+  }
+
+  const now = new Date().toISOString()
+  const history = parseJson<HistoryEntry[]>(task.history, [])
+  const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  assignmentChain.push({
+    user: user.username,
+    role: 'assigned_from_cluster_inbox',
+    assignedAt: now,
+    next_user: toUsername,
+    feedback: note?.trim() || undefined,
+  })
+
+  history.push({
+    type: 'assigned',
+    user: user.username,
+    details: `${user.username} assigned task from cluster inbox to ${toUsername}${note?.trim() ? `. Note: ${note.trim()}` : ''}`,
+    timestamp: now,
+    icon: '👤',
+    title: 'Assigned from Cluster Inbox',
+  })
+
+  await supabase.from('todos').update({
+    cluster_inbox: false,
+    assigned_to: toUsername,
+    manager_id: user.username,
+    queue_status: 'claimed',
+    task_status: 'backlog',
+    workflow_state: 'claimed_by_department',
+    assignment_chain: JSON.stringify(assignmentChain),
+    history: JSON.stringify(history),
+    last_handoff_at: now,
+    updated_at: now,
+  }).eq('id', todoId)
+
+  if (toUsername !== user.username) {
+    await createNotification(supabase, {
+      userId: toUsername,
+      type: 'task_assigned',
+      title: 'Task Assigned to You',
+      body: `${user.username} assigned you a task from the cluster inbox: "${task.title as string}"`,
+      relatedId: todoId,
+    })
+  }
+
+  revalidateTasksData()
+  return { success: true }
+}
+

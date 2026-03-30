@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { pakistanNowInputValue } from '@/lib/pakistan-time'
@@ -210,7 +211,7 @@ export function TaskDelegateDialog({
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm"
       onMouseDown={(event) => {
@@ -410,6 +411,7 @@ export function TaskDelegateDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

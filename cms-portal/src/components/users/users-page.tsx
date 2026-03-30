@@ -127,11 +127,11 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="h-10 w-full rounded-lg pl-9 pr-3 text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }} />
           </div>
-          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="h-10 min-w-[120px] flex-1 rounded-lg px-3 text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
+          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg px-3 text-sm outline-none sm:min-w-[120px]" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
             <option value="">All Roles</option>
             {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 min-w-[120px] flex-1 rounded-lg px-3 text-sm outline-none" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
+          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg px-3 text-sm outline-none sm:min-w-[120px]" style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}>
             <option value="">All Departments</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>

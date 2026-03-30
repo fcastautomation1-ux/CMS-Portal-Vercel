@@ -1550,7 +1550,7 @@ export function TaskDetailPage({
     <>
       <div className="min-h-full bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.08),_transparent_30%),linear-gradient(180deg,#f8fbff_0%,#eef4fb_100%)] px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-white/80 bg-white/85 px-5 py-4 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-white/80 bg-white/85 px-3 py-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5 sm:py-4">
             <div className="min-w-0">
               <Link href={backHref} className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors hover:text-blue-600">
                 <ArrowLeft size={14} />
@@ -1730,7 +1730,7 @@ export function TaskDetailPage({
             </div>
           )}
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_380px]">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_380px]">
             <section className="overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
               <div className={cn('h-1.5 w-full', sm.dot)} />
               <div className="border-b border-slate-100 px-5 pt-3">
@@ -2059,7 +2059,7 @@ export function TaskDetailPage({
                         <select
                           value={shareUsername}
                           onChange={(e) => setShareUsername(e.target.value)}
-                          className="min-w-[220px] flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                          className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 sm:min-w-[220px]"
                         >
                           <option value="">Select a user to share with</option>
                           {shareUsers
@@ -2130,7 +2130,7 @@ export function TaskDetailPage({
               </div>
             </section>
 
-            <aside className="flex min-h-[720px] flex-col self-start overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)]">
+            <aside className="flex min-h-0 flex-col self-start overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)] xl:sticky xl:top-5 xl:min-h-[720px] xl:max-h-[calc(100vh-2.5rem)]">
               <div className="border-b border-slate-100 px-5 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>

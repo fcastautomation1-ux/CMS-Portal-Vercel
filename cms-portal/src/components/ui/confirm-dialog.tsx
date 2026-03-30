@@ -1,6 +1,7 @@
 'use client'
 
 import { useTransition } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -33,7 +34,7 @@ export function ConfirmDialog({
     })
   }
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
       onClick={() => { if (!isPending) onCancel() }}
@@ -70,6 +71,7 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

@@ -1447,7 +1447,7 @@ export function CreateTaskModal({
                           {multiAssignees.map((entry) => (
                             <div
                               key={entry.username}
-                              className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px]"
+                              className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px]"
                             >
                               <div className="text-sm font-semibold text-slate-800">{entry.username}</div>
                               <input

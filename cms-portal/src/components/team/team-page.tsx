@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X } from 'lucide-react'
+import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X, PlayCircle } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
@@ -35,7 +35,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   User: { bg: 'rgba(100,116,139,0.12)', color: '#475569' },
 }
 
-type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_pending' | 'tasks_overdue' | 'tasks_queue'
+type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_in_progress' | 'tasks_pending' | 'tasks_overdue' | 'tasks_queue'
 const TASKS_PER_PAGE = 20
 
 function getInitials(username: string) {
@@ -112,6 +112,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       users: members.length,
       tasks_all: members.reduce((sum, member) => sum + member.taskStats.total, 0),
       tasks_completed: members.reduce((sum, member) => sum + member.taskStats.completed, 0),
+      tasks_in_progress: tasks.filter((task) => !task.completed && task.task_status === 'in_progress').length,
       tasks_pending: members.reduce((sum, member) => sum + member.taskStats.pending, 0),
       tasks_overdue: members.reduce((sum, member) => sum + member.taskStats.overdue, 0),
       tasks_queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
@@ -156,6 +157,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
 
     if (scope === 'tasks_all') return list.filter((member) => member.taskStats.total > 0)
     if (scope === 'tasks_completed') return list.filter((member) => member.taskStats.completed > 0)
+    if (scope === 'tasks_in_progress') return list.filter((member) => member.taskStats.in_progress > 0)
     if (scope === 'tasks_pending') return list.filter((member) => member.taskStats.pending > 0)
     if (scope === 'tasks_overdue') return list.filter((member) => member.taskStats.overdue > 0)
     if (scope === 'tasks_queue') return list.filter((member) => {
@@ -213,9 +215,12 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
 
     if (scope === 'tasks_completed') {
       list = list.filter((task) => task.completed || task.task_status === 'done')
+    } else if (scope === 'tasks_in_progress') {
+      list = list.filter((task) => !task.completed && task.task_status === 'in_progress')
     } else if (scope === 'tasks_pending') {
       list = list.filter((task) => {
         if (task.completed || task.task_status === 'done') return false
+        if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       })
@@ -242,8 +247,10 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     return {
       total: tasks.length,
       completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
+      in_progress: tasks.filter((task) => !task.completed && task.task_status === 'in_progress').length,
       pending: tasks.filter((task) => {
         if (task.completed || task.task_status === 'done') return false
+        if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       }).length,
@@ -255,6 +262,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const scopeLabel = useMemo(() => {
     if (scope === 'tasks_all') return 'Task'
     if (scope === 'tasks_completed') return 'Completed Task'
+    if (scope === 'tasks_in_progress') return 'In Progress Task'
     if (scope === 'tasks_pending') return 'Pending Task'
     if (scope === 'tasks_overdue') return 'Overdue Task'
     if (scope === 'tasks_queue') return 'Queue Task'
@@ -274,10 +282,11 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
         </div>
 
         {isTaskScope && (
-          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             {[
               { key: 'tasks_all', label: 'Total Task', value: taskKpis.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]' },
               { key: 'tasks_completed', label: 'Completed Task', value: taskKpis.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]' },
+              { key: 'tasks_in_progress', label: 'In Progress', value: taskKpis.in_progress, icon: PlayCircle, tone: 'text-[#0891B2]', bg: 'bg-[#ECFEFF]', border: 'border-[#A5F3FC]' },
               { key: 'tasks_pending', label: 'Pending', value: taskKpis.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
               { key: 'tasks_overdue', label: 'Overdue', value: taskKpis.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
               { key: 'tasks_queue', label: 'Queue', value: taskKpis.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]' },

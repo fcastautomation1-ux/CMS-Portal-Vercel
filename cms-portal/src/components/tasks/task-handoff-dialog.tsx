@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Building2, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { pakistanNowInputValue } from '@/lib/pakistan-time'
@@ -151,7 +152,7 @@ export function TaskHandoffDialog({
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
       <div className="w-full max-w-3xl flex flex-col overflow-hidden rounded-[30px] border border-white/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] shadow-[0_28px_80px_rgba(15,23,42,0.22)]" style={{ maxHeight: 'min(90vh, 780px)' }}>
         <div className="shrink-0 border-b border-slate-100 px-6 py-5">
@@ -248,7 +249,7 @@ export function TaskHandoffDialog({
             </div>
           ) : (
             <div className="rounded-[24px] border border-cyan-100 bg-white px-5 py-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-              <div className="mb-4 grid gap-3 md:grid-cols-[1fr_220px]">
+              <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
                 <label className="relative block flex-1">
                   <Search size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -276,7 +277,7 @@ export function TaskHandoffDialog({
                 <div className="mb-4 space-y-3 rounded-[20px] border border-cyan-100 bg-cyan-50/50 p-4">
                   <div className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Selected Assignees</div>
                   {selectedUsers.map((username) => (
-                    <div key={username} className="grid gap-3 rounded-2xl border border-cyan-100 bg-white p-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                    <div key={username} className="grid grid-cols-1 gap-3 rounded-2xl border border-cyan-100 bg-white p-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-center">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-900">{username}</div>
                         <div className="mt-1 text-xs text-slate-500">Set an individual due date for this assignee.</div>
@@ -367,6 +368,7 @@ export function TaskHandoffDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

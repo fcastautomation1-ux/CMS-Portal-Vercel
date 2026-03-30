@@ -72,76 +72,20 @@ function shouldReduceWarmupWork() {
   return connection?.effectiveType === 'slow-2g' || connection?.effectiveType === '2g'
 }
 
-function getAccessibleRoutes(user: SessionUser) {
-  const routes = new Set<string>([
-    '/dashboard',
-    '/dashboard/tasks',
-    '/dashboard/tasks?scope=my_all&status=all',
-    '/dashboard/tasks?scope=my_all&status=completed',
-    '/dashboard/tasks?scope=my_all&status=pending',
-    '/dashboard/tasks?scope=my_all&status=overdue',
-    '/dashboard/tasks?scope=my_all&status=queue',
-  ])
-
-  const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
-  const isManager = user.role === 'Manager'
-
-  if (user.teamMembers.length > 0 || isAdminOrSM) {
-    routes.add('/dashboard/team?scope=users')
-    routes.add('/dashboard/team?scope=tasks_all')
-    routes.add('/dashboard/team?scope=tasks_completed')
-    routes.add('/dashboard/team?scope=tasks_pending')
-    routes.add('/dashboard/team?scope=tasks_overdue')
-    routes.add('/dashboard/team?scope=tasks_queue')
-  }
-
-  if (isAdminOrSM || isManager) {
-    routes.add('/dashboard/users')
-    routes.add('/dashboard/departments')
-    routes.add('/dashboard/packages')
-  }
-
-  if (
-    isAdminOrSM ||
-    isManager ||
-    user.allowedLookerReports.length > 0
-  ) {
-    routes.add('/dashboard/looker')
-  }
-
-  if (isAdminOrSM) {
-    routes.add('/dashboard/analytics')
-    routes.add('/dashboard/settings')
-  }
-
-  if (
-    isAdminOrSM ||
-    (isManager && user.moduleAccess?.googleAccount?.enabled) ||
-    user.allowedAccounts.length > 0
-  ) {
-    routes.add('/dashboard/accounts')
-    routes.add('/dashboard/campaigns')
-  }
-
-  if (isAdminOrSM || (isManager && user.moduleAccess?.googleAccount?.accessLevel === 'all')) {
-    routes.add('/dashboard/workflows')
-    routes.add('/dashboard/rules')
-  }
-
-  return Array.from(routes)
-}
 
 export function PortalWarmup({ user }: PortalWarmupProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const warmupKey = `cms-portal-warmup:${user.username}:${new Date().toISOString().slice(0, 10)}`
+    // Key expires weekly instead of daily — warmup is expensive (origin requests)
+    const week = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000))
+    const warmupKey = `cms-portal-warmup:${user.username}:w${week}`
     if (sessionStorage.getItem(warmupKey) === 'done') return
 
     const reduceWarmupWork = shouldReduceWarmupWork()
-    const routes = getAccessibleRoutes(user)
-    routes.forEach((href) => router.prefetch(href))
+    // Prefetch only the most-visited page (Tasks) to avoid per-route origin hits
+    router.prefetch('/dashboard/tasks')
 
     const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
     const isManagerOrSupervisor = user.role === 'Manager' || user.role === 'Supervisor'
@@ -159,27 +103,27 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       {
         key: queryKeys.taskSidebarCounts(user.username),
         fn: () => getCachedSidebarTaskCounts(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       },
       {
         key: queryKeys.tasks(user.username),
         fn: () => getCachedTodos(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       },
       {
         key: queryKeys.taskFormPackages(),
         fn: () => getPackagesForTaskForm(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       },
       {
         key: queryKeys.taskAssignmentUsers(user.username),
         fn: () => getUsersForAssignment(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       },
       {
         key: queryKeys.taskFormDepartments(),
         fn: () => getDepartmentsForTaskForm(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       },
     ]
 
@@ -187,24 +131,24 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       warmTasks.push({
         key: queryKeys.overviewAdmin(user.username),
         fn: () => getOverviewStats(),
-        staleTime: 30_000,
+        staleTime: 300_000,
       })
       warmTasks.push({
         key: queryKeys.analytics(user.username),
         fn: () => getAnalytics(),
-        staleTime: 30_000,
+        staleTime: 300_000,
       })
     } else if (isManagerOrSupervisor) {
       warmTasks.push({
         key: queryKeys.overviewManager(user.username),
         fn: () => getManagerOverview(),
-        staleTime: 30_000,
+        staleTime: 300_000,
       })
     } else {
       warmTasks.push({
         key: queryKeys.overviewPersonal(user.username),
         fn: () => getUserPersonalStats(),
-        staleTime: 30_000,
+        staleTime: 300_000,
       })
     }
 
@@ -212,18 +156,18 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       warmTasks.push({
         key: queryKeys.teamStats(user.username),
         fn: () => getTeamStats(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       })
       warmTasks.push({
         key: queryKeys.teamMembers(user.username),
         fn: () => getTeamMembers(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       })
       if (!reduceWarmupWork) {
         warmTasks.push({
           key: queryKeys.teamTodos(user.username),
           fn: () => getTeamTodos(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         })
       }
     }
@@ -233,17 +177,17 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         {
           key: queryKeys.users(user.username),
           fn: () => getUsers(),
-          staleTime: 30_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.userDepartments(),
           fn: () => getDepartmentsList(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.userFormOptions(),
           fn: () => getUserFormOptions(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         }
       )
     }
@@ -253,12 +197,12 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         {
           key: queryKeys.departments(),
           fn: () => getDepartments(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.departmentMembers(),
           fn: () => getDepartmentMembersWithNames(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         }
       )
     }
@@ -268,17 +212,17 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         {
           key: queryKeys.packages(),
           fn: () => getPackages(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.packageAssignmentUsers(),
           fn: () => getPackageAssignmentUsers(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.packageAssignments(),
           fn: () => getUserPackageAssignments(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         }
       )
     }
@@ -287,7 +231,7 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       warmTasks.push({
         key: queryKeys.lookerReports(user.username),
         fn: () => getLookerReports(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       })
     }
 
@@ -295,7 +239,7 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       warmTasks.push({
         key: queryKeys.accounts(user.username),
         fn: () => getAccounts(),
-        staleTime: 60_000,
+        staleTime: 600_000,
       })
     }
 
@@ -304,17 +248,17 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         {
           key: queryKeys.campaigns(user.username),
           fn: () => getCampaigns(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.campaignAccounts(user.username),
           fn: () => getAccountsForCampaigns(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.campaignDefinitions(),
           fn: () => getConditionDefinitions(),
-          staleTime: 300_000,
+          staleTime: 600_000,
         }
       )
     }
@@ -325,12 +269,12 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
         {
           key: queryKeys.rules(),
           fn: () => getRules(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         },
         {
           key: queryKeys.workflows(),
           fn: () => getWorkflows(),
-          staleTime: 60_000,
+          staleTime: 600_000,
         }
       )
     }

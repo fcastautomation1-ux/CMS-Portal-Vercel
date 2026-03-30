@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Home,
   Mail,
+  Layers,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -67,6 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Users', href: '/dashboard/users', icon: <Users size={17} />, color: '#8B5CF6' },
       { label: 'Departments', href: '/dashboard/departments', icon: <Building2 size={17} />, color: '#0D9488' },
+      { label: 'Clusters', href: '/dashboard/clusters', icon: <Layers size={17} />, color: '#2B7FFF' },
       { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
       { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
       { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
@@ -137,6 +139,9 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
     case '/dashboard/settings':
       return isAdminOrSM
 
+    case '/dashboard/clusters':
+      return isAdminOrSM
+
     default:
       return true
   }
@@ -179,21 +184,23 @@ export function Sidebar({
 
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
-    queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 } satisfies SidebarTaskCounts)),
-    staleTime: 60_000,
+    queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, in_progress: 0, pending: 0, overdue: 0, queue: 0 } satisfies SidebarTaskCounts)),
+    staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    refetchOnMount: true,
+    refetchOnMount: false, // Don't refetch on mount if data is fresh
     refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   })
-  const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, pending: 0, overdue: 0, queue: 0 }
+  const myAllCounts = taskCountsQuery.data ?? { all: 0, completed: 0, in_progress: 0, pending: 0, overdue: 0, queue: 0 }
 
   const teamStatsQuery = useQuery({
     queryKey: queryKeys.teamStats(user.username),
     queryFn: () => getTeamStats().catch(() => null),
-    staleTime: 2 * 60_000,
+    staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   })
   const teamStats = teamStatsQuery.data ?? null
 
@@ -233,19 +240,22 @@ export function Sidebar({
   const teamTaskLinks = [
     { label: 'All task', scope: 'tasks_all', badge: 'bg-blue-500/15 text-blue-700' },
     { label: 'Completed', scope: 'tasks_completed', badge: 'bg-green-600/15 text-green-700' },
+    { label: 'In Progress', scope: 'tasks_in_progress', badge: 'bg-cyan-500/15 text-cyan-700' },
     { label: 'Pending', scope: 'tasks_pending', badge: 'bg-amber-500/15 text-amber-700' },
     { label: 'Overdue', scope: 'tasks_overdue', badge: 'bg-rose-500/15 text-rose-700' },
     { label: 'Queue', scope: 'tasks_queue', badge: 'bg-violet-500/15 text-violet-700' },
   ]
-  const statusBadgeClass = (tone: 'all' | 'completed' | 'pending' | 'overdue' | 'queue', active: boolean) => {
+  const statusBadgeClass = (tone: 'all' | 'completed' | 'in_progress' | 'pending' | 'overdue' | 'queue', active: boolean) => {
     if (active) {
       if (tone === 'completed') return 'bg-green-100 text-green-700'
+      if (tone === 'in_progress') return 'bg-cyan-100 text-cyan-700'
       if (tone === 'pending') return 'bg-amber-100 text-amber-700'
       if (tone === 'overdue') return 'bg-rose-100 text-rose-700'
       if (tone === 'queue') return 'bg-violet-100 text-violet-700'
       return 'bg-blue-100 text-blue-700'
     }
     if (tone === 'completed') return 'bg-green-600/15 text-green-700'
+    if (tone === 'in_progress') return 'bg-cyan-500/15 text-cyan-700'
     if (tone === 'pending') return 'bg-amber-500/15 text-amber-700'
     if (tone === 'overdue') return 'bg-rose-500/15 text-rose-700'
     if (tone === 'queue') return 'bg-violet-500/15 text-violet-700'
@@ -255,6 +265,7 @@ export function Sidebar({
     () => [
       '/dashboard/tasks?scope=my_all&status=all',
       '/dashboard/tasks?scope=my_all&status=completed',
+      '/dashboard/tasks?scope=my_all&status=in_progress',
       '/dashboard/tasks?scope=my_all&status=pending',
       '/dashboard/tasks?scope=my_all&status=overdue',
       '/dashboard/tasks?scope=my_all&status=queue',
@@ -266,6 +277,7 @@ export function Sidebar({
       '/dashboard/team?scope=users',
       '/dashboard/team?scope=tasks_all',
       '/dashboard/team?scope=tasks_completed',
+      '/dashboard/team?scope=tasks_in_progress',
       '/dashboard/team?scope=tasks_pending',
       '/dashboard/team?scope=tasks_overdue',
       '/dashboard/team?scope=tasks_queue',
@@ -578,8 +590,7 @@ export function Sidebar({
                                 <ul className="mt-1 space-y-1 pl-6">
                                   {([
                                     { label: 'All task', status: 'all', count: myAllCounts.all, tone: 'all' as const },
-                                    { label: 'Complete', status: 'completed', count: myAllCounts.completed, tone: 'completed' as const },
-                                    { label: 'Pending', status: 'pending', count: myAllCounts.pending, tone: 'pending' as const },
+                                    { label: 'Complete', status: 'completed', count: myAllCounts.completed, tone: 'completed' as const },                                    { label: 'In Progress', status: 'in_progress', count: myAllCounts.in_progress, tone: 'in_progress' as const },                                    { label: 'Pending', status: 'pending', count: myAllCounts.pending, tone: 'pending' as const },
                                     { label: 'Overdue', status: 'overdue', count: myAllCounts.overdue, tone: 'overdue' as const },
                                     { label: 'Queue', status: 'queue', count: myAllCounts.queue, tone: 'queue' as const },
                                   ] as const).map((statusLink) => {

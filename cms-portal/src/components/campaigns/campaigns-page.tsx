@@ -173,7 +173,7 @@ export function CampaignsPage({ campaigns: initial, accounts, user, conditions, 
               style={{ border: '1.5px solid var(--slate-200)', background: '#fff' }}
             />
           </div>
-          <div className="flex items-center gap-2 flex-1 min-w-[150px]">
+          <div className="flex items-center gap-2 flex-1 min-w-0 sm:min-w-[150px]">
             <Filter size={14} className="text-slate-400 shrink-0" />
             <select
               value={accountFilter}

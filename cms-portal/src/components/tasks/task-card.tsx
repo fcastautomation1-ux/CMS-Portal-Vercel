@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useTransition, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { Todo, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -270,7 +271,7 @@ function ActBtn({ onClick, color, children, disabled }: { onClick: () => void; c
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
+        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition-colors',
         BTN_CLS[color],
         disabled && 'cursor-not-allowed opacity-50'
       )}
@@ -709,7 +710,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showReopenBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -1053,7 +1054,7 @@ export function TaskCard({
     )}>
       <div className={cn('w-1.5 shrink-0 self-stretch', pCfg.stripe)} />
 
-      <div className="flex min-w-0 flex-1 gap-5 px-5 py-5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0 px-3 py-4 sm:px-5 sm:py-5 md:flex-row md:gap-3">
         {workflowNodes.length > 0 && (
           <div className="hidden w-[208px] shrink-0 self-start md:block">
             <button
@@ -1110,7 +1111,7 @@ export function TaskCard({
             <button
               onClick={() => onViewDetail(task)}
               className={cn(
-                'text-left text-[20px] font-bold leading-tight tracking-[-0.02em]',
+                'text-left text-base sm:text-[20px] font-bold leading-tight tracking-[-0.02em]',
                 isCompleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-blue-600'
               )}
             >
@@ -1225,6 +1226,15 @@ export function TaskCard({
                   disabled={isPending}
                 >
                   Complete
+                </ActBtn>
+              )}
+              {showReopenBtn && (
+                <ActBtn
+                  onClick={() => setShowCreatorReopenConfirm(true)}
+                  color="blue"
+                  disabled={isPending}
+                >
+                  Reopen Task
                 </ActBtn>
               )}
               {showApproveBtn && (
@@ -1422,7 +1432,7 @@ export function TaskCard({
         </div>
 
         <div className={cn(
-          'flex min-w-[132px] shrink-0 flex-row items-stretch justify-between rounded-[20px] border p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between',
+          'hidden md:flex shrink-0 flex-row items-stretch justify-between rounded-[16px] border p-3 sm:p-4 md:min-w-[198px] md:flex-col md:items-stretch md:justify-between',
           isCompleted ? 'border-green-200 bg-green-50/80' : 'border-slate-200 bg-slate-50/80'
         )}>
           {!maEnabled && (
@@ -1495,7 +1505,7 @@ export function TaskCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-row items-center justify-end gap-2 border-t border-slate-200/80 px-4 py-3 opacity-95 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:bg-slate-50/50 md:px-2 md:py-3 md:flex-col md:justify-center">
+        <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 px-3 py-2 sm:px-4 sm:py-3 opacity-95 transition-opacity group-hover/row:opacity-100 md:border-l md:border-t-0 md:bg-slate-50/50 md:px-2 md:py-3 md:flex-col md:justify-center">
           {unreadCount > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               <span className="relative inline-flex h-2.5 w-2.5">
@@ -1767,22 +1777,24 @@ function ActionDialog({
   children: ReactNode
   error?: string
 }) {
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[28px] border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
+      <div className="my-auto w-full max-w-lg rounded-[28px] border border-white/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="p-6 pb-0">
           <h3 className="text-lg font-bold text-slate-900">{title}</h3>
           <p className="mt-1 text-sm text-slate-500">{description}</p>
         </div>
-        <div className="space-y-4">
-          {error && (
-            <div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-semibold text-red-600 border border-red-100">
-              {error}
-            </div>
-          )}
-          {children}
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
+            {error && (
+              <div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-semibold text-red-600 border border-red-100">
+                {error}
+              </div>
+            )}
+            {children}
+          </div>
         </div>
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 rounded-b-[28px] border-t border-slate-100 bg-white px-6 py-4">
           <button onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50">
             Cancel
           </button>
@@ -1791,7 +1803,8 @@ function ActionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

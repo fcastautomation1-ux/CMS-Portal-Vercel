@@ -30,6 +30,7 @@ import {
   Edit3,
   Copy,
   Calendar,
+  PlayCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
@@ -82,7 +83,7 @@ type ViewMode = 'list' | 'kanban' | 'calendar'
 type QuickFilter = 'my_all' | 'created_by_me' | 'assigned_to_me' | 'my_pending' | 'assigned_by_me' | 'my_approval' | 'other_approval'
 
 type StatusFilter =
-  | 'all' | 'pending' | 'completed' | 'overdue' | 'queue'
+  | 'all' | 'pending' | 'in_progress' | 'completed' | 'overdue' | 'queue'
 
 function parseQuickFilter(value: string | null): QuickFilter | null {
   if (
@@ -222,19 +223,21 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     queryKey: queryKeys.tasks(currentUsername),
     queryFn: () => getTodos().catch(() => [] as Todo[]),
     initialData: initialTasks,
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData, // keep existing data while fetching
   })
 
   const overdueApprovalsQuery = useQuery({
     queryKey: ['task-overdue-approvals', currentUsername],
     queryFn: () => getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   })
 
   const taskFormDataQuery = useQuery({
@@ -258,8 +261,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     refetchOnMount: false,
   })
 
-  const { data: rawTasks = [], isLoading: queryLoading, isFetching: queryFetching } = tasksQuery
-  const loading = queryLoading || queryFetching || addTaskPending
+  const { data: rawTasks = [], isLoading: queryLoading } = tasksQuery
+  const loading = queryLoading || addTaskPending
   const tasks = rawTasks as Todo[]
   const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
@@ -335,6 +338,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (key === 'completed') {
       nextStatus = 'completed'
+    } else if (key === 'in_progress') {
+      nextStatus = 'in_progress'
     } else if (key === 'pending') {
       nextStatus = 'pending'
     } else if (key === 'overdue') {
@@ -352,15 +357,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }, [queryClient, currentUsername])
 
   useEffect(() => {
-    void refresh()
-  }, []) 
-
-  useEffect(() => {
     const scheduleRefresh = () => {
+      // Avoid excessive refreshes by debouncing and checking visibility
+      if (document.hidden) return
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
         void refresh()
-      }, 250)
+      }, 1000) // Increase debounce to 1s to prevent "shaking" on multiple updates
     }
 
     const unsubscribe = subscribeToPostgresChanges(
@@ -473,6 +476,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const overdue = scopedTasksForKpis.filter(
       (task) => !isTaskCompletedForUser(task, effectiveUser) && !!task.due_date && new Date(task.due_date) < now,
     ).length
+    const in_progress = scopedTasksForKpis.filter((task) => {
+      if (isTaskCompletedForUser(task, effectiveUser)) return false
+      return task.task_status === 'in_progress'
+    }).length
     const pending = scopedTasksForKpis.filter((task) => {
       if (isTaskCompletedForUser(task, effectiveUser)) return false
       if (task.due_date && new Date(task.due_date) < now) return false
@@ -485,6 +492,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return {
       total: scopedTasksForKpis.length,
       completed,
+      in_progress,
       pending,
       overdue,
       queue,
@@ -578,7 +586,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived
+        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress'
+        if (statusFilter === 'in_progress') return !isTaskCompletedForUser(t, effectiveUser) && t.task_status === 'in_progress' && !t.archived
         if (statusFilter === 'completed') return isTaskCompletedForUser(t, effectiveUser)
         if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && !!t.due_date && new Date(t.due_date) < now
         if (statusFilter === 'queue') return !t.archived && matchesQueueVisibility(t)
@@ -700,10 +709,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-5 relative z-0">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { label: 'Total Task', value: scopedKpiStats.total, icon: ListTodo, tone: 'text-[#2B7FFF]', bg: 'bg-[#EFF6FF]', border: 'border-[#BFDBFE]', kpiKey: 'total' },
             { label: 'Completed Task', value: scopedKpiStats.completed, icon: CircleCheckBig, tone: 'text-[#059669]', bg: 'bg-[#ECFDF5]', border: 'border-[#A7F3D0]', kpiKey: 'completed' },
+            { label: 'In Progress', value: scopedKpiStats.in_progress, icon: PlayCircle, tone: 'text-[#0891B2]', bg: 'bg-[#ECFEFF]', border: 'border-[#A5F3FC]', kpiKey: 'in_progress' },
             { label: 'Pending', value: scopedKpiStats.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]', kpiKey: 'pending' },
             { label: 'Overdue', value: scopedKpiStats.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]', kpiKey: 'overdue' },
             { label: 'Queue', value: scopedKpiStats.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]', kpiKey: 'queue' },
@@ -725,7 +735,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                     <Icon size={18} className={item.tone} />
                   </div>
                   <div className="text-right">
-                    <div className={cn('text-[28px] font-extrabold leading-none', item.tone)}>{item.value}</div>
+                    <div className={cn('text-xl font-extrabold leading-none sm:text-[28px]', item.tone)}>{item.value}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.label}</div>
                   </div>
                 </div>
@@ -736,7 +746,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       </div>
 
       <div className="overflow-hidden rounded-[22px] border border-[#d9e2f0] bg-white shadow-[0_18px_50px_rgba(31,65,132,0.08)]">
-        <div className="border-b border-[#e3e9f5] bg-white px-4 py-4 sm:px-5">
+        <div className="border-b border-[#e3e9f5] bg-white px-3 py-3 sm:px-5 sm:py-4">
           <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
             <div className="flex min-w-0 items-center">
               <div className="relative">
@@ -810,7 +820,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
               ))}
             </div>
 
-            <div className="relative min-w-[240px] flex-1 xl:ml-auto xl:max-w-[260px]">
+            <div className="relative min-w-0 flex-1 sm:min-w-[200px] xl:ml-auto xl:max-w-[260px]">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -822,91 +832,98 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              <button
-                onClick={() => void refresh()}
-                disabled={loading}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
-              >
-                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-                Refresh
-              </button>
-
-              <button
-                onClick={toggleSelectAll}
-                className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
-              >
-                {paginatedTasks.length > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
-                {selected.size > 0 ? `${selected.size} selected` : 'Select All'}
-              </button>
-
-              {selected.size > 0 && (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowBulkMenu((v) => !v)}
-                    className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
-                  >
-                    <SlidersHorizontal size={13} />
-                    Bulk Actions
-                    <ChevronDown size={12} />
-                  </button>
-                  {showBulkMenu && (
-                    <div
-                      className="absolute left-0 top-11 z-20 min-w-40 rounded-2xl border border-[#d9e2f0] bg-white py-1 shadow-[0_12px_30px_rgba(25,42,89,0.14)]"
-                      onMouseLeave={() => setShowBulkMenu(false)}
-                    >
-                      <button onClick={bulkArchive} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><Archive size={13} /> Archive All</button>
-                      <button onClick={bulkDelete} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"><Trash2 size={13} /> Delete All</button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <span className="font-bold uppercase tracking-[0.16em] text-[#8fa0bf]">Sort By:</span>
-              <div className="relative">
-                <select
-                  value={`${sortBy}_${sortDir}`}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                    const [s, d] = e.target.value.split('_')
-                    setSortBy(s as typeof sortBy)
-                    setSortDir(d as typeof sortDir)
-                  }}
-                  className="appearance-none rounded-xl border border-transparent bg-transparent py-1.5 pl-2 pr-6 text-xs font-semibold text-slate-600 outline-none"
+              {/* Left controls: Refresh + Select + Bulk */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void refresh()}
+                  disabled={loading}
+                  className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
                 >
-                  <option value="position_asc">Custom Order</option>
-                  <option value="created_at_desc">Recently Created</option>
-                  <option value="created_at_asc">Oldest</option>
-                  <option value="due_date_asc">Due Soonest</option>
-                  <option value="priority_desc">Highest Priority</option>
-                  <option value="title_asc">A-Z</option>
-                </select>
-                <ArrowDownUp size={12} className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+
+                <button
+                  onClick={toggleSelectAll}
+                  className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
+                >
+                  {paginatedTasks.length > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
+                  <span className="hidden sm:inline">{selected.size > 0 ? `${selected.size} selected` : 'Select All'}</span>
+                  {selected.size > 0 && <span className="sm:hidden">{selected.size}</span>}
+                </button>
+
+                {selected.size > 0 && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowBulkMenu((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
+                    >
+                      <SlidersHorizontal size={13} />
+                      <span className="hidden sm:inline">Bulk Actions</span>
+                      <ChevronDown size={12} />
+                    </button>
+                    {showBulkMenu && (
+                      <div
+                        className="absolute left-0 top-11 z-20 min-w-40 rounded-2xl border border-[#d9e2f0] bg-white py-1 shadow-[0_12px_30px_rgba(25,42,89,0.14)]"
+                        onMouseLeave={() => setShowBulkMenu(false)}
+                      >
+                        <button onClick={bulkArchive} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><Archive size={13} /> Archive All</button>
+                        <button onClick={bulkDelete} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"><Trash2 size={13} /> Delete All</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
+              {/* Right controls: Sort + count + Add + Export */}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="hidden font-bold uppercase tracking-[0.16em] text-[#8fa0bf] sm:inline">Sort By:</span>
+                <div className="relative">
+                  <select
+                    value={`${sortBy}_${sortDir}`}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                      const [s, d] = e.target.value.split('_')
+                      setSortBy(s as typeof sortBy)
+                      setSortDir(d as typeof sortDir)
+                    }}
+                    className="appearance-none rounded-xl border border-[#d9e2f0] bg-white py-1.5 pl-2 pr-6 text-xs font-semibold text-slate-600 outline-none"
+                  >
+                    <option value="position_asc">Custom Order</option>
+                    <option value="created_at_desc">Recently Created</option>
+                    <option value="created_at_asc">Oldest</option>
+                    <option value="due_date_asc">Due Soonest</option>
+                    <option value="priority_desc">Highest Priority</option>
+                    <option value="title_asc">A-Z</option>
+                  </select>
+                  <ArrowDownUp size={12} className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
 
-              <button
-                onClick={() => {
-                  setAddTaskPending(true)
-                  setShowCreate(true)
-                  // spinner clears once modal is open (next tick)
-                  setTimeout(() => setAddTaskPending(false), 600)
-                }}
-                disabled={addTaskPending}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2f66f5] px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] disabled:opacity-80 sm:min-w-[124px]"
-              >
-                {addTaskPending
-                  ? <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                  : <Plus size={14} />}
-                {addTaskPending ? 'Opening...' : 'Add Task'}
-              </button>
+                <span className="hidden min-w-fit text-[11px] font-medium text-slate-400 sm:inline">{filteredTasks.length} tasks</span>
 
-              <button
-                onClick={exportCSV}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700"
-                title="Export tasks"
-              >
-                <Upload size={14} />
-              </button>
+                <button
+                  onClick={() => {
+                    setAddTaskPending(true)
+                    setShowCreate(true)
+                    setTimeout(() => setAddTaskPending(false), 600)
+                  }}
+                  disabled={addTaskPending}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#2f66f5] px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] disabled:opacity-80 sm:gap-2 sm:px-4 sm:text-sm"
+                >
+                  {addTaskPending
+                    ? <svg className="h-3.5 w-3.5 animate-spin sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+                    : <Plus size={13} />}
+                  <span className="hidden sm:inline">{addTaskPending ? 'Opening...' : 'Add Task'}</span>
+                  <span className="sm:hidden">Add</span>
+                </button>
+
+                <button
+                  onClick={exportCSV}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#d9e2f0] bg-white text-slate-500 transition hover:border-[#c4d3ef] hover:text-slate-700 sm:h-10 sm:w-10"
+                  title="Export tasks"
+                >
+                  <Upload size={13} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1136,7 +1153,8 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Todo[]; onTaskClick: (tas
         <button onClick={nextMonth} className="rounded-lg p-1.5 text-lg font-bold text-slate-500 hover:bg-slate-100">\u203a</button>
         <button onClick={() => { setCalMonth(today.getMonth()); setCalYear(today.getFullYear()) }} className="ml-2 text-xs text-blue-600 hover:underline">Today</button>
       </div>
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
+      <div className="overflow-x-auto">
+      <div className="min-w-[700px] grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
           <div key={d} className="bg-slate-50 py-2 text-center text-xs font-semibold text-slate-500">{d}</div>
         ))}
@@ -1169,6 +1187,7 @@ function CalendarView({ tasks, onTaskClick }: { tasks: Todo[]; onTaskClick: (tas
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

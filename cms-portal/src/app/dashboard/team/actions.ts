@@ -55,7 +55,7 @@ export interface TeamMember {
   email: string
   last_login: string | null
   avatar_data: string | null
-  taskStats: { total: number; completed: number; pending: number; overdue: number }
+  taskStats: { total: number; completed: number; in_progress: number; pending: number; overdue: number }
 }
 
 type TeamTodoStatsRow = {
@@ -153,11 +153,12 @@ export async function getTeamStats(): Promise<{
   users: number
   tasks_all: number
   tasks_completed: number
+  tasks_in_progress: number
   tasks_pending: number
   tasks_overdue: number
   tasks_queue: number
 }> {
-  const empty = { users: 0, tasks_all: 0, tasks_completed: 0, tasks_pending: 0, tasks_overdue: 0, tasks_queue: 0 }
+  const empty = { users: 0, tasks_all: 0, tasks_completed: 0, tasks_in_progress: 0, tasks_pending: 0, tasks_overdue: 0, tasks_queue: 0 }
   const { user, memberUsernames } = await getTeamUsernames()
   if (!user) return empty
 
@@ -170,8 +171,10 @@ export async function getTeamStats(): Promise<{
     users: memberUsernames.length,
     tasks_all: tasks.length,
     tasks_completed: tasks.filter((t) => t.completed || t.task_status === 'done').length,
+    tasks_in_progress: tasks.filter((t) => !t.completed && t.task_status === 'in_progress').length,
     tasks_pending: tasks.filter((t) => {
       if (t.completed || t.task_status === 'done') return false
+      if (t.task_status === 'in_progress') return false
       if (t.due_date && new Date(t.due_date) < now) return false
       return true
     }).length,
@@ -257,7 +260,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
           if (directEntry) {
             const dueDate = directEntry.actual_due_date || task.due_date || null
             const isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
-            return { included: true, isCompleted, dueDate }
+            return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
           }
 
           for (const entry of multiAssignment.assignees) {
@@ -267,11 +270,11 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
             if (delegatedEntry) {
               const dueDate = task.due_date || null
               const isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-              return { included: true, isCompleted, dueDate }
+              return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
             }
           }
 
-          return { included: false, isCompleted: false, dueDate: null as string | null }
+          return { included: false, isCompleted: false, dueDate: null as string | null, taskStatus: null as string | null }
         }
 
         if (assigneeLower === userLower) {
@@ -279,6 +282,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
             included: true,
             isCompleted: task.completed || task.task_status === 'done',
             dueDate: task.due_date || null,
+            taskStatus: task.task_status || null,
           }
         }
 
@@ -287,10 +291,11 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
             included: true,
             isCompleted: task.completed || task.task_status === 'done',
             dueDate: task.due_date || null,
+            taskStatus: task.task_status || null,
           }
         }
 
-        return { included: false, isCompleted: false, dueDate: null as string | null }
+        return { included: false, isCompleted: false, dueDate: null as string | null, taskStatus: null as string | null }
       }
 
       return Promise.all(
@@ -310,13 +315,14 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
 
           const completed = taskStates.filter((state) => state.isCompleted).length
           const overdue = taskStates.filter((state) => !state.isCompleted && !!state.dueDate && state.dueDate < now).length
+          const in_progress = taskStates.filter((state) => !state.isCompleted && state.taskStatus === 'in_progress').length
           const total = taskStates.length
-          const pending = total - completed - overdue
+          const pending = total - completed - overdue - in_progress
 
           return {
             ...u,
             avatar_data: await resolveStorageUrl(supabase, u.avatar_data),
-            taskStats: { total, completed, pending, overdue },
+            taskStats: { total, completed, in_progress, pending, overdue },
           }
         }),
       )

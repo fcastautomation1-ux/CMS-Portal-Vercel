@@ -101,6 +101,44 @@ export interface Department {
   created_at: string
 }
 
+// ─── Clusters ────────────────────────────────────────────────
+export type ClusterRole = 'owner' | 'manager' | 'supervisor' | 'member'
+
+export interface Cluster {
+  id: string
+  name: string
+  description: string | null
+  color: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClusterDepartment {
+  id: string
+  cluster_id: string
+  department_id: string
+  created_at: string
+  // joined
+  department_name?: string
+}
+
+export interface ClusterMember {
+  id: string
+  cluster_id: string
+  username: string
+  cluster_role: ClusterRole
+  scoped_departments: string[] | null   // dept names this supervisor manages
+  created_at: string
+  updated_at: string
+}
+
+/** Full cluster with its departments and members — used for the admin page */
+export interface ClusterDetail extends Cluster {
+  departments: Array<{ id: string; name: string }>
+  members: Array<ClusterMember & { display_name?: string; role?: string; avatar_data?: string | null }>
+}
+
 // ─── Notifications ───────────────────────────────────────────
 export interface Notification {
   id: string
@@ -320,6 +358,11 @@ export interface Todo {
   assignment_chain: AssignmentChainEntry[]
   history: HistoryEntry[]
   unread_comment_count?: number
+  // ── Cluster fields ──────────────────────────────────────────
+  cluster_id?: string | null              // which cluster owns this task
+  cluster_inbox?: boolean                 // true = arrived via cross-cluster routing
+  cluster_origin_id?: string | null       // source cluster id (for cross-cluster return)
+  cluster_routed_by?: string | null       // who sent it cross-cluster
   created_at: string
   updated_at: string
   // Virtual fields added by getTodos
@@ -332,6 +375,7 @@ export interface Todo {
   is_multi_assigned?: boolean
   is_delegated_to_me?: boolean
   is_department_queue?: boolean
+  is_cluster_inbox?: boolean             // virtual: task is in my cluster's inbox
   creator_department?: string | null
   assignee_department?: string | null
   participant_avatars?: Record<string, string | null>
@@ -381,12 +425,13 @@ export interface TodoStats {
 export interface SidebarTaskCounts {
   all: number
   completed: number
+  in_progress: number
   pending: number
   overdue: number
   queue: number
 }
 
-export type TaskRouting = 'self' | 'department' | 'manager' | 'multi'
+export type TaskRouting = 'self' | 'department' | 'manager' | 'multi' | 'cluster'
 
 export interface CreateTodoInput {
   title: string
@@ -404,6 +449,7 @@ export interface CreateTodoInput {
   manager_id?: string
   queue_department?: string
   multi_assignment?: MultiAssignment
+  cluster_id?: string             // destination cluster for cross-cluster routing
 }
 
 // ─── Workflows ───────────────────────────────────────────────
