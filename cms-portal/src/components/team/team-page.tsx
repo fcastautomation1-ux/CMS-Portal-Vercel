@@ -79,7 +79,14 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   })
 
   const departments = useMemo(
-    () => [...new Set(members.map((member) => member.department).filter(Boolean) as string[])].sort(),
+    () => [
+      ...new Set(
+        members
+          .flatMap((member) =>
+            (member.department || '').split(',').map((d) => d.trim()).filter(Boolean)
+          )
+      ),
+    ].sort(),
     [members]
   )
   const memberOptions = useMemo(() => [...new Set(members.map((member) => member.username))].sort(), [members])
@@ -116,7 +123,10 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const filtered = useMemo(() => {
     let list = members
 
-    if (deptFilter) list = list.filter((member) => member.department === deptFilter)
+    if (deptFilter) list = list.filter((member) => {
+      const depts = (member.department || '').split(',').map((d) => d.trim())
+      return depts.includes(deptFilter)
+    })
     if (memberFilter) list = list.filter((member) => member.username === memberFilter)
 
     if (search) {

@@ -4,6 +4,7 @@ import { unstable_cache, revalidateTag } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { resolveStorageUrl } from '@/lib/storage'
+import { canonicalDepartmentKey } from '@/lib/department-name'
 import type { AssignmentChainEntry, HistoryEntry, MultiAssignment, Todo } from '@/types'
 
 const TEAM_CACHE_TAG = 'team-data'
@@ -355,10 +356,12 @@ export async function getTeamTodos(): Promise<Todo[]> {
       })
 
       const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
-      const teamDeptSet = new Set(
+      const teamDeptCanonicalSet = new Set(
         memberUsernames
-          .map((username) => (deptMap.get(username.toLowerCase()) || '').toString().trim().toLowerCase())
-          .filter((department) => department.length > 0)
+          .flatMap((username) => {
+            const csv = (deptMap.get(username.toLowerCase()) || '').toString()
+            return csv.split(',').map((d) => canonicalDepartmentKey(d)).filter((d) => d.length > 0)
+          })
       )
       const canViewAllQueueTasks = user.role === 'Admin' || user.role === 'Super Manager'
       const taskMap = new Map<string, Record<string, unknown>>()
@@ -385,8 +388,8 @@ export async function getTeamTodos(): Promise<Todo[]> {
           return
         }
 
-        const queueDept = String(raw.queue_department || '').trim().toLowerCase()
-        if (queueDept && teamDeptSet.has(queueDept)) {
+        const queueDeptKey = canonicalDepartmentKey(String(raw.queue_department || ''))
+        if (queueDeptKey && teamDeptCanonicalSet.has(queueDeptKey)) {
           taskMap.set(String(raw.id), raw)
         }
       })

@@ -1,0 +1,90 @@
+
+> cms-portal@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.2s
+ ✓ Compiled /src/middleware in 165ms (72 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 1038ms (735 modules)
+ GET /login 200 in 1258ms
+ ✓ Compiled /_not-found in 333ms (738 modules)
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 429ms
+ ✓ Compiled /api/public-branding in 166ms (479 modules)
+ ✓ Compiled (545 modules)
+ GET /favicon.ico 200 in 484ms
+ GET /api/public-branding 200 in 1582ms
+ GET /api/public-branding 200 in 1595ms
+ POST /login 200 in 976ms
+ GET /api/public-branding 200 in 13ms
+ GET /api/public-branding 200 in 23ms
+ POST /login 200 in 430ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 7.6s (3025 modules)
+ GET /login 200 in 1029ms
+ GET /_next/static/chunks/app/dashboard/LayoutGroupContext.mjs.map 404 in 116ms
+ GET /favicon.ico 200 in 169ms
+ ○ Compiling /api/version ...
+ ✓ Compiled /api/version in 1626ms (1706 modules)
+ GET /api/public-branding 200 in 2138ms
+ GET /api/public-branding 200 in 2167ms
+ GET /api/version 200 in 2207ms
+ GET /api/version 200 in 2183ms
+ POST /dashboard 200 in 3137ms
+ POST /dashboard 200 in 2572ms
+ POST /dashboard 500 in 461ms
+ POST /dashboard 200 in 1094ms
+ POST /dashboard 200 in 1490ms
+ POST /dashboard 200 in 669ms
+ POST /dashboard 200 in 438ms
+ POST /dashboard 200 in 1479ms
+ POST /dashboard 200 in 1745ms
+ POST /dashboard 200 in 765ms
+ POST /dashboard 200 in 1363ms
+ POST /dashboard 200 in 256ms
+ POST /dashboard 200 in 704ms
+ POST /dashboard 200 in 677ms
+ POST /dashboard 200 in 282ms
+ POST /dashboard 200 in 860ms
+ POST /dashboard 200 in 642ms
+ POST /dashboard 200 in 863ms
+ POST /dashboard 200 in 638ms
+ POST /dashboard 200 in 751ms
+ POST /dashboard 200 in 1685ms
+ POST /dashboard 200 in 1012ms
+ POST /dashboard 200 in 670ms
+ POST /dashboard 200 in 1407ms
+ POST /dashboard 200 in 685ms
+ POST /dashboard 200 in 1632ms
+ POST /dashboard 200 in 642ms
+ POST /dashboard 200 in 454ms
+ POST /dashboard 200 in 403ms
+ POST /dashboard 500 in 289ms
+ GET /api/version 200 in 13ms
+ GET /api/version 200 in 8ms
+ GET /api/version 200 in 9ms
+ GET /api/version 200 in 13ms
+ GET /api/version 200 in 7ms
+ GET /api/version 200 in 9ms
+ GET /api/version 200 in 19ms
+ GET /api/version 200 in 12ms
+ ✓ Compiled in 2.1s (2980 modules)
+ ✓ Compiled /api/public-branding in 376ms (1673 modules)
+ ✓ Compiled in 0ms (1676 modules)
+ ✓ Compiled in 0ms (1676 modules)
+ ✓ Compiled in 1ms (1676 modules)
+ GET /api/version 200 in 1132ms
+ GET /api/version 200 in 626ms
+ GET /api/public-branding 200 in 1214ms
+ GET /api/public-branding 200 in 1846ms
+ POST /dashboard 200 in 1928ms
+ POST /dashboard 200 in 1495ms
+ POST /dashboard 200 in 708ms
+ POST /dashboard 200 in 1018ms
+ POST /dashboard 200 in 455ms
+ ✓ Compiled in 1494ms (2980 modules)
+ ✓ Compiled in 343ms (1333 modules)
