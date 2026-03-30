@@ -88,3 +88,50 @@
  POST /dashboard 200 in 455ms
  ✓ Compiled in 1494ms (2980 modules)
  ✓ Compiled in 343ms (1333 modules)
+ GET /dashboard 200 in 788ms
+ ○ Compiling /api/public-branding ...
+ ✓ Compiled /api/public-branding in 944ms (1679 modules)
+ ✓ Compiled (1705 modules)
+ GET /api/version 200 in 1434ms
+ GET /api/version 200 in 1379ms
+ GET /favicon.ico 200 in 1517ms
+ GET /api/public-branding 200 in 1501ms
+ GET /api/public-branding 200 in 1873ms
+ POST /dashboard 200 in 1960ms
+ POST /dashboard 200 in 1476ms
+ POST /dashboard 200 in 879ms
+ POST /dashboard 200 in 412ms
+ POST /dashboard 200 in 1485ms
+ ○ Compiling /dashboard/team ...
+ POST /dashboard 200 in 810ms
+ ✓ Compiled /dashboard/team in 2.1s (3092 modules)
+ GET /api/version 200 in 27ms
+ GET /api/public-branding 200 in 35ms
+ GET /api/public-branding 200 in 31ms
+ GET /api/version 200 in 36ms
+ POST /dashboard/team?scope=tasks_all 200 in 1625ms
+ POST /dashboard/team?scope=tasks_all 200 in 703ms
+ POST /dashboard/team?scope=tasks_all 200 in 1532ms
+ POST /dashboard/team?scope=tasks_all 200 in 707ms
+ ○ Compiling /dashboard/tasks/[taskId] ...
+ POST /dashboard/team?scope=tasks_all 200 in 1375ms
+ ✓ Compiled /dashboard/tasks/[taskId] in 3.9s (3848 modules)
+ ○ Compiling /dashboard/tasks ...
+ ✓ Compiled /dashboard/tasks in 1101ms (3905 modules)
+ POST /dashboard/tasks 200 in 841ms
+ POST /dashboard/tasks 200 in 896ms
+ POST /dashboard/tasks 200 in 3512ms
+ POST /dashboard/team?scope=tasks_queue 200 in 2907ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1389ms
+ ✓ Compiled in 4.5s (3861 modules)
+ ✓ Compiled /api/public-branding in 441ms (2167 modules)
+ ✓ Compiled (2170 modules)
+ GET /api/version 200 in 917ms
+ GET /api/version 200 in 937ms
+ GET /api/public-branding 200 in 956ms
+ GET /api/public-branding 200 in 948ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1899ms
+ POST /dashboard/team?scope=tasks_queue 200 in 404ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1644ms
+ POST /dashboard/team?scope=tasks_queue 200 in 675ms
+ ✓ Compiled in 1178ms (3890 modules)

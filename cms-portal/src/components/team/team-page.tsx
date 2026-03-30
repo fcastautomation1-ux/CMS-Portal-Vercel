@@ -467,6 +467,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                       task={task}
                       currentUsername={user?.username ?? ''}
                       currentUserDept={user?.department ?? null}
+                      currentUserTeamMembers={user?.teamMembers ?? []}
                       onEdit={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onViewDetail={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
                       onShare={() => undefined}
