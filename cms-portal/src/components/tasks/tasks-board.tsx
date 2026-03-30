@@ -127,12 +127,13 @@ interface TasksBoardProps {
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
   currentUserTeamMemberDeptKeys?: string[]
+  enableQueueAssign?: boolean
   initialTasks: Todo[]
   initialScope?: QuickFilter
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign = false, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -480,7 +481,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return true
     }).length
 
-    const queue = tasks.filter((task) => matchesQueueVisibility(task)).length
+    // Queue KPI on personal tasks page = only tasks queued for THIS user's own dept
+    const queue = tasks.filter((task) => isQueuedTaskForDepartmentUser(task, effectiveUser)).length
 
     return {
       total: scopedTasksForKpis.length,
@@ -489,7 +491,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser])
+  }, [scopedTasksForKpis, tasks, isQueuedTaskForDepartmentUser, isTaskCompletedForUser, effectiveUser])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -690,6 +692,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     currentUserDept,
     currentUserTeamMembers,
     currentUserTeamMemberDeptKeys,
+    enableQueueAssign,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => setSelectedTaskId(t.id),
     onShare: (t: Todo) => setShareTask(t),
@@ -1030,7 +1033,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           )}
 
           {!loading && viewMode === 'calendar' && (
-            <CalendarView tasks={paginatedTasks} onTaskClick={(t) => router.push(`/dashboard/tasks/${t.id}`)} />
+            <CalendarView tasks={paginatedTasks} onTaskClick={(t) => {
+              sessionStorage.setItem('task-detail-back', `/dashboard/tasks?scope=${quickFilter}&status=${statusFilter}`)
+              router.push(`/dashboard/tasks/${t.id}`)
+            }} />
           )}
 
           {!loading && filteredTasks.length > TASKS_PER_PAGE && (

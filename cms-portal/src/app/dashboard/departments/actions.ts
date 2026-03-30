@@ -283,3 +283,65 @@ export async function deleteDepartment(
   revalidateTag(DEPARTMENTS_CACHE_TAG)
   return { success: true }
 }
+
+/**
+ * One-time sync: normalizes users.department CSV values to match official
+ * department names using canonical key matching. Fixes stale/old names.
+ * Returns a summary of what was updated.
+ */
+export async function syncUserDepartmentNamesAction(): Promise<{
+  success: boolean
+  updated: number
+  errors: number
+  error?: string
+}> {
+  const user = await getSession()
+  if (!user) return { success: false, updated: 0, errors: 0, error: 'Not authenticated.' }
+  if (!['Admin', 'Super Manager'].includes(user.role)) {
+    return { success: false, updated: 0, errors: 0, error: 'Permission denied. Admin or Super Manager required.' }
+  }
+
+  const supabase = createServerClient()
+
+  const [{ data: departments }, { data: users }] = await Promise.all([
+    supabase.from('departments').select('name'),
+    supabase.from('users').select('username, department'),
+  ])
+
+  if (!departments || !users) {
+    return { success: false, updated: 0, errors: 0, error: 'Failed to fetch data.' }
+  }
+
+  // Build canonical key → official name map
+  const keyToOfficial: Record<string, string> = {}
+  for (const dept of departments as Array<{ name: string }>) {
+    const key = canonicalDepartmentKey(dept.name)
+    if (key && !keyToOfficial[key]) keyToOfficial[key] = dept.name
+  }
+
+  let updated = 0
+  let errors = 0
+
+  for (const row of users as Array<{ username: string; department: string | null }>) {
+    const original = row.department ?? ''
+    const fixed = mapDepartmentCsvToOfficial(original, keyToOfficial)
+    if (fixed === original) continue
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ department: fixed || null })
+      .eq('username', row.username)
+
+    if (updateError) {
+      errors++
+    } else {
+      updated++
+    }
+  }
+
+  revalidatePath('/dashboard/users')
+  revalidatePath('/dashboard/departments')
+  revalidateTag(DEPARTMENTS_CACHE_TAG)
+
+  return { success: true, updated, errors }
+}

@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useTransition } from 'react'
 import Link from 'next/link'
-import { Building2, Plus, Pencil, Trash2, X, Users, UserPlus, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck, Search } from 'lucide-react'
-import { saveDepartment, deleteDepartment, getUsersForDepartmentAssignment, assignUsersToDepartment } from '@/app/dashboard/departments/actions'
+import { Building2, Plus, Pencil, Trash2, X, Users, UserPlus, Briefcase, Code2, HeadphonesIcon, BarChart2, Settings, Megaphone, BookOpen, ShieldCheck, Search, RefreshCw } from 'lucide-react'
+import { saveDepartment, deleteDepartment, getUsersForDepartmentAssignment, assignUsersToDepartment, syncUserDepartmentNamesAction } from '@/app/dashboard/departments/actions'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Department, SessionUser } from '@/types'
 
@@ -138,6 +138,9 @@ function MemberAvatars({ names, themeColor }: { names: string[]; themeColor: str
 
 export function DepartmentsPage({ departments: initial, memberNames, user }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(user.role)
+  const canSync = ['Admin', 'Super Manager'].includes(user.role)
+  const [syncPending, startSyncTransition] = useTransition()
+  const [syncMsg, setSyncMsg] = useState('')
   const [departments, setDepartments] = useState(initial)
   const [editing, setEditing] = useState<Department | null>(null)
   const [pendingDelete, setPendingDelete] = useState<{ dept: Department; count: number } | null>(null)
@@ -236,6 +239,29 @@ export function DepartmentsPage({ departments: initial, memberNames, user }: Pro
           >
             <Plus size={16} /> Add Department
           </Link>
+        )}
+        {canSync && (
+          <div className="flex items-center gap-2">
+            {syncMsg && <span className="text-xs" style={{ color: syncMsg.startsWith('✓') ? '#10B981' : '#EF4444' }}>{syncMsg}</span>}
+            <button
+              type="button"
+              disabled={syncPending}
+              onClick={() => {
+                setSyncMsg('')
+                startSyncTransition(async () => {
+                  const result = await syncUserDepartmentNamesAction()
+                  if (result.success) setSyncMsg(`✓ ${result.updated} user(s) updated`)
+                  else setSyncMsg(`✗ ${result.error}`)
+                })
+              }}
+              className="h-10 px-3 rounded-xl text-sm font-semibold flex items-center gap-2 btn-motion"
+              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+              title="Sync department names in users table to match official names"
+            >
+              <RefreshCw size={14} className={syncPending ? 'animate-spin' : ''} />
+              {syncPending ? 'Syncing…' : 'Sync Names'}
+            </button>
+          </div>
         )}
       </div>
 

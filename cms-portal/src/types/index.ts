@@ -458,9 +458,11 @@ export function canManageAccounts(user: SessionUser): boolean {
 export function canViewAccounts(user: SessionUser): boolean {
   const { role } = user
   if (role === 'Admin' || role === 'Super Manager') return true
-  if (role === 'Manager' || role === 'Supervisor') {
+  if (role === 'Manager') {
     if (!user.moduleAccess?.googleAccount) return false
     return user.moduleAccess.googleAccount.enabled === true
   }
+  // Supervisor and User — visible if they have any allowed_accounts
+  if (role === 'Supervisor') return user.allowedAccounts.length > 0
   return true // User role — filtered by allowedAccounts
 }

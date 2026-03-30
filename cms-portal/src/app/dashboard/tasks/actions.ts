@@ -873,8 +873,8 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     return false
   }
 
-  // Final filtered list for "My Tasks" view
-  const scopedTasks = isAdminOrSM ? tasks.filter(matchesPersonalScopeLogic) : tasks
+  // Final filtered list for "My Tasks" view — apply personal scope to all roles
+  const scopedTasks = tasks.filter(matchesPersonalScopeLogic)
 
   return {
     all: scopedTasks.length,

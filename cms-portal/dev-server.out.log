@@ -160,3 +160,415 @@
  ✓ Compiled in 1059ms (3861 modules)
  ✓ Compiled in 1138ms (3861 modules)
  ✓ Compiled in 2.8s (3861 modules)
+ ✓ Compiled in 3.8s (3861 modules)
+ ✓ Compiled in 3.6s (3861 modules)
+ ✓ Compiled in 671ms (1720 modules)
+ ✓ Compiled in 325ms (1720 modules)
+ ○ Compiling /api/version ...
+ ✓ Compiled /api/version in 733ms (2167 modules)
+ GET /api/version 200 in 818ms
+ ✓ Compiled in 1097ms (3861 modules)
+ ✓ Compiled in 2.1s (3861 modules)
+ ✓ Compiled in 1757ms (3861 modules)
+ ✓ Compiled in 814ms (3861 modules)
+ ✓ Compiled in 932ms (3861 modules)
+ GET /dashboard/team?scope=tasks_queue 200 in 1325ms
+ ○ Compiling /api/public-branding ...
+ ✓ Compiled /api/public-branding in 783ms (2167 modules)
+ ✓ Compiled (2170 modules)
+ GET /api/version 200 in 2051ms
+ GET /api/version 200 in 2054ms
+ GET /api/public-branding 200 in 2240ms
+ GET /api/public-branding 200 in 2429ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 571ms (2199 modules)
+ GET /favicon.ico 200 in 650ms
+ POST /dashboard/team?scope=tasks_queue 200 in 3028ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1336ms
+ POST /dashboard/team?scope=tasks_queue 200 in 92ms
+ POST /login 200 in 186ms
+ GET /api/public-branding 200 in 23ms
+ GET /api/public-branding 200 in 24ms
+ POST /login 200 in 654ms
+ GET /api/version 200 in 21ms
+ GET /api/version 200 in 21ms
+ GET /api/public-branding 200 in 28ms
+ GET /api/public-branding 200 in 24ms
+ GET /dashboard 200 in 1814ms
+ POST /dashboard 200 in 1333ms
+ POST /dashboard 200 in 1469ms
+ POST /dashboard 500 in 522ms
+ POST /dashboard 200 in 1025ms
+ POST /dashboard 200 in 1458ms
+ POST /dashboard 200 in 730ms
+ POST /dashboard 200 in 512ms
+ GET /api/version 200 in 27ms
+ GET /api/version 200 in 25ms
+ GET /api/public-branding 200 in 39ms
+ GET /api/public-branding 200 in 36ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1932ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 740ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 1242ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 3669ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 1327ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 3433ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 734ms
+ POST /dashboard/tasks?scope=my_all&status=queue 200 in 1257ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1107ms
+ POST /dashboard/team?scope=tasks_queue 200 in 1377ms
+ ○ Compiling /dashboard/accounts ...
+ ✓ Compiled /dashboard/accounts in 3.8s (4094 modules)
+ ✓ Compiled in 3.1s (4043 modules)
+ ✓ Compiled /api/public-branding in 438ms (2258 modules)
+ ✓ Compiled (2261 modules)
+ GET /api/public-branding 200 in 1247ms
+ GET /api/public-branding 200 in 1253ms
+ GET /api/version 200 in 1259ms
+ GET /api/version 200 in 1260ms
+ POST /dashboard/accounts 200 in 2207ms
+ POST /dashboard/accounts 200 in 1345ms
+ POST /dashboard/accounts 200 in 554ms
+ POST /dashboard/accounts 200 in 1369ms
+ POST /dashboard/accounts 200 in 521ms
+ ✓ Compiled /favicon.ico in 415ms (2290 modules)
+ GET /favicon.ico 200 in 498ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 16ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 13ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ ✓ Compiled in 2.8s (4043 modules)
+ ○ Compiling /dashboard/looker ...
+ ✓ Compiled /dashboard/looker in 1896ms (4058 modules)
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 1308ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 3497ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 1264ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 3913ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 789ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 789ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 2016ms
+ POST /dashboard/tasks?scope=my_all&status=completed 200 in 1459ms
+ ○ Compiling /api/version ...
+ ✓ Compiled /api/version in 720ms (1776 modules)
+ ✓ Compiled (1778 modules)
+ GET /api/version 200 in 1261ms
+ GET /api/version 200 in 1262ms
+ GET /api/public-branding 200 in 1515ms
+ GET /api/public-branding 200 in 2367ms
+ POST /dashboard/team?scope=tasks_all 200 in 3117ms
+ ✓ Compiled in 961ms (3593 modules)
+ GET /api/version 200 in 67ms
+ GET /api/version 200 in 67ms
+ GET /api/public-branding 200 in 76ms
+ GET /api/public-branding 200 in 76ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 1618ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 2264ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 843ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 1502ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 508ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 644ms (1807 modules)
+ GET /favicon.ico 200 in 732ms
+ GET /favicon.ico 200 in 14ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 12ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 14ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 8ms
+ GET /api/version 200 in 25ms
+ GET /api/public-branding 200 in 22ms
+ GET /api/version 200 in 29ms
+ GET /api/public-branding 200 in 29ms
+ GET /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 1423ms
+ GET /favicon.ico 200 in 15ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 1430ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 2288ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 2797ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 885ms
+ GET /api/version 200 in 17ms
+ GET /api/version 200 in 17ms
+ GET /api/public-branding 200 in 23ms
+ GET /api/public-branding 200 in 24ms
+ POST /dashboard/tasks/8657a8e2-a62c-4b4b-8856-ed0077e4496d 200 in 2164ms
+ POST /dashboard/accounts 200 in 2081ms
+ POST /dashboard/accounts 200 in 760ms
+ POST /dashboard/accounts 200 in 1213ms
+ POST /dashboard/accounts 200 in 527ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 30ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ ✓ Compiled in 2.5s (3564 modules)
+ ✓ Compiled /api/public-branding in 317ms (1775 modules)
+ ✓ Compiled (1778 modules)
+ GET /api/version 200 in 684ms
+ GET /api/version 200 in 705ms
+ GET /api/public-branding 200 in 723ms
+ GET /api/public-branding 200 in 708ms
+ POST /dashboard/accounts 200 in 1834ms
+ POST /dashboard/accounts 200 in 1254ms
+ POST /dashboard/accounts 200 in 540ms
+ POST /dashboard/accounts 200 in 2466ms
+ POST /dashboard/accounts 200 in 877ms
+ ✓ Compiled /favicon.ico in 376ms (1807 modules)
+ GET /favicon.ico 200 in 458ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 12ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 13ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ ✓ Compiled in 2.8s (3622 modules)
+ ✓ Compiled in 791ms (3622 modules)
+ ✓ Compiled in 1266ms (3622 modules)
+ ✓ Compiled in 1398ms (3622 modules)
+ ✓ Compiled in 825ms (3622 modules)
+ ✓ Compiled in 1367ms (3564 modules)
+ ✓ Compiled in 1294ms (3564 modules)
+ ✓ Compiled in 897ms (3564 modules)
+ GET /dashboard/accounts 200 in 1172ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 1105ms (1775 modules)
+ ✓ Compiled (1807 modules)
+ GET /api/version 200 in 2763ms
+ GET /api/version 200 in 2784ms
+ GET /favicon.ico 200 in 2629ms
+ GET /api/public-branding 200 in 3114ms
+ GET /api/public-branding 200 in 3542ms
+ POST /dashboard/accounts 200 in 4274ms
+ POST /dashboard/accounts 200 in 2223ms
+ GET /api/version 200 in 14ms
+ GET /api/public-branding 200 in 36ms
+ GET /api/public-branding 200 in 31ms
+ GET /api/version 200 in 36ms
+ POST /dashboard/accounts 200 in 2304ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2145ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 826ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 1336ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 452ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 23ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 12ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 14ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 12ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 592ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 1111ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2546ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 918ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2519ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 517ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 490ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 695ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 847ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 714ms
+ ✓ Compiled in 3.8s (3564 modules)
+ ✓ Compiled /api/public-branding in 473ms (1775 modules)
+ ✓ Compiled (1778 modules)
+ GET /api/public-branding 200 in 1070ms
+ GET /api/public-branding 200 in 1094ms
+ GET /api/version 200 in 1158ms
+ GET /api/version 200 in 1099ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2744ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2343ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 794ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2317ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 838ms
+ ✓ Compiled /favicon.ico in 342ms (1807 modules)
+ GET /favicon.ico 200 in 787ms
+ GET /favicon.ico 200 in 9ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 10ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 11ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 8ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 6ms
+ GET /favicon.ico 200 in 7ms
+ GET /favicon.ico 200 in 5ms
+ GET /favicon.ico 200 in 8ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 1698ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2354ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 847ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 2497ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 484ms
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 507ms
+ ✓ Compiled in 2.7s (3622 modules)
+ POST /dashboard/tasks?scope=my_all&status=all 200 in 1900ms
+ POST /dashboard/team?scope=tasks_queue 200 in 719ms
+ POST /dashboard/team?scope=tasks_queue 200 in 865ms
+ POST /dashboard/team?scope=tasks_queue 200 in 857ms

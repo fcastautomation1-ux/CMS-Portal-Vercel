@@ -11,6 +11,7 @@ import { getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/cn'
 import { TaskCard } from '@/components/tasks/task-card'
+import { canonicalDepartmentKey } from '@/lib/department-name'
 
 interface Props {
   members: TeamMember[]
@@ -78,24 +79,29 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     refetchOnWindowFocus: false,
   })
 
-  const departments = useMemo(
-    () => [
-      ...new Set(
-        members
-          .flatMap((member) =>
-            (member.department || '').split(',').map((d) => d.trim()).filter(Boolean)
-          )
-      ),
-    ].sort(),
-    [members]
-  )
+  const departments = useMemo(() => {
+    // Collect all dept names from members (may have old names)
+    const memberDepts = members.flatMap((m) =>
+      (m.department || '').split(',').map((d) => d.trim()).filter(Boolean)
+    )
+    // Collect all queue dept names from tasks (official names after server normalization)
+    const taskDepts = tasks.filter((t) => t.queue_department).map((t) => t.queue_department!)
+    // Group by canonical key; task dept names override member dept names (they're official)
+    const byKey = new Map<string, string>()
+    for (const d of memberDepts) {
+      const key = canonicalDepartmentKey(d)
+      if (key && !byKey.has(key)) byKey.set(key, d)
+    }
+    for (const d of taskDepts) {
+      const key = canonicalDepartmentKey(d)
+      if (key) byKey.set(key, d) // override with official name
+    }
+    return Array.from(byKey.values()).sort()
+  }, [members, tasks])
 
   const teamMemberDeptKeys = useMemo(
     () => Array.from(new Set(
-      departments.map((d) => {
-        const lower = d.toLowerCase().replace(/[''`]/g, '').replace(/\bapps?\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
-        return lower
-      }).filter(Boolean)
+      departments.map((d) => canonicalDepartmentKey(d)).filter(Boolean)
     )),
     [departments]
   )
@@ -135,7 +141,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
 
     if (deptFilter) list = list.filter((member) => {
       const depts = (member.department || '').split(',').map((d) => d.trim())
-      return depts.includes(deptFilter)
+      return depts.some((d) => canonicalDepartmentKey(d) === canonicalDepartmentKey(deptFilter))
     })
     if (memberFilter) list = list.filter((member) => member.username === memberFilter)
 
@@ -176,9 +182,9 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
 
     if (deptFilter) {
       if (scope === 'tasks_queue') {
-        list = list.filter((task) => (task.queue_department || '').toLowerCase() === deptFilter.toLowerCase())
+        list = list.filter((task) => canonicalDepartmentKey(task.queue_department || '') === canonicalDepartmentKey(deptFilter))
       } else {
-        list = list.filter((task) => (task.creator_department || task.category || '').toLowerCase() === deptFilter.toLowerCase())
+        list = list.filter((task) => canonicalDepartmentKey(task.creator_department || task.category || '') === canonicalDepartmentKey(deptFilter))
       }
     }
 
@@ -479,8 +485,15 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                       currentUserDept={user?.department ?? null}
                       currentUserTeamMembers={user?.teamMembers ?? []}
                       currentUserTeamMemberDeptKeys={teamMemberDeptKeys}
-                      onEdit={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
-                      onViewDetail={(nextTask) => router.push(`/dashboard/tasks/${nextTask.id}`)}
+                      enableQueueAssign
+                      onEdit={(nextTask) => {
+                        sessionStorage.setItem('task-detail-back', '/dashboard/team?scope=tasks_queue')
+                        router.push(`/dashboard/tasks/${nextTask.id}`)
+                      }}
+                      onViewDetail={(nextTask) => {
+                        sessionStorage.setItem('task-detail-back', '/dashboard/team?scope=tasks_queue')
+                        router.push(`/dashboard/tasks/${nextTask.id}`)
+                      }}
                       onShare={() => undefined}
                       onRefresh={() => router.refresh()}
                     />

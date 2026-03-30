@@ -14,14 +14,15 @@ function buildAccountFilter(user: SessionUser) {
 
   if (role === 'Admin' || role === 'Super Manager') return null // all
 
-  if (role === 'Manager' || role === 'Supervisor') {
+  if (role === 'Manager') {
     const ma = moduleAccess?.googleAccount
     if (!ma || !ma.enabled) return 'NO_ACCESS'
     if (ma.accessLevel === 'specific') return ma.accounts ?? []
     return null // all
   }
 
-  // User role
+  // Supervisor — uses allowed_accounts list just like Users
+  // If no allowed_accounts set, they see nothing
   if (allowedAccounts.includes('All') || allowedAccounts.includes('*')) return null
   return allowedAccounts
 }

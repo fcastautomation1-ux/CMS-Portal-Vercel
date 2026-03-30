@@ -62,6 +62,7 @@ interface TaskCardProps {
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
   currentUserTeamMemberDeptKeys?: string[]
+  enableQueueAssign?: boolean
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -601,6 +602,7 @@ export function TaskCard({
   currentUserDept,
   currentUserTeamMembers = [],
   currentUserTeamMemberDeptKeys = [],
+  enableQueueAssign = false,
   onEdit,
   onViewDetail,
   onRefresh,
@@ -682,7 +684,7 @@ export function TaskCard({
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   // Assign button only when task's queue_dept matches supervisor's own dept OR a team member's dept
   const teamMemberDeptKeySet = new Set(currentUserTeamMemberDeptKeys)
-  const showQueueAssignBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
+  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
     queueDeptKey !== '' && queueAssignableTeamMembers.length > 0 &&
     (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))
 

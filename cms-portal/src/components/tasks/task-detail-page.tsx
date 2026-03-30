@@ -805,6 +805,7 @@ export function TaskDetailPage({
 }) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const [backHref, setBackHref] = useState('/dashboard/tasks')
   const [activeTab, setActiveTab] = useState<TabId>('info')
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
@@ -857,7 +858,7 @@ export function TaskDetailPage({
   const refreshDetails = useCallback(async () => {
     const updated = await getTodoDetails(details.id)
     if (!updated) {
-      router.push('/dashboard/tasks')
+      router.push(backHref)
       return
     }
     queryClient.setQueryData(queryKeys.taskDetail(details.id), updated)
@@ -865,7 +866,7 @@ export function TaskDetailPage({
       if (!prev) return prev
       return prev.map((task) => (task.id === updated.id ? { ...task, ...updated } : task))
     })
-  }, [currentUsername, details.id, queryClient, router])
+  }, [backHref, currentUsername, details.id, queryClient, router])
 
   const markCommentsReadLocally = useCallback(() => {
     queryClient.setQueryData<TodoDetails>(queryKeys.taskDetail(details.id), (prev) => {
@@ -888,6 +889,14 @@ export function TaskDetailPage({
       )
     })
   }, [currentUsername, details.id, queryClient])
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem('task-detail-back')
+    if (stored) {
+      setBackHref(stored)
+      sessionStorage.removeItem('task-detail-back')
+    }
+  }, [])
 
   useEffect(() => {
     if (activeTab !== 'share') return
@@ -962,7 +971,7 @@ export function TaskDetailPage({
         return
       }
       if (options?.redirectToTasks) {
-        router.push('/dashboard/tasks')
+        router.push(backHref)
         return
       }
       await refreshDetails()
@@ -1543,7 +1552,7 @@ export function TaskDetailPage({
         <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-white/80 bg-white/85 px-5 py-4 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
             <div className="min-w-0">
-              <Link href="/dashboard/tasks" className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors hover:text-blue-600">
+              <Link href={backHref} className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors hover:text-blue-600">
                 <ArrowLeft size={14} />
                 Back To Tasks
               </Link>
