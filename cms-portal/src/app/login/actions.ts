@@ -75,6 +75,20 @@ export async function loginAction(
   const parseCSV = (val: string | null) =>
     (val ?? '').split(',').map(s => s.trim()).filter(Boolean)
 
+  const explicitTeamMembers = parseCSV((user.team_members as string | null) ?? null)
+
+  // Also collect users who list this person as their manager_id
+  const managedUsername = (user.username as string).toLowerCase()
+  const { data: managedUsers } = await supabase
+    .from('users')
+    .select('username')
+    .ilike('manager_id', `%${managedUsername}%`)
+  const managedUsernames = ((managedUsers ?? []) as Array<{ username: string }>)
+    .map((u) => u.username)
+    .filter((u) => u.toLowerCase() !== managedUsername)
+
+  const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
+
   const sessionUser: SessionUser = {
     username: user.username as string,
     role: normalizeRole(user.role),
@@ -86,7 +100,7 @@ export async function loginAction(
     allowedDriveFolders: parseCSV((user.allowed_drive_folders as string | null) ?? null),
     allowedLookerReports: parseCSV((user.allowed_looker_reports as string | null) ?? null),
     moduleAccess: (user.module_access as ModuleAccess) ?? null,
-    teamMembers: parseCSV((user.team_members as string | null) ?? null),
+    teamMembers: allTeamMembers,
     managerId: (user.manager_id as string | null) ?? null,
     driveAccessLevel: ((user.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((user.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,

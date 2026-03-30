@@ -46,6 +46,20 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
   if (error || !data) return null
 
   const row = data as Record<string, unknown>
+  const explicitTeamMembers = parseCSV((row.team_members as string | null) ?? null)
+
+  // Also collect users who list this person as their manager_id
+  const managedUsername = (row.username as string).toLowerCase()
+  const { data: managedUsers } = await supabase
+    .from('users')
+    .select('username')
+    .ilike('manager_id', `%${managedUsername}%`)
+  const managedUsernames = ((managedUsers ?? []) as Array<{ username: string }>)
+    .map((u) => u.username)
+    .filter((u) => u.toLowerCase() !== managedUsername)
+
+  const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
+
   return {
     username: row.username as string,
     role: normalizeRole(row.role),
@@ -57,7 +71,7 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
     allowedDriveFolders: parseCSV((row.allowed_drive_folders as string | null) ?? null),
     allowedLookerReports: parseCSV((row.allowed_looker_reports as string | null) ?? null),
     moduleAccess: (row.module_access as ModuleAccess) ?? null,
-    teamMembers: parseCSV((row.team_members as string | null) ?? null),
+    teamMembers: allTeamMembers,
     managerId: (row.manager_id as string | null) ?? null,
     driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
