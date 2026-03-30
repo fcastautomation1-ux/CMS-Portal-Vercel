@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
-import { useRouter } from 'next/navigation'
 import { loginAction } from './actions'
 import { Eye, EyeOff } from 'lucide-react'
 
@@ -136,19 +135,17 @@ export default function LoginPage() {
     logo_url: null,
   })
   const usernameRef = useRef<HTMLInputElement>(null)
-  const router = useRouter()
 
   useEffect(() => {
     usernameRef.current?.focus()
-    router.prefetch('/dashboard')
-  }, [router])
+  }, [])
 
   // Client-side fallback: if server action set success but redirect didn't navigate
   useEffect(() => {
     if (state && state.success) {
-      router.replace('/dashboard')
+      window.location.replace('/dashboard')
     }
-  }, [state, router])
+  }, [state])
 
   useEffect(() => {
     let mounted = true
