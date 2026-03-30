@@ -750,3 +750,30 @@ button, a, input, select, textarea {
 
 /* ── Placeholder text ────────────────────────────────────── */
 .dark .placeholder\:text-slate-400::placeholder { color: #64748B !important; }
+
+/* ── Responsive shell layout ─────────────────────────────── *
+ * These classes replace the inline style on <main> and the
+ * topbar so that mobile screens get 0 offset (sidebar is
+ * off-canvas) while desktop gets the sidebar width.
+ * data-collapsed="true" switches to the narrow width.
+ * ─────────────────────────────────────────────────────────── */
+
+.cms-main {
+  margin-left: 0;
+  transition: margin-left 0.3s ease;
+}
+
+@media (min-width: 768px) {
+  .cms-main { margin-left: var(--sidebar-width); }
+  .cms-main[data-collapsed="true"] { margin-left: var(--sidebar-collapsed-width); }
+}
+
+.topbar-shift {
+  left: 0 !important;
+  transition: left 0.3s ease;
+}
+
+@media (min-width: 768px) {
+  .topbar-shift { left: var(--sidebar-width) !important; }
+  .topbar-shift[data-collapsed="true"] { left: var(--sidebar-collapsed-width) !important; }
+}

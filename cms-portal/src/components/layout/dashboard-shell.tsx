@@ -72,10 +72,6 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     localStorage.setItem('cms_sidebar_collapsed', val ? 'true' : 'false')
   }, [])
 
-  const mainMargin = sidebarCollapsed
-    ? 'var(--sidebar-collapsed-width)'
-    : 'var(--sidebar-width)'
-
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <DeploymentWatcher />
@@ -102,10 +98,11 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
         onMenuClick={() => setMobileNavOpen(prev => !prev)}
         theme={theme}
         onThemeToggle={handleThemeToggle}
+        sidebarCollapsed={sidebarCollapsed}
       />
       <main
-        className="min-h-screen pt-[var(--topbar-height)] transition-[margin-left] duration-300"
-        style={{ marginLeft: `max(0px, ${mainMargin})` }}
+        className="cms-main min-h-screen pt-[var(--topbar-height)]"
+        data-collapsed={sidebarCollapsed ? 'true' : 'false'}
       >
         <div className="p-3 sm:p-4 md:p-5 md:ml-0" style={{ marginLeft: 0 }}>
           <AnimatePresence>

@@ -24,14 +24,16 @@ interface TopbarProps {
   onMenuClick?: () => void
   theme?: 'light' | 'dark'
   onThemeToggle?: () => void
+  sidebarCollapsed?: boolean
 }
 
-export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggle }: TopbarProps) {
+export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggle, sidebarCollapsed = false }: TopbarProps) {
   const cfg = ROLE_CONFIG[user.role] ?? ROLE_CONFIG['User']
 
   return (
     <header
-      className="glass-topbar fixed top-0 left-0 right-0 md:left-(--sidebar-width) flex items-center justify-between px-3 sm:px-4 md:px-6 z-20 transition-[left] duration-300"
+      className="topbar-shift glass-topbar fixed top-0 right-0 flex items-center justify-between px-3 sm:px-4 md:px-6 z-20"
+      data-collapsed={sidebarCollapsed ? 'true' : 'false'}
       style={{ height: 'var(--topbar-height)' }}
     >
       <div className="flex items-center gap-2">
