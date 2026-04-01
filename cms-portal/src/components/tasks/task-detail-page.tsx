@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/cn'
-import { formatPakistanDate, formatPakistanDateTime, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
+import { formatPakistanDate, formatPakistanDateTime, pakistanInputValue, pakistanOfficeMinInputValue } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { splitTaskMeta } from '@/lib/task-metadata'
@@ -43,6 +43,7 @@ import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
 import type { Todo, TodoDetails, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import {
   acknowledgeTaskAction,
@@ -76,6 +77,8 @@ import {
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
   updateSingleTaskDueDateAction,
+  pauseHallTaskAction,
+  activateHallTaskAction,
 } from '@/app/dashboard/tasks/actions'
 
 const TaskHandoffDialog = dynamic(
@@ -96,6 +99,7 @@ const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'creator-reopen' }
   | { type: 'single-due-date' }
   | { type: 'step-edit'; assigneeUsername: string }
   | { type: 'reassign' }
@@ -819,7 +823,6 @@ export function TaskDetailPage({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState<{ id: string; name: string } | null>(null)
   const [showCreatorCompleteConfirm, setShowCreatorCompleteConfirm] = useState(false)
-  const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ progress: number; fileName: string; currentFile: number; totalFiles: number; stage: string } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -884,6 +887,7 @@ export function TaskDetailPage({
           ? task
           : {
               ...task,
+              unread_comment_count: 0,
               history: task.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
             }
       )
@@ -965,16 +969,20 @@ export function TaskDetailPage({
   const doAction = async (fn: () => Promise<{ success: boolean; error?: string }>, options?: { redirectToTasks?: boolean }) => {
     setActionError('')
     startTransition(async () => {
-      const res = await fn()
-      if (!res.success) {
-        setActionError(res.error ?? 'Action failed')
-        return
+      try {
+        const res = await fn()
+        if (!res.success) {
+          setActionError(res.error ?? 'Action failed')
+          return
+        }
+        if (options?.redirectToTasks) {
+          router.push(backHref)
+          return
+        }
+        await refreshDetails()
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : 'Unexpected action error')
       }
-      if (options?.redirectToTasks) {
-        router.push(backHref)
-        return
-      }
-      await refreshDetails()
     })
   }
 
@@ -1053,16 +1061,24 @@ export function TaskDetailPage({
 
   const t = details
   const isAdminOrSuperManager = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+  const isLeaderRole =
+    currentUserRole === 'Manager' ||
+    currentUserRole === 'Supervisor' ||
+    currentUserRole === 'Super Manager' ||
+    currentUserRole === 'Admin'
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
+  // Hall scheduler controls only apply once the task is actively in a user's hall queue flow.
+  const tAny = t as unknown as Record<string, unknown>
+  const hallSchedulerState = tAny.scheduler_state as string | null
+  const isHallTask = !!t.cluster_id && !t.cluster_inbox
+  const isHallScheduledForMe = isAssignee && !!t.cluster_id && t.workflow_state === 'claimed_by_department'
   const isPendingApproval = t.approval_status === 'pending_approval'
   const pendingApprover = t.pending_approver || t.username
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const isCompleted = t.completed
   const ma = t.multi_assignment
   const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
-  const maAllAccepted = maEnabled && ma.assignees.every((entry) => entry.status === 'accepted')
-  const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
   const singleStepOwner = !maEnabled && t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
   const showSingleDueDateBtn = !maEnabled && !isCompleted && !isPendingApproval && !!t.assigned_to && (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const maProgress = t.completed
@@ -1077,9 +1093,17 @@ export function TaskDetailPage({
   const stepOwner = t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
   const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const currentAssigneeApproved = (t.approval_status === 'approved' || !t.approval_status) && !!t.completed_by
+  const showStandardReassignBtn =
+    !isCompleted &&
+    !isPendingApproval &&
+    (isAssignee || isCreator) &&
+    !!t.assigned_to &&
+    !maEnabled &&
+    !t.cluster_id
+  const showHallMgrReassignBtn = !!t.cluster_id && !t.cluster_inbox && !isCompleted && isLeaderRole && !isCreator
   
   const showCompleteBtn = !t.completed && !isPendingApproval && (
-    (isAssignee && !maEnabled && t.task_status === 'in_progress') || 
+    (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && hallSchedulerState === 'active'))) || 
     (isStepOwner && currentAssigneeApproved)
   )
 
@@ -1248,6 +1272,17 @@ export function TaskDetailPage({
         void doAction(() => delegateMaAssigneeAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
+      case 'creator-reopen':
+        {
+        const reopenReason = dialogValue.trim()
+        if (!reopenReason) {
+          setActionError('Reopen reason is required.')
+          return
+        }
+        void doAction(() => toggleTodoCompleteAction(t.id, false, reopenReason))
+        closeTaskDialog()
+        return
+        }
       case 'sub-submit': {
         const note = dialogValue.trim() || undefined
         const files = dialogFiles.slice()
@@ -1585,10 +1620,10 @@ export function TaskDetailPage({
               {isAssignee && t.task_status === 'backlog' && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="Acknowledge" color="blue" onClick={() => doAction(() => acknowledgeTaskAction(t.id))} loading={isPending} />
               )}
-              {isAssignee && t.task_status === 'todo' && (
+              {isAssignee && t.task_status === 'todo' && !isHallTask && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
               )}
-              {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!t.assigned_to && !maEnabled && (
+              {showStandardReassignBtn && (
                 <button
                   onClick={() => setShowHandoffDialog(true)}
                   className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
@@ -1596,13 +1631,25 @@ export function TaskDetailPage({
                   Assign To Next
                 </button>
               )}
+              {showHallMgrReassignBtn && (
+                <>
+                  <button
+                    onClick={() => router.push(`/dashboard/tasks/hall-assign/${t.id}`)}
+                    className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                  >
+                    Assign to Team Member
+                  </button>
+                  <button
+                    onClick={() => router.push(`/dashboard/tasks/route-cluster/${t.id}`)}
+                    className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                  >
+                    Assign to Other Department
+                  </button>
+                </>
+              )}
               {showSingleDueDateBtn && (
                 <button
-                    onClick={() => {
-                      setDialogValue(pakistanInputValue(t.actual_due_date))
-                    setDialogExtraValue(getAssignmentStepNote(t, t.assigned_to!))
-                    openTaskDialog({ type: 'step-edit', assigneeUsername: t.assigned_to! })
-                  }}
+                    onClick={() => router.push(`/dashboard/tasks/edit-assignee/${t.id}`)}
                   className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100"
                 >
                   Edit Assignee
@@ -1628,7 +1675,7 @@ export function TaskDetailPage({
                   icon={<RotateCcw size={14} />}
                   label="Reopen Task"
                   color="amber"
-                  onClick={() => setShowCreatorReopenConfirm(true)}
+                  onClick={() => openTaskDialog({ type: 'creator-reopen' })}
                   loading={isPending}
                 />
               )}
@@ -1675,8 +1722,26 @@ export function TaskDetailPage({
                 </button>
               )}
 
-              {/* Multi-level Assignment button (Assign to next person) */}
-              {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && !maEnabled && (
+              {/* Activate button — hall task stuck in user_queue with no active task */}
+              {isHallScheduledForMe && hallSchedulerState === 'user_queue' && !isCompleted && (
+                <button
+                  onClick={() => doAction(() => activateHallTaskAction(t.id))}
+                  className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                  Start Task
+                </button>
+              )}
+
+              {/* Pause button — only for hall-scheduled task that is active AND has other queued tasks */}
+              {isHallScheduledForMe && hallSchedulerState === 'active' && !isCompleted && (
+                <button
+                  onClick={() => doAction(() => pauseHallTaskAction(t.id))}
+                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100"
+                >
+                  Pause
+                </button>
+              )}
+              {showStandardReassignBtn && (
                 <button 
                   onClick={() => openTaskDialog({ type: 'reassign' })}
                   className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
@@ -2294,6 +2359,7 @@ export function TaskDetailPage({
         <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
+            taskDialog.type === 'creator-reopen' ? 'Reopen task' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
             taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
             taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
@@ -2306,6 +2372,7 @@ export function TaskDetailPage({
           }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+            taskDialog.type === 'creator-reopen' ? 'Explain why this task is being reopened. It will go back only to the last submitter.' :
             taskDialog.type === 'single-due-date' ? 'Set the assignee due date for this single task.' :
             taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
             taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
@@ -2316,7 +2383,7 @@ export function TaskDetailPage({
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'creator-reopen' ? 'Reopen task' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -2330,11 +2397,18 @@ export function TaskDetailPage({
               />
               <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
             </div>
+          ) : taskDialog.type === 'creator-reopen' ? (
+            <DialogTextarea
+              label="Reopen Reason"
+              value={dialogValue}
+              onChange={setDialogValue}
+              placeholder="Explain what needs to be corrected before this task can be accepted again."
+            />
           ) : taskDialog.type === 'single-due-date' ? (
-            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
           ) : taskDialog.type === 'step-edit' ? (
             <div className="space-y-3">
-              <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+              <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
               <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             </div>
           ) : taskDialog.type === 'split-multi' ? (
@@ -2356,7 +2430,7 @@ export function TaskDetailPage({
           ) : taskDialog.type === 'reopen-assignee' ? (
             <div className="space-y-3">
               <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanNowInputValue()} />
+              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
             </div>
           ) : (
             <div className="space-y-3">
@@ -2403,20 +2477,6 @@ export function TaskDetailPage({
         onConfirm={() => {
           void doAction(() => toggleTodoCompleteAction(t.id, true))
           setShowCreatorCompleteConfirm(false)
-        }}
-      />
-      <ConfirmDialog
-        open={showCreatorReopenConfirm}
-        title="Reopen this task?"
-        description="Only the task creator can reopen a completed task. This will move the task back to in-progress."
-        confirmLabel={isPending ? 'Reopening...' : 'Reopen task'}
-        onCancel={() => {
-          if (isPending) return
-          setShowCreatorReopenConfirm(false)
-        }}
-        onConfirm={() => {
-          void doAction(() => toggleTodoCompleteAction(t.id, false))
-          setShowCreatorReopenConfirm(false)
         }}
       />
       <ConfirmDialog
@@ -2511,6 +2571,14 @@ function ActionDialog({
 }
 
 function DialogInput({ label, value, onChange, placeholder, type = 'text', min }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; min?: string }) {
+  if (type === 'datetime-local') {
+    return (
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
+        <OfficeDateTimePicker value={value} onChange={onChange} min={min} className="w-full" />
+      </label>
+    )
+  }
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>

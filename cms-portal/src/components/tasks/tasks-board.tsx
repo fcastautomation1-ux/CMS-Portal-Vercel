@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
-import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { buildRealtimeEqFilter, subscribeToPostgresChanges } from '@/lib/realtime'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { Todo, TaskStatus, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
@@ -103,6 +103,7 @@ function parseQuickFilter(value: string | null): QuickFilter | null {
 function parseStatusFilter(value: string | null): StatusFilter | null {
   if (
     value === 'all' ||
+    value === 'in_progress' ||
     value === 'pending' ||
     value === 'completed' ||
     value === 'overdue' ||
@@ -225,7 +226,9 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     initialData: initialTasks,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    refetchOnMount: false,
+    // Initial data can come from a prefetched server payload, so refresh on mount
+    // to avoid showing stale zero-state/task counts after completing a task.
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData, // keep existing data while fetching
   })
@@ -235,7 +238,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     queryFn: () => getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    refetchOnMount: false,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
   })
@@ -319,8 +322,22 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // If I submitted it and it's not assigned back to me, it's done for me (awaiting someone else/approval).
     if (isMySubmission && !isCurrentlyAssignedToMe) return true
 
+    // If I submitted it and it's now pending approval (even if still assigned to me), consider it done from my view.
+    if (isMySubmission && task.approval_status === 'pending_approval') return true
+
     return false
   }, [])
+
+  const rowTouchesCurrentUser = useCallback((row: Record<string, unknown> | null | undefined) => {
+    if (!row) return false
+    const current = currentUsername.toLowerCase()
+    return (
+      String(row.username || '').toLowerCase() === current ||
+      String(row.assigned_to || '').toLowerCase() === current ||
+      String(row.pending_approver || '').toLowerCase() === current ||
+      String(row.completed_by || '').toLowerCase() === current
+    )
+  }, [currentUsername])
 
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const activeKpi = useMemo(() => {
@@ -366,11 +383,26 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       }, 1000) // Increase debounce to 1s to prevent "shaking" on multiple updates
     }
 
+    // For non-admin users, subscribe only to rows directly involving this user.
+    // Subscribing to the whole todos table means every task update by any user
+    // triggers a server action call (getSingleTaskLiveUpdateAction) for every
+    // open session — at 50 concurrent users this becomes hundreds of server
+    // calls per minute for a typical mutation burst.
+    // Admins still subscribe broadly because they see all tasks.
+    const todosConfigs = isAdmin
+      ? [{ table: 'todos' as const }]
+      : [
+          { table: 'todos' as const, filter: buildRealtimeEqFilter('username', currentUsername) },
+          { table: 'todos' as const, filter: buildRealtimeEqFilter('assigned_to', currentUsername) },
+          { table: 'todos' as const, filter: buildRealtimeEqFilter('pending_approver', currentUsername) },
+          { table: 'todos' as const, filter: buildRealtimeEqFilter('completed_by', currentUsername) },
+        ]
+
     const unsubscribe = subscribeToPostgresChanges(
       `tasks-board:${currentUsername}`,
       [
-        { table: 'todos' },
-        { table: 'todo_shares', filter: `shared_with=eq.${currentUsername}` },
+        ...todosConfigs,
+        { table: 'todo_shares', filter: buildRealtimeEqFilter('shared_with', currentUsername) },
       ],
       (payload) => {
         if (payload.table === 'todo_shares') {
@@ -387,26 +419,48 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const taskId = payload.new?.id
             if (taskId) {
-              getSingleTaskLiveUpdateAction(taskId).then((updatedTask) => {
-                if (!updatedTask) return
-                queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (old) => {
-                  if (!old) return [updatedTask]
-                  const index = old.findIndex(t => t.id === taskId)
-                  if (index > -1) {
-                    const next = [...old]
-                    next[index] = updatedTask
-                    return next
-                  }
-                  
-                  // Sort newly inserted tasks exactly like the server
-                  return [updatedTask, ...old].sort((a, b) => {
-                    const pa = a.position || 0
-                    const pb = b.position || 0
-                    if (pa !== pb) return pa - pb
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+              const existingTasks = queryClient.getQueryData<Todo[]>(queryKeys.tasks(currentUsername))
+              const inCache = existingTasks?.some(t => t.id === taskId)
+
+              // For UPDATEs: only fetch if the task is already in our local cache.
+              // For INSERTs: only fetch if it's owned by or assigned to us (payload.new is
+              // available for non-admin filtered channels containing full-row data, and for
+              // admin broad channels the cache check is the right guard).
+              const touchesNew = rowTouchesCurrentUser(payload.new as Record<string, unknown> | null | undefined)
+              const touchesOld = rowTouchesCurrentUser(payload.old as Record<string, unknown> | null | undefined)
+
+              // A reopened task often becomes relevant to the target user on UPDATE.
+              // If we only fetch rows already in cache, that user sees "0 tasks"
+              // until a manual refresh even though the DB row is correct.
+              if (payload.eventType === 'UPDATE' && touchesOld && !touchesNew) {
+                scheduleRefresh()
+                return
+              }
+
+              const shouldFetch = inCache || touchesNew
+
+              if (shouldFetch) {
+                getSingleTaskLiveUpdateAction(String(taskId)).then((updatedTask) => {
+                  if (!updatedTask) return
+                  queryClient.setQueryData<Todo[]>(queryKeys.tasks(currentUsername), (old) => {
+                    if (!old) return [updatedTask]
+                    const index = old.findIndex(t => t.id === taskId)
+                    if (index > -1) {
+                      const next = [...old]
+                      next[index] = updatedTask
+                      return next
+                    }
+                    
+                    // Sort newly inserted tasks exactly like the server
+                    return [updatedTask, ...old].sort((a, b) => {
+                      const pa = a.position || 0
+                      const pb = b.position || 0
+                      if (pa !== pb) return pa - pb
+                      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    })
                   })
-                })
-              }).catch(() => scheduleRefresh())
+                }).catch(() => scheduleRefresh())
+              }
             } else {
               scheduleRefresh()
             }
@@ -426,7 +480,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       window.clearInterval(pollingInterval)
       unsubscribe()
     }
-  }, [currentUsername, refresh])
+  }, [currentUsername, isAdmin, refresh, rowTouchesCurrentUser])
 
   const isQueuedTaskForDepartmentUser = useCallback((task: Todo, username: string) => {
     if (username.toLowerCase() != currentUsername.toLowerCase()) return false
@@ -455,11 +509,20 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()
     if (task.archived) return false
+
+    // If task is globally done OR user submitted it (waiting approval/next step),
+    // it's "completed" for them and should not show in "Assigned to me"
+    const isGloballyDone = task.completed || task.task_status === 'done'
+    const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
+    const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
+    const isCompletedForMe = isGloballyDone || (isMySubmission && !isCurrentlyAssignedToMe) || (isMySubmission && task.approval_status === 'pending_approval')
+
     if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
-    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)
+    if (scope === 'assigned_to_me') return (isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)) && !isCompletedForMe
     return (
       task.username.toLowerCase() === userLower ||
       (task.completed_by || '').toLowerCase() === userLower ||
+      (task.cluster_routed_by || '').toLowerCase() === userLower ||
       isTaskAssignedToUser(task, username) ||
       isQueuedTaskForDepartmentUser(task, username)
     )
@@ -476,12 +539,22 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const overdue = scopedTasksForKpis.filter(
       (task) => !isTaskCompletedForUser(task, effectiveUser) && !!task.due_date && new Date(task.due_date) < now,
     ).length
+    const userLowerKpi = effectiveUser.toLowerCase()
     const in_progress = scopedTasksForKpis.filter((task) => {
       if (isTaskCompletedForUser(task, effectiveUser)) return false
+      // Exclude hall-scheduled tasks that are assigned to someone else
+      const hs = task.scheduler_state
+      if (hs && ['active', 'user_queue', 'paused', 'blocked'].includes(hs) && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
       return task.task_status === 'in_progress'
     }).length
     const pending = scopedTasksForKpis.filter((task) => {
       if (isTaskCompletedForUser(task, effectiveUser)) return false
+      if (task.task_status === 'in_progress') return false // already in in_progress
+      // Exclude hall-scheduled tasks in active states assigned to someone else
+      const hs = task.scheduler_state
+      if (hs && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(hs) && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
+      // Exclude tasks currently assigned to another user
+      if (task.assigned_to && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
       if (task.due_date && new Date(task.due_date) < now) return false
       return true
     }).length
@@ -535,6 +608,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         if (isTaskAssignedToUser(t, effectiveUser)) return true
         if ((t.completed_by || '').toLowerCase() === userLower) return true
         if (t.username.toLowerCase() === userLower) return true
+        if ((t.cluster_routed_by || '').toLowerCase() === userLower) return true
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
     } else if (quickFilter === 'assigned_by_me') {
@@ -693,18 +767,29 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     a.click()
   }
 
-  const cardProps = (task: Todo) => ({
+  const cardProps = (task: Todo) => {
+    // Pause is only meaningful when user has other tasks waiting in their queue
+    const hasOtherQueuedTasks = tasks.some(
+      (t) =>
+        t.id !== task.id &&
+        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
+        t.scheduler_state === 'user_queue'
+    )
+    return {
     task,
     currentUsername,
+    currentUserRole,
     currentUserDept,
     currentUserTeamMembers,
     currentUserTeamMemberDeptKeys,
     enableQueueAssign,
+    hasOtherQueuedTasks,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),
     onRefresh: refresh,
-  })
+    }
+  }
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
@@ -903,8 +988,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                 <button
                   onClick={() => {
                     setAddTaskPending(true)
-                    setShowCreate(true)
-                    setTimeout(() => setAddTaskPending(false), 600)
+                    router.push('/dashboard/tasks/new')
                   }}
                   disabled={addTaskPending}
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#2f66f5] px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(47,102,245,0.28)] transition hover:bg-[#2558dd] disabled:opacity-80 sm:gap-2 sm:px-4 sm:text-sm"

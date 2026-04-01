@@ -21,7 +21,9 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { isPastPakistanDate, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
+import { pakistanInputValue, pakistanOfficeMinInputValue, validatePakistanOfficeDueDate } from '@/lib/pakistan-time'
+import type { HallOfficeHours } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
@@ -36,12 +38,26 @@ import {
   createTaskAttachmentUploadUrlAction,
   saveTodoAction,
   saveTodoAttachmentAction,
+  getClustersForHallSend,
 } from '@/app/dashboard/tasks/actions'
 
 interface Package {
   id: string
   name: string
   app_name: string | null
+}
+
+interface HallCluster {
+  id: string
+  name: string
+  color: string
+  description: string | null
+  office_start: string
+  office_end: string
+  break_start: string
+  break_end: string
+  friday_break_start: string
+  friday_break_end: string
 }
 
 interface User {
@@ -94,6 +110,7 @@ interface CreateTaskModalProps {
   initialDepartments?: string[]
   onClose: () => void
   onSaved: () => void
+  asPage?: boolean
 }
 
 export function CreateTaskModal({
@@ -104,10 +121,12 @@ export function CreateTaskModal({
   initialDepartments,
   onClose,
   onSaved,
+  asPage = false,
 }: CreateTaskModalProps) {
   const isEdit = !!editTask
   const draftKey = `${DRAFT_STORAGE_PREFIX}:${editTask?.id ?? 'new'}`
-  const initialDraft = readDraft(draftKey)
+  // Drafts are only for new tasks. When editing, always load from the saved DB values.
+  const initialDraft = isEdit ? null : readDraft(draftKey)
   const descriptionRef = useRef<HTMLDivElement>(null)
   const lastDescriptionRangeRef = useRef<Range | null>(null)
   const goalRef = useRef<HTMLDivElement>(null)
@@ -145,7 +164,7 @@ export function CreateTaskModal({
     if (!editTask) return 'self'
     if (editTask.multi_assignment?.enabled) return 'multi'
     if (editTask.queue_status === 'queued') return 'department'
-    if (editTask.assigned_to) return 'manager'
+    if (editTask.manager_id) return 'manager'
     return 'self'
   })
   const [deptRoutingDept, setDeptRoutingDept] = useState(initialDraft?.deptRoutingDept ?? editTask?.queue_department ?? '')
@@ -170,11 +189,33 @@ export function CreateTaskModal({
   const [showTableDialog, setShowTableDialog] = useState(false)
   const [tableRows, setTableRows] = useState('2')
   const [tableCols, setTableCols] = useState('2')
-  const minDueDate = pakistanNowInputValue()
 
   const [packages, setPackages] = useState<Package[]>(initialPackages ?? [])
   const [users, setUsers] = useState<User[]>(initialUsers ?? [])
   const [departments, setDepartments] = useState<string[]>(initialDepartments ?? [])
+  const [taskMode, setTaskMode] = useState<'local' | 'crosshall'>('local')
+  const [destClusterId, setDestClusterId] = useState('')
+  const [clusters, setClusters] = useState<HallCluster[]>([])
+  // Cross-hall duration: days + hours (8 working hours = 1 day)
+  const [hallDays, setHallDays] = useState(0)
+  const [hallHours, setHallHours] = useState(0)
+
+  // Hall-specific office hours for the currently selected destination cluster.
+  const selectedHallHours: HallOfficeHours | undefined = (() => {
+    if (taskMode !== 'crosshall' || !destClusterId) return undefined
+    const c = clusters.find((cl) => cl.id === destClusterId)
+    if (!c) return undefined
+    return {
+      office_start: c.office_start ?? '09:00',
+      office_end: c.office_end ?? '18:00',
+      break_start: c.break_start ?? '13:00',
+      break_end: c.break_end ?? '14:00',
+      friday_break_start: c.friday_break_start ?? '12:30',
+      friday_break_end: c.friday_break_end ?? '14:30',
+    }
+  })()
+
+  const minDueDate = pakistanOfficeMinInputValue(selectedHallHours)
 
   useEffect(() => {
     if (initialPackages && initialPackages.length > 0) setPackages(initialPackages)
@@ -197,6 +238,13 @@ export function CreateTaskModal({
   }, [departments.length, packages.length, users.length])
 
   useEffect(() => {
+    if (isEdit) return
+    getClustersForHallSend().then((data) => {
+      if (data && data.length > 0) setClusters(data)
+    })
+  }, [isEdit])
+
+  useEffect(() => {
     if (!isPending) return
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -215,6 +263,10 @@ export function CreateTaskModal({
     const taskKey = editTask?.id ?? '__new__'
     if (editorInitializedRef.current === taskKey) return
     editorInitializedRef.current = taskKey
+    // Clear any stale draft for this task so it doesn't pollute future edits
+    if (editTask?.id && typeof window !== 'undefined') {
+      window.localStorage.removeItem(draftKey)
+    }
 
     if (descriptionRef.current) {
       descriptionRef.current.innerHTML = normalizeTaskDescription(
@@ -882,6 +934,14 @@ export function CreateTaskModal({
   }
 
   const validate = () => {
+    if (taskMode === 'crosshall') {
+      if (!kpiType) return { message: 'Please select a KPI type.', field: 'kpi' }
+      if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
+      if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
+      if (!destClusterId) return { message: 'Please select a destination Hall.', field: 'cluster' }
+      if (hallDays === 0 && hallHours === 0) return { message: 'Please set the estimated duration (days and/or hours).', field: 'dueDate' }
+      return null
+    }
     if (!kpiType) return { message: 'Please select a KPI type.', field: 'kpi' }
     if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
     if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
@@ -889,8 +949,11 @@ export function CreateTaskModal({
     if (routing !== 'self' && routing !== 'multi' && !dueDate) {
       return { message: 'Please set a due date for this task.', field: 'dueDate' }
     }
-    if (dueDate && isPastPakistanDate(dueDate)) {
-      return { message: 'Due date must be an upcoming Pakistan time.', field: 'dueDate' }
+    if (dueDate) {
+      const officeError = validatePakistanOfficeDueDate(dueDate)
+      if (officeError) {
+        return { message: officeError, field: 'dueDate' }
+      }
     }
     if (routing === 'department' && !deptRoutingDept) {
       return { message: 'Please select a department for routing.', field: 'department' }
@@ -909,12 +972,25 @@ export function CreateTaskModal({
           field: 'multi',
         }
       }
-      const invalid = multiAssignees.find((entry) => entry.actual_due_date && isPastPakistanDate(entry.actual_due_date))
+      const invalid = multiAssignees.find((entry) =>
+        entry.actual_due_date && Boolean(validatePakistanOfficeDueDate(entry.actual_due_date, selectedHallHours))
+      )
       if (invalid) {
-        return { message: `Deadline for ${invalid.username} must be an upcoming Pakistan time.`, field: 'multi' }
+        return {
+          message: `Deadline for ${invalid.username} is outside this hall's office hours.`,
+          field: 'multi',
+        }
       }
     }
     return null
+  }
+
+  // Compute ISO due-date string from hallDays+hallHours (8 working hours per day)
+  const computeHallDueDate = (): string => {
+    const totalHours = hallDays * 8 + hallHours
+    const now = new Date()
+    const ms = now.getTime() + totalHours * 60 * 60 * 1000
+    return new Date(ms).toISOString().slice(0, 16)
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -932,6 +1008,43 @@ export function CreateTaskModal({
     const ourGoalHtml = goalRef.current?.innerHTML ?? ''
 
     startTransition(async () => {
+      if (taskMode === 'crosshall') {
+        const result = await saveTodoAction({
+          app_name: joinTaskMeta(appNames) ?? 'Others',
+          package_name: joinTaskMeta(packageNames) || 'Others',
+          kpi_type: kpiType,
+          title: title.trim().slice(0, 30),
+          description: descriptionHtml || undefined,
+          our_goal: ourGoalHtml,
+          priority,
+          due_date: computeHallDueDate(),
+          notes,
+          routing: 'cluster',
+          cluster_id: destClusterId,
+        })
+        if (!result.success || !result.id) {
+          setError(result.error ?? 'Failed to send task to Hall.')
+          setErrorField('submit')
+          return
+        }
+        try {
+          await uploadAttachments(result.id)
+        } catch (attachmentError) {
+          setError(
+            attachmentError instanceof Error
+              ? attachmentError.message
+              : 'Task sent but attachment upload failed.'
+          )
+          setErrorField('attachments')
+          return
+        }
+        window.localStorage.removeItem(draftKey)
+        setPendingAttachments([])
+        onSaved()
+        onClose()
+        return
+      }
+
       const result = await saveTodoAction({
         id: editTask?.id,
         app_name: joinTaskMeta(appNames) ?? 'Others',
@@ -983,10 +1096,10 @@ export function CreateTaskModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] px-4 py-6 backdrop-blur-[4px]">
+    <div className={asPage ? 'flex flex-col h-full' : 'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] px-4 py-6 backdrop-blur-[4px]'}>
       <div
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
-        style={{
+        className={asPage ? 'flex flex-col flex-1 min-h-0 w-full' : 'flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl'}
+        style={asPage ? {} : {
           background: 'var(--color-surface)',
           backdropFilter: 'blur(18px) saturate(180%)',
           WebkitBackdropFilter: 'blur(18px) saturate(180%)',
@@ -995,25 +1108,77 @@ export function CreateTaskModal({
         }}
       >
         <div className="h-1.5 w-full bg-[linear-gradient(90deg,var(--blue-500),#7c93ff)]" />
-        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+        <div className={cn('flex items-start justify-between border-b border-slate-100 px-6 py-5', asPage && 'bg-white')}>
           <div className="pr-4">
             <h2 className="text-xl font-bold tracking-[-0.02em] text-slate-900">
-              {isEdit ? 'Edit Task' : 'Create New Task'}
+              {isEdit ? 'Edit Task' : taskMode === 'crosshall' ? 'Send Task to Hall' : 'Create New Task'}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Create work in the same routing flow used across the portal.
+              {isEdit
+                ? 'Edit task details and routing.'
+                : taskMode === 'crosshall'
+                ? 'Create a task and send it to another Hall\'s inbox for their team to pick up.'
+                : 'Create work in the same routing flow used across the portal.'}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            className={asPage ? 'rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100' : 'rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600'}
           >
-            <X size={20} />
+            {asPage ? 'Cancel' : <X size={20} />}
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-slate-50/60">
+          {!isEdit && (
+            <div className="border-b border-slate-100 bg-white px-6 py-3.5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Mode</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {taskMode === 'local'
+                      ? 'Create and route work inside your current flow.'
+                      : 'Send a task directly to another Hall inbox.'}
+                  </p>
+                </div>
+                <div
+                  role="tablist"
+                  aria-label="Task mode"
+                  className="inline-flex w-full rounded-xl border border-slate-200 bg-slate-50 p-1 sm:w-auto"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={taskMode === 'local'}
+                    onClick={() => setTaskMode('local')}
+                    className={cn(
+                      'flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition sm:flex-none',
+                      taskMode === 'local'
+                        ? 'bg-white text-blue-700 shadow-[0_3px_10px_rgba(37,99,235,0.16)] ring-1 ring-blue-200'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    )}
+                  >
+                    Local Task
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={taskMode === 'crosshall'}
+                    onClick={() => setTaskMode('crosshall')}
+                    className={cn(
+                      'flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition sm:flex-none',
+                      taskMode === 'crosshall'
+                        ? 'bg-white text-violet-700 shadow-[0_3px_10px_rgba(124,58,237,0.16)] ring-1 ring-violet-200'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    )}
+                  >
+                    Send to Hall
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-5 px-6 py-5">
             <SectionCard
               title="Task Basics"
@@ -1262,6 +1427,82 @@ export function CreateTaskModal({
             </SectionCard>
 
             <section ref={routingSectionRef}>
+            {taskMode === 'crosshall' ? (
+              <SectionCard
+                title="Hall Destination & Timing"
+                description="Select the destination Hall and set the task deadline."
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Destination Hall *">
+                    <>
+                      <select
+                        value={destClusterId}
+                        onChange={(event) => setDestClusterId(event.target.value)}
+                        className={selectCls}
+                      >
+                        <option value="">Select Hall...</option>
+                        {clusters.map((cluster) => (
+                          <option key={cluster.id} value={cluster.id}>
+                            {cluster.name}
+                          </option>
+                        ))}
+                      </select>
+                      {error && errorField === 'cluster' && (
+                        <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                      )}
+                    </>
+                  </Field>
+                  <Field label="Priority">
+                    <select
+                      value={priority}
+                      onChange={(event) => setPriority(event.target.value as typeof priority)}
+                      className={selectCls}
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Due Date *">
+                  <>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Days</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={365}
+                          value={hallDays}
+                          onChange={(e) => setHallDays(Math.max(0, parseInt(e.target.value) || 0))}
+                          className={inputCls}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Hours</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={hallHours}
+                          onChange={(e) => setHallHours(Math.max(0, parseInt(e.target.value) || 0))}
+                          className={inputCls}
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-400">
+                      1 day = 8 office hours.{hallDays > 0 || hallHours > 0 ? ` Total: ${hallDays * 8 + hallHours} hours from now.` : ''}
+                    </p>
+                    {error && errorField === 'dueDate' && (
+                      <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                    )}
+                  </>
+                </Field>
+              </SectionCard>
+            ) : (
             <SectionCard
               title="Timing & Routing"
               description="Choose urgency and decide where the task should flow next."
@@ -1283,10 +1524,9 @@ export function CreateTaskModal({
                 {routing !== 'multi' && (
                   <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
                     <>
-                      <input
-                        type="datetime-local"
+                      <OfficeDateTimePicker
                         value={dueDate}
-                        onChange={(event) => setDueDate(event.target.value)}
+                        onChange={setDueDate}
                         min={minDueDate}
                         className={inputCls}
                       />
@@ -1450,12 +1690,9 @@ export function CreateTaskModal({
                               className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px]"
                             >
                               <div className="text-sm font-semibold text-slate-800">{entry.username}</div>
-                              <input
-                                type="datetime-local"
+                              <OfficeDateTimePicker
                                 value={toInputDate(entry.actual_due_date)}
-                                onChange={(event) =>
-                                  setMultiAssigneeDueDate(entry.username, event.target.value)
-                                }
+                                onChange={(v) => setMultiAssigneeDueDate(entry.username, v)}
                                 min={minDueDate}
                                 className={inputCls}
                               />
@@ -1471,6 +1708,7 @@ export function CreateTaskModal({
                 )}
               </div>
             </SectionCard>
+            )}
             </section>
 
             <SectionCard
@@ -1564,7 +1802,13 @@ export function CreateTaskModal({
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
             >
               {isPending && <Loader2 size={14} className="animate-spin" />}
-              {isPending ? 'Saving...' : isEdit ? 'Update Task' : 'Create Task'}
+              {isPending
+                ? 'Saving...'
+                : isEdit
+                ? 'Update Task'
+                : taskMode === 'crosshall'
+                ? 'Send to Hall'
+                : 'Create Task'}
             </button>
           </div>
         </form>

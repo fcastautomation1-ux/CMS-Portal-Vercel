@@ -23,6 +23,7 @@ export interface SessionUser {
   managerId: string | null
   driveAccessLevel: DriveAccessLevel
   themePreference?: 'light' | 'dark' | null
+  clusterIds: string[]  // cluster UUIDs this user belongs to (from cluster_members)
 }
 
 export interface ModuleAccess {
@@ -112,6 +113,13 @@ export interface Cluster {
   created_by: string | null
   created_at: string
   updated_at: string
+  // Office hours (HH:MM format, PKT)
+  office_start: string        // default '09:00'
+  office_end: string          // default '18:00'
+  break_start: string         // Mon–Thu break start, default '13:00'
+  break_end: string           // Mon–Thu break end, default '14:00'
+  friday_break_start: string  // Friday (Jumu'ah) break start, default '12:30'
+  friday_break_end: string    // Friday (Jumu'ah) break end, default '14:30'
 }
 
 export interface ClusterDepartment {
@@ -131,6 +139,23 @@ export interface ClusterMember {
   scoped_departments: string[] | null   // dept names this supervisor manages
   created_at: string
   updated_at: string
+}
+
+/** Per-cluster configurable settings */
+export interface ClusterSettings {
+  id?: string
+  cluster_id: string
+  allow_dept_users_see_queue: boolean
+  // ── Hall Scheduler settings ──────────────────────────────────────────────
+  /** When true, users in this hall may only have ONE active task at a time. */
+  single_active_task_per_user: boolean
+  /** When true (requires single_active_task_per_user), the next highest-queued
+   *  task auto-activates when the current active task completes or is blocked.  */
+  auto_start_next_task: boolean
+  /** When true, users must supply a pause reason when pausing a task. */
+  require_pause_reason: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 /** Full cluster with its departments and members — used for the admin page */
@@ -198,6 +223,7 @@ export type ApprovalStatus = 'approved' | 'pending_approval' | 'declined'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskWorkflowState =
   | 'queued_department'
+  | 'queued_cluster'         // task is in a Hall (cluster) inbox queue
   | 'claimed_by_department'
   | 'reassigned'
   | 'in_progress'
@@ -206,6 +232,43 @@ export type TaskWorkflowState =
   | 'submitted_for_approval'
   | 'rework_required'
   | 'final_approved'
+
+// ─── Hall Scheduler ──────────────────────────────────────────
+
+/**
+ * Fine-grained lifecycle state for hall-managed tasks.
+ *
+ *  hall_inbox    → arrived via cross-hall send, not yet assigned
+ *  hall_queue    → assigned to hall dept queue, not yet to a specific user
+ *  user_queue    → in user's personal queue, waiting for prior task to finish
+ *  active        → user is actively working; countdown running
+ *  paused        → user paused (countdown stopped); still competes for re-activation
+ *  blocked       → explicitly blocked with a reason; NOT auto-re-activated
+ *  waiting_review→ submitted for review
+ *  completed     → done
+ */
+export type HallSchedulerState =
+  | 'hall_inbox'
+  | 'hall_queue'
+  | 'user_queue'
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'waiting_review'
+  | 'completed'
+
+/** An immutable audit-log entry for a hall task state transition. */
+export interface HallTaskWorkLog {
+  id: string
+  todo_id: string
+  username: string
+  /** started | paused | resumed | blocked | unblocked | completed | assigned | reassigned | reordered | setting_enforced */
+  event: string
+  minutes_deducted: number
+  notes: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
 
 export const KPI_TYPES = [
   'Monitizations',
@@ -363,6 +426,27 @@ export interface Todo {
   cluster_inbox?: boolean                 // true = arrived via cross-cluster routing
   cluster_origin_id?: string | null       // source cluster id (for cross-cluster return)
   cluster_routed_by?: string | null       // who sent it cross-cluster
+  // ── Hall Scheduler fields ────────────────────────────────────
+  /** ISO timestamp of the sender's requested deadline when routing cross-hall. */
+  requested_due_at?: string | null
+  /** System-calculated finish datetime based on estimated_work_minutes + office hours. */
+  effective_due_at?: string | null
+  /** Total work estimate in minutes, set by hall manager/supervisor at assignment time. */
+  estimated_work_minutes?: number | null
+  /** Remaining work minutes as of the last state transition (pause/block/complete). */
+  remaining_work_minutes?: number | null
+  /** Running total of minutes actually worked (audit). */
+  total_active_minutes?: number | null
+  /** ISO timestamp when this task most recently became 'active'. Null when not active. */
+  active_started_at?: string | null
+  /** Optional reason supplied when task was paused. */
+  pause_reason?: string | null
+  /** Required reason when task is in 'blocked' scheduler state. */
+  blocked_reason?: string | null
+  /** Position within the user's personal queue in this hall (lower = higher priority). */
+  queue_rank?: number | null
+  /** Fine-grained scheduler state (hall_inbox | hall_queue | user_queue | active | paused | blocked | waiting_review | completed). */
+  scheduler_state?: HallSchedulerState | null
   created_at: string
   updated_at: string
   // Virtual fields added by getTodos

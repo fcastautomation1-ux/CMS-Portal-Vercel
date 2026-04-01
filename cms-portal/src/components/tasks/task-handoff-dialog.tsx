@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Building2, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { pakistanNowInputValue } from '@/lib/pakistan-time'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
+import { pakistanOfficeMinInputValue } from '@/lib/pakistan-time'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   getDepartmentsForTaskForm,
   getUsersForAssignment,
+  getDepartmentsForHall,
+  getUsersForHallAssignment,
 } from '@/app/dashboard/tasks/actions'
 
 type AssignmentUser = {
@@ -24,6 +27,7 @@ interface TaskHandoffDialogProps {
   open: boolean
   currentUsername: string
   currentAssignee?: string | null
+  clusterId?: string | null
   onClose: () => void
   onAssignDepartment: (department: string, dueDate: string, note?: string) => void
   onAssignMulti: (assignees: Array<{ username: string; actual_due_date: string }>, note?: string) => void
@@ -33,6 +37,7 @@ export function TaskHandoffDialog({
   open,
   currentUsername,
   currentAssignee,
+  clusterId,
   onClose,
   onAssignDepartment,
   onAssignMulti,
@@ -51,15 +56,26 @@ export function TaskHandoffDialog({
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    Promise.all([getDepartmentsForTaskForm(), getUsersForAssignment()]).then(([depts, assignableUsers]) => {
-      if (cancelled) return
-      setDepartments(depts)
-      setUsers(assignableUsers)
-    })
+    if (clusterId) {
+      Promise.all([
+        getDepartmentsForHall(clusterId),
+        getUsersForHallAssignment(clusterId),
+      ]).then(([depts, assignableUsers]) => {
+        if (cancelled) return
+        setDepartments(depts)
+        setUsers(assignableUsers)
+      })
+    } else {
+      Promise.all([getDepartmentsForTaskForm(), getUsersForAssignment()]).then(([depts, assignableUsers]) => {
+        if (cancelled) return
+        setDepartments(depts)
+        setUsers(assignableUsers)
+      })
+    }
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, clusterId])
 
   const resetState = () => {
     setMode('department')
@@ -227,11 +243,10 @@ export function TaskHandoffDialog({
                 </label>
                 <label className="block">
                   <span className="mb-2 block text-sm font-semibold text-slate-700">Due Date</span>
-                  <input
+                  <OfficeDateTimePicker
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    type="datetime-local"
-                    min={pakistanNowInputValue()}
+                    onChange={setDueDate}
+                    min={pakistanOfficeMinInputValue()}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                 </label>
@@ -282,11 +297,10 @@ export function TaskHandoffDialog({
                         <div className="truncate text-sm font-semibold text-slate-900">{username}</div>
                         <div className="mt-1 text-xs text-slate-500">Set an individual due date for this assignee.</div>
                       </div>
-                      <input
+                      <OfficeDateTimePicker
                         value={userDueDates[username] || ''}
-                        onChange={(e) => updateUserDueDate(username, e.target.value)}
-                        type="datetime-local"
-                        min={pakistanNowInputValue()}
+                        onChange={(v) => updateUserDueDate(username, v)}
+                        min={pakistanOfficeMinInputValue()}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
                       />
                       <button

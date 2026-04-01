@@ -44,6 +44,8 @@ const TEAM_TASK_LIST_SELECT = [
   'decline_reason',
   'assignment_chain',
   'history',
+  'cluster_id',
+  'cluster_inbox',
   'created_at',
   'updated_at',
 ].join(',')
@@ -61,9 +63,12 @@ export interface TeamMember {
 type TeamTodoStatsRow = {
   username: string | null
   assigned_to: string | null
+  completed_by?: string | null
   completed: boolean
   task_status?: string | null
   due_date: string | null
+  queue_department?: string | null
+  cluster_inbox?: boolean | null
   archived: boolean
   multi_assignment?: unknown
 }
@@ -78,6 +83,69 @@ function parseJson<T>(value: unknown, fallback: T): T {
     }
   }
   return value as T
+}
+
+function isTaskCompletedForUsername(task: TeamTodoStatsRow, username: string): boolean {
+  const userLower = username.toLowerCase()
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+
+  if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+    const directEntry = multiAssignment.assignees.find(
+      (entry) => (entry.username || '').toLowerCase() === userLower,
+    )
+    if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
+
+    for (const entry of multiAssignment.assignees) {
+      const delegatedEntry = Array.isArray(entry.delegated_to)
+        ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === userLower)
+        : null
+      if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+    }
+  }
+
+  if ((task.completed_by || '').toLowerCase() === userLower) return true
+  return task.completed || task.task_status === 'done'
+}
+
+function getUserTaskState(task: TeamTodoStatsRow, username: string) {
+  const userLower = username.toLowerCase()
+  const creatorLower = (task.username || '').toLowerCase()
+  const assigneeLower = (task.assigned_to || '').toLowerCase()
+  const completedByLower = (task.completed_by || '').toLowerCase()
+  const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+
+  if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
+    const directEntry = multiAssignment.assignees.find(
+      (entry) => (entry.username || '').toLowerCase() === userLower,
+    )
+    if (directEntry) {
+      const dueDate = directEntry.actual_due_date || task.due_date || null
+      const isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
+      return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
+    }
+
+    for (const entry of multiAssignment.assignees) {
+      const delegatedEntry = Array.isArray(entry.delegated_to)
+        ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === userLower)
+        : null
+      if (delegatedEntry) {
+        const dueDate = task.due_date || null
+        const isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+        return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
+      }
+    }
+  }
+
+  if (completedByLower === userLower || assigneeLower === userLower || creatorLower === userLower) {
+    return {
+      included: true,
+      isCompleted: isTaskCompletedForUsername(task, username),
+      dueDate: task.due_date || null,
+      taskStatus: task.task_status || null,
+    }
+  }
+
+  return { included: false, isCompleted: false, dueDate: null as string | null, taskStatus: null as string | null }
 }
 
 /** Converts old GAS-format assignment_chain entries to the new Next.js format. */
@@ -166,20 +234,34 @@ export async function getTeamStats(): Promise<{
 
   const tasks = await getTeamTodos()
   const now = new Date()
+  const teamSet = new Set(memberUsernames.map((username) => username.toLowerCase()))
+  const isCompletedForTeam = (task: Todo) =>
+    memberUsernames.some((username) => isTaskCompletedForUsername(task as TeamTodoStatsRow, username))
+  const isRelevantToTeam = (task: Todo) => {
+    if (teamSet.has((task.username || '').toLowerCase())) return true
+    if (teamSet.has((task.assigned_to || '').toLowerCase())) return true
+    if (teamSet.has((task.completed_by || '').toLowerCase())) return true
+    const assignees = task.multi_assignment?.assignees ?? []
+    return assignees.some((entry) => {
+      if (teamSet.has((entry.username || '').toLowerCase())) return true
+      return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => teamSet.has((sub.username || '').toLowerCase()))
+    })
+  }
+  const relevantTasks = tasks.filter(isRelevantToTeam)
 
   return {
     users: memberUsernames.length,
-    tasks_all: tasks.length,
-    tasks_completed: tasks.filter((t) => t.completed || t.task_status === 'done').length,
-    tasks_in_progress: tasks.filter((t) => !t.completed && t.task_status === 'in_progress').length,
-    tasks_pending: tasks.filter((t) => {
-      if (t.completed || t.task_status === 'done') return false
+    tasks_all: relevantTasks.length,
+    tasks_completed: relevantTasks.filter((t) => isCompletedForTeam(t)).length,
+    tasks_in_progress: relevantTasks.filter((t) => !isCompletedForTeam(t) && t.task_status === 'in_progress').length,
+    tasks_pending: relevantTasks.filter((t) => {
+      if (isCompletedForTeam(t)) return false
       if (t.task_status === 'in_progress') return false
       if (t.due_date && new Date(t.due_date) < now) return false
       return true
     }).length,
-    tasks_overdue: tasks.filter((t) => !t.completed && !!t.due_date && new Date(t.due_date) < now).length,
-    tasks_queue: tasks.filter((t) => t.queue_status === 'queued' && !!t.queue_department).length,
+    tasks_overdue: relevantTasks.filter((t) => !isCompletedForTeam(t) && !!t.due_date && new Date(t.due_date) < now).length,
+    tasks_queue: relevantTasks.filter((t) => t.cluster_inbox === true).length,
   }
 }
 
@@ -195,7 +277,7 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
       const supabase = createServerClient()
 
       // Fetch user details and todos relevant to team members in parallel
-      const [usersRes, assignedTodosRes, createdTodosRes, maTodosRes] = await Promise.all([
+      const [usersRes, assignedTodosRes, createdTodosRes, completedTodosRes, maTodosRes] = await Promise.all([
         supabase
           .from('users')
           .select('username, role, department, email, last_login, avatar_data')
@@ -203,19 +285,25 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
         // Tasks directly assigned to a team member
         supabase
           .from('todos')
-          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .select('id, username, assigned_to, completed_by, completed, task_status, due_date, archived, multi_assignment')
           .eq('archived', false)
           .in('assigned_to', memberUsernames),
         // Tasks created by a team member (catches self-assigned + unassigned creator tasks)
         supabase
           .from('todos')
-          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .select('id, username, assigned_to, completed_by, completed, task_status, due_date, archived, multi_assignment')
           .eq('archived', false)
           .in('username', memberUsernames),
+        // Tasks completed by a team member, even if the task moved to the next approver/owner
+        supabase
+          .from('todos')
+          .select('id, username, assigned_to, completed_by, completed, task_status, due_date, archived, multi_assignment')
+          .eq('archived', false)
+          .in('completed_by', memberUsernames),
         // Multi-assignment tasks involving team members
         supabase
           .from('todos')
-          .select('id, username, assigned_to, completed, task_status, due_date, archived, multi_assignment')
+          .select('id, username, assigned_to, completed_by, completed, task_status, due_date, archived, multi_assignment')
           .eq('archived', false)
           .not('multi_assignment', 'is', null),
       ])
@@ -232,6 +320,9 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
       ;((createdTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) =>
         todoMap.set(String(t.id), t),
       )
+      ;((completedTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) =>
+        todoMap.set(String(t.id), t),
+      )
       ;((maTodosRes.data ?? []) as unknown as Array<TeamTodoStatsRow & { id: string }>).forEach((t) => {
         const ma = parseJson<MultiAssignment | null>(t.multi_assignment, null)
         if (!ma?.enabled || !Array.isArray(ma.assignees)) return
@@ -246,57 +337,6 @@ export async function getTeamMembers(): Promise<TeamMember[]> {
       const todos = Array.from(todoMap.values())
 
       const now = new Date().toISOString().split('T')[0]
-
-      const getUserTaskState = (task: TeamTodoStatsRow, username: string) => {
-        const userLower = username.toLowerCase()
-        const creatorLower = (task.username || '').toLowerCase()
-        const assigneeLower = (task.assigned_to || '').toLowerCase()
-        const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-
-        if (multiAssignment?.enabled && Array.isArray(multiAssignment.assignees)) {
-          const directEntry = multiAssignment.assignees.find(
-            (entry) => (entry.username || '').toLowerCase() === userLower,
-          )
-          if (directEntry) {
-            const dueDate = directEntry.actual_due_date || task.due_date || null
-            const isCompleted = directEntry.status === 'completed' || directEntry.status === 'accepted'
-            return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
-          }
-
-          for (const entry of multiAssignment.assignees) {
-            const delegatedEntry = Array.isArray(entry.delegated_to)
-              ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === userLower)
-              : null
-            if (delegatedEntry) {
-              const dueDate = task.due_date || null
-              const isCompleted = delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
-              return { included: true, isCompleted, dueDate, taskStatus: task.task_status || null }
-            }
-          }
-
-          return { included: false, isCompleted: false, dueDate: null as string | null, taskStatus: null as string | null }
-        }
-
-        if (assigneeLower === userLower) {
-          return {
-            included: true,
-            isCompleted: task.completed || task.task_status === 'done',
-            dueDate: task.due_date || null,
-            taskStatus: task.task_status || null,
-          }
-        }
-
-        if (creatorLower === userLower && !(task.assigned_to || '').trim()) {
-          return {
-            included: true,
-            isCompleted: task.completed || task.task_status === 'done',
-            dueDate: task.due_date || null,
-            taskStatus: task.task_status || null,
-          }
-        }
-
-        return { included: false, isCompleted: false, dueDate: null as string | null, taskStatus: null as string | null }
-      }
 
       return Promise.all(
         (
@@ -342,17 +382,30 @@ export async function getTeamTodos(): Promise<Todo[]> {
     async () => {
       const supabase = createServerClient()
 
-      const [usersRes, createdRes, assignedRes, maRes, deptQueueRes, deptsRes] = await Promise.all([
+      const [usersRes, createdRes, assignedRes, completedRes, maRes, deptQueueRes, clusterInboxRes, deptsRes] = await Promise.all([
         supabase.from('users').select('username, department'),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('username', memberUsernames),
         supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('assigned_to', memberUsernames),
-        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).not('multi_assignment', 'is', null),
+        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false).in('completed_by', memberUsernames),
+        // Limit the MA scan to tasks updated in the last 90 days.  Without a date
+        // filter this query returns every row with a non-null multi_assignment column
+        // — a full table scan even after adding a GIN index (IS NOT NULL does not
+        // benefit from GIN).  Long-dormant MA tasks are unlikely to involve
+        // current team members, so 90 days is a safe pruning window.
+        supabase.from('todos').select(TEAM_TASK_LIST_SELECT).eq('archived', false)
+          .not('multi_assignment', 'is', null)
+          .gte('updated_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()),
         supabase
           .from('todos')
           .select(TEAM_TASK_LIST_SELECT)
           .eq('archived', false)
           .eq('queue_status', 'queued')
           .or('assigned_to.is.null,assigned_to.eq.'),
+        supabase
+          .from('todos')
+          .select(TEAM_TASK_LIST_SELECT)
+          .eq('archived', false)
+          .eq('cluster_inbox', true),
         supabase.from('departments').select('name'),
       ])
 
@@ -381,6 +434,7 @@ export async function getTeamTodos(): Promise<Todo[]> {
       const taskMap = new Map<string, Record<string, unknown>>()
       ;((createdRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
       ;((assignedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
+      ;((completedRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((row) => taskMap.set(String(row.id), row))
       ;((maRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
         const multiAssignment = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
         if (!multiAssignment?.enabled || !Array.isArray(multiAssignment.assignees)) return
@@ -397,6 +451,19 @@ export async function getTeamTodos(): Promise<Todo[]> {
       })
 
       ;((deptQueueRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
+        if (canViewAllQueueTasks) {
+          taskMap.set(String(raw.id), raw)
+          return
+        }
+
+        const queueDeptKey = canonicalDepartmentKey(String(raw.queue_department || ''))
+        if (queueDeptKey && teamDeptCanonicalSet.has(queueDeptKey)) {
+          taskMap.set(String(raw.id), raw)
+        }
+      })
+
+      // Always include cluster inbox tasks for managers/supervisors who can act on them
+      ;((clusterInboxRes.data ?? []) as unknown as Record<string, unknown>[]).forEach((raw) => {
         if (canViewAllQueueTasks) {
           taskMap.set(String(raw.id), raw)
           return

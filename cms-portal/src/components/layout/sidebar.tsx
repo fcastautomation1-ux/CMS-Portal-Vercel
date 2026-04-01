@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getCachedSidebarTaskCounts } from '@/app/dashboard/tasks/actions'
 import { getTeamStats } from '@/app/dashboard/team/actions'
-import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { buildRealtimeEqFilter, subscribeToPostgresChanges } from '@/lib/realtime'
 import {
   LayoutGrid,
   TrendingUp,
@@ -31,6 +31,7 @@ import {
   Home,
   Mail,
   Layers,
+  Inbox,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -60,6 +61,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Dashboard', href: '/dashboard', icon: <Home size={17} />, color: '#2B7FFF' },
       { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
       { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
+      { label: 'Hall Queue', href: '/dashboard/team?scope=tasks_queue', icon: <Inbox size={17} />, color: '#7e5daa' },
     ],
   },
   {
@@ -133,6 +135,11 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       if (isAdminOrSM) return true
       return teamMembers.length > 0
 
+    case '/dashboard/team?scope=tasks_queue':
+      // Only show Hall Queue to managers, supervisors, super managers, and admins
+      if (user.clusterIds.length === 0) return false
+      return isAdminOrSM || isManager || role === 'Supervisor'
+
     case '/dashboard/analytics':
       return isAdminOrSM
 
@@ -187,7 +194,9 @@ export function Sidebar({
     queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, in_progress: 0, pending: 0, overdue: 0, queue: 0 } satisfies SidebarTaskCounts)),
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    refetchOnMount: false, // Don't refetch on mount if data is fresh
+    // Sidebar often mounts from prefetched layout data, so force a fresh count load
+    // when returning from task actions like completion/approval.
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
   })
@@ -243,7 +252,6 @@ export function Sidebar({
     { label: 'In Progress', scope: 'tasks_in_progress', badge: 'bg-cyan-500/15 text-cyan-700' },
     { label: 'Pending', scope: 'tasks_pending', badge: 'bg-amber-500/15 text-amber-700' },
     { label: 'Overdue', scope: 'tasks_overdue', badge: 'bg-rose-500/15 text-rose-700' },
-    { label: 'Queue', scope: 'tasks_queue', badge: 'bg-violet-500/15 text-violet-700' },
   ]
   const statusBadgeClass = (tone: 'all' | 'completed' | 'in_progress' | 'pending' | 'overdue' | 'queue', active: boolean) => {
     if (active) {
@@ -292,16 +300,28 @@ export function Sidebar({
   }, [router, taskPrefetchUrls])
 
   useEffect(() => {
+    // Debounce at 3 s — short enough to feel responsive, long enough to absorb burst
+    // updates from task mutations that touch multiple rows (e.g. bulk actions).
     const scheduleRefresh = () => {
+      if (document.hidden) return // skip when tab is in background
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.taskSidebarCounts(user.username) })
-      }, 250)
+      }, 3_000)
     }
 
+    // Use per-user column filters so each realtime channel only receives events
+    // for rows directly involving this user.  Without these filters, every
+    // todos change (from any user) would fire a sidebar count refresh for every
+    // connected session — the main concurrency amplification source at ~50 users.
     const unsubscribe = subscribeToPostgresChanges(
       `sidebar-task-counts:${user.username}`,
-      [{ table: 'todos' }],
+      [
+        { table: 'todos', filter: buildRealtimeEqFilter('username', user.username) },
+        { table: 'todos', filter: buildRealtimeEqFilter('assigned_to', user.username) },
+        { table: 'todos', filter: buildRealtimeEqFilter('pending_approver', user.username) },
+        { table: 'todos', filter: buildRealtimeEqFilter('completed_by', user.username) },
+      ],
       scheduleRefresh
     )
 
@@ -436,6 +456,8 @@ export function Sidebar({
                       {section.items.map((item) => {
                         const isActive = item.href === '/dashboard'
                           ? (pathname === '/dashboard' || pathname === '/dashboard/')
+                          : item.href === '/dashboard/team?scope=tasks_queue'
+                          ? pathname === '/dashboard/team' && searchParams.get('scope') === 'tasks_queue'
                           : (pathname === item.href || pathname.startsWith(item.href + '/'))
 
                         if (item.href === '/dashboard/team') {
@@ -592,7 +614,7 @@ export function Sidebar({
                                     { label: 'All task', status: 'all', count: myAllCounts.all, tone: 'all' as const },
                                     { label: 'Complete', status: 'completed', count: myAllCounts.completed, tone: 'completed' as const },                                    { label: 'In Progress', status: 'in_progress', count: myAllCounts.in_progress, tone: 'in_progress' as const },                                    { label: 'Pending', status: 'pending', count: myAllCounts.pending, tone: 'pending' as const },
                                     { label: 'Overdue', status: 'overdue', count: myAllCounts.overdue, tone: 'overdue' as const },
-                                    { label: 'Queue', status: 'queue', count: myAllCounts.queue, tone: 'queue' as const },
+                                    ...(user.clusterIds.length === 0 ? [{ label: 'Queue', status: 'queue' as const, count: myAllCounts.queue, tone: 'queue' as const }] : []),
                                   ] as const).map((statusLink) => {
                                     const isSubActive = pathname === '/dashboard/tasks' && activeTaskStatus === statusLink.status
                                     return (
@@ -644,7 +666,12 @@ export function Sidebar({
                               <span className="relative z-10 flex-1 truncate text-left" style={{ color: isActive ? 'white' : 'var(--color-text)' }}>
                                 {item.label}
                               </span>
-                              {isActive && <ChevronRight size={12} className="relative z-10 shrink-0 opacity-60" />}
+                              {item.href === '/dashboard/team?scope=tasks_queue' && teamStats && teamStats.tasks_queue > 0 && (
+                                <span className={cn('relative z-10 rounded-full px-2 py-0.5 text-[11px] font-semibold', isActive ? 'bg-white/20 text-white' : 'bg-orange-500/15 text-orange-600')}>
+                                  {teamStats.tasks_queue}
+                                </span>
+                              )}
+                              {isActive && item.href !== '/dashboard/team?scope=tasks_queue' && <ChevronRight size={12} className="relative z-10 shrink-0 opacity-60" />}
                             </Link>
                           </li>
                         )

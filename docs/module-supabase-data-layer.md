@@ -213,6 +213,13 @@ CREATE TABLE notifications (
 CREATE TABLE packages (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name        TEXT NOT NULL UNIQUE,
+  app_name    TEXT,
+  department  TEXT,
+  playconsole_account TEXT,
+  marketer    TEXT,
+  product_owner TEXT,
+  monetization TEXT,
+  admob       TEXT,
   description TEXT,
   category    TEXT,
   price       NUMERIC,

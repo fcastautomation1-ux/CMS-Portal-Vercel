@@ -50,3 +50,81 @@
  GET /api/public-branding 200 in 60ms
  POST /dashboard/tasks?scope=my_all&status=in_progress 200 in 1998ms
  POST /dashboard/tasks?scope=my_all&status=in_progress 200 in 742ms
+ GET /api/version 200 in 22ms
+ ✓ Compiled in 2.4s (3761 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1340ms (3750 modules)
+ GET /_next/static/css/app/layout.css?v=1774871451183 404 in 1486ms
+ ○ Compiling /api/public-branding ...
+ ✓ Compiled /api/public-branding in 811ms (2113 modules)
+ ✓ Compiled (2116 modules)
+ ○ Compiling /_error ...
+ POST /dashboard/team?scope=users 200 in 3393ms
+ ✓ Compiled /_error in 3.3s (4019 modules)
+ GET /api/version 500 in 4813ms
+ GET /api/version 500 in 4825ms
+ GET /api/public-branding 500 in 4821ms
+ GET /api/public-branding 500 in 4806ms
+ POST /dashboard/team?scope=users 200 in 2260ms
+ POST /dashboard/team?scope=users 200 in 1253ms
+ POST /dashboard/team?scope=users 200 in 2577ms
+ ✓ Compiled /favicon.ico in 288ms (2185 modules)
+ GET /favicon.ico 200 in 362ms
+ GET /favicon.ico 200 in 43ms
+ GET /_next/static/css/app/layout.css?v=1774871462732 404 in 71ms
+ GET /api/version 500 in 32ms
+ GET /api/version 500 in 18ms
+ GET /_next/static/css/app/layout.css?v=1774873097380 404 in 21ms
+ GET /_next/static/chunks/main-app.js?v=1774873097380 404 in 22ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 23ms
+ GET /_next/static/chunks/app/dashboard/layout.js 404 in 42ms
+ GET /dashboard/team?scope=users 200 in 1042ms
+ GET /_next/static/chunks/app/dashboard/team/page.js 404 in 19ms
+ GET /favicon.ico 200 in 50ms
+ GET /_next/static/css/app/layout.css?v=1774873102871 404 in 22ms
+ GET /_next/static/chunks/main-app.js?v=1774873102871 404 in 31ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 27ms
+ GET /_next/static/chunks/app/dashboard/layout.js 404 in 54ms
+ GET /dashboard/team?scope=users 200 in 887ms
+ GET /_next/static/chunks/app/dashboard/team/page.js 404 in 13ms
+ GET /favicon.ico 200 in 12ms
+ GET /_next/static/css/app/layout.css?v=1774873107513 404 in 36ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 24ms
+ GET /_next/static/chunks/main-app.js?v=1774873107513 404 in 24ms
+ GET /dashboard 200 in 808ms
+ GET /_next/static/chunks/app/dashboard/layout.js 404 in 108ms
+ GET /_next/static/chunks/app/dashboard/page.js 404 in 108ms
+ GET /dashboard 404 in 28ms
+ GET /dashboard 404 in 10ms
+ GET /favicon.ico 404 in 16ms
+ GET /dashboard 404 in 16ms
+ GET /dashboard 404 in 9ms
+ GET /dashboard 404 in 10ms
+ GET /dashboard 404 in 10ms
+ GET /dashboard 404 in 13ms
+ GET /dashboard 404 in 11ms
+ GET /dashboard 404 in 9ms
+ GET /dashboard 404 in 10ms
+ GET /dashboard 404 in 9ms
+ GET /dashboard 404 in 11ms
+ GET /dashboard 404 in 7ms
+ GET /dashboard 404 in 8ms
+ GET /dashboard 200 in 938ms
+ ✓ Compiled in 783ms (1860 modules)
+ ✓ Compiled in 426ms (1860 modules)
+ ✓ Compiled in 1533ms (3985 modules)
+ ✓ Compiled in 1852ms (3985 modules)
+ ✓ Compiled in 4.2s (3985 modules)
+ ✓ Compiled in 1970ms (3985 modules)
+ ✓ Compiled in 2.3s (3985 modules)
+ ✓ Compiled in 1299ms (3985 modules)
+ ✓ Compiled in 1594ms (3985 modules)
+ ○ Compiling /dashboard/clusters ...
+ ✓ Compiled /dashboard/clusters in 1023ms (4007 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 631ms (3996 modules)
+ GET /_next/static/css/app/layout.css?v=1774874978258 404 in 738ms
+ GET /_next/static/chunks/main-app.js?v=1774874978258 404 in 735ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 735ms
+ GET /_next/static/chunks/app/dashboard/layout.js 404 in 68ms
+ GET /dashboard/clusters 200 in 2577ms

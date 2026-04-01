@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { pakistanNowInputValue } from '@/lib/pakistan-time'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
+import { pakistanOfficeMinInputValue, validatePakistanOfficeDueDate } from '@/lib/pakistan-time'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import {
   getDepartmentsForTaskForm,
@@ -178,10 +179,11 @@ export function TaskDelegateDialog({
 
   const minimumDueDate = useMemo(() => {
     if (!open) return ''
-    return pakistanNowInputValue()
+    return pakistanOfficeMinInputValue()
   }, [open])
 
-  const isDueDateValid = Boolean(dueDate) && dueDate >= minimumDueDate
+  const dueDateValidationError = dueDate ? validatePakistanOfficeDueDate(dueDate) : null
+  const isDueDateValid = Boolean(dueDate) && !dueDateValidationError && dueDate >= minimumDueDate
   const canSubmit = Boolean(selectedUser) && isDueDateValid
 
   const submit = () => {
@@ -198,7 +200,7 @@ export function TaskDelegateDialog({
       return
     }
     if (!isDueDateValid) {
-      setSubmitError('Choose a future due date.')
+      setSubmitError(dueDateValidationError || 'Choose a valid due date.')
       return
     }
 
@@ -279,20 +281,18 @@ export function TaskDelegateDialog({
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Due Date <span className="text-red-500">*</span>
               </span>
-              <input
+              <OfficeDateTimePicker
                 value={dueDate}
-                onChange={(e) => {
-                  setDueDate(e.target.value)
+                onChange={(v) => {
+                  setDueDate(v)
                   setSubmitError('')
                 }}
-                type="datetime-local"
                 min={minimumDueDate}
-                aria-invalid={Boolean(dueDate) && !isDueDateValid}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
               {dueDate && !isDueDateValid ? (
                 <span className="mt-1.5 block text-xs font-medium text-rose-600">
-                  Due date must be in the future.
+                  {dueDateValidationError || 'Due date must be in the future.'}
                 </span>
               ) : null}
             </label>

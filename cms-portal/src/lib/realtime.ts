@@ -8,10 +8,19 @@ type PostgresConfig = {
   filter?: string
 }
 
+function quoteRealtimeValue(value: string) {
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return `"${escaped}"`
+}
+
+export function buildRealtimeEqFilter(column: string, value: string) {
+  return `${column}=eq.${quoteRealtimeValue(value)}`
+}
+
 export function subscribeToPostgresChanges(
   channelName: string,
   configs: PostgresConfig[],
-  onChange: (payload: RealtimePostgresChangesPayload<any>) => void
+  onChange: (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => void
 ) {
   const client = createBrowserClient()
   let channel: RealtimeChannel = client.channel(channelName)

@@ -173,7 +173,10 @@ export async function addPackagesBulk(
 
   if (toInsert.length > 0) {
     const { error } = await supabase.from('packages').insert(toInsert)
-    if (error) return { success: false, error: error.message }
+    if (error) {
+      console.error('addPackagesBulk insert error:', error)
+      return { success: false, error: error.message }
+    }
   }
 
   revalidatePath('/dashboard/packages')
@@ -224,7 +227,10 @@ export async function savePackage(
       })
       .eq('id', pkg.id)
 
-    if (error) return { success: false, error: error.message }
+    if (error) {
+      console.error('savePackage update error:', error)
+      return { success: false, error: error.message }
+    }
   } else {
     const { error } = await supabase
       .from('packages')
@@ -241,7 +247,10 @@ export async function savePackage(
         created_by: user.username,
       })
 
-    if (error) return { success: false, error: error.message }
+    if (error) {
+      console.error('savePackage insert error:', error)
+      return { success: false, error: error.message }
+    }
   }
 
   revalidatePath('/dashboard/packages')
@@ -284,7 +293,10 @@ export async function bulkAssignDepartments(
     .update({ department: deptStr || null })
     .in('id', packageIds)
 
-  if (error) return { success: false, error: error.message }
+  if (error) {
+    console.error('bulkAssignDepartments update error:', error)
+    return { success: false, error: error.message }
+  }
   revalidatePath('/dashboard/packages')
   revalidateTag(PACKAGES_CACHE_TAG)
   return { success: true }

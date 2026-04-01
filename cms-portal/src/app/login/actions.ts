@@ -95,6 +95,13 @@ export async function loginAction(
     )
   ))
 
+  // Fetch cluster memberships for this user
+  const { data: clusterMemberships } = await supabase
+    .from('cluster_members')
+    .select('cluster_id')
+    .eq('username', user.username as string)
+  const clusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+
   const sessionUser: SessionUser = {
     username: user.username as string,
     role: normalizeRole(user.role),
@@ -111,6 +118,7 @@ export async function loginAction(
     managerId: (user.manager_id as string | null) ?? null,
     driveAccessLevel: ((user.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((user.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
+    clusterIds,
   }
 
   const token = await createSession(sessionUser)

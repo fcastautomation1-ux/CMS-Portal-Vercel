@@ -66,6 +66,13 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
     )
   ))
 
+  // Fetch which clusters this user belongs to
+  const { data: clusterMemberships } = await supabase
+    .from('cluster_members')
+    .select('cluster_id')
+    .eq('username', row.username as string)
+  const clusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+
   return {
     username: row.username as string,
     role: normalizeRole(row.role),
@@ -82,6 +89,7 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
     managerId: (row.manager_id as string | null) ?? null,
     driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
     themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
+    clusterIds,
   }
 })
 

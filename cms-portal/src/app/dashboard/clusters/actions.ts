@@ -7,6 +7,35 @@ import type { Cluster, ClusterDetail, ClusterMember, ClusterRole, Department } f
 
 const CLUSTERS_CACHE_TAG = 'clusters-data'
 
+// ─── Helper: minimum-leader guard ─────────────────────────────────────────────
+
+/**
+ * Returns true if removing/downgrading `username` in `clusterId` would leave
+ * the cluster without any owner or manager.
+ * Used to prevent orphaned halls.
+ */
+async function wouldLeaveClusterWithoutLeader(
+  supabase: ReturnType<typeof createServerClient>,
+  clusterId: string,
+  affectedUsername: string,
+  newRole?: ClusterRole   // pass undefined when removing
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('cluster_members')
+    .select('username, cluster_role')
+    .eq('cluster_id', clusterId)
+    .in('cluster_role', ['owner', 'manager'])
+
+  const leaders = (data ?? []) as Array<{ username: string; cluster_role: ClusterRole }>
+
+  // If new role is still a leader role, no problem
+  if (newRole === 'owner' || newRole === 'manager') return false
+
+  // Count remaining leaders excluding the affected user
+  const remainingLeaders = leaders.filter((l) => l.username !== affectedUsername)
+  return remainingLeaders.length === 0
+}
+
 // ─── READ ─────────────────────────────────────────────────────────────────────
 
 export async function getClusters(): Promise<Cluster[]> {
@@ -108,6 +137,12 @@ export async function saveClusterAction(formData: {
   name: string
   description?: string
   color?: string
+  office_start?: string
+  office_end?: string
+  break_start?: string
+  break_end?: string
+  friday_break_start?: string
+  friday_break_end?: string
 }): Promise<{ success: boolean; error?: string; id?: string }> {
   const user = await getSession()
   if (!user || (user.role !== 'Admin' && user.role !== 'Super Manager')) {
@@ -117,6 +152,15 @@ export async function saveClusterAction(formData: {
   const supabase = createServerClient()
   const now = new Date().toISOString()
 
+  const officeFields = {
+    office_start:       formData.office_start       ?? '09:00',
+    office_end:         formData.office_end         ?? '18:00',
+    break_start:        formData.break_start        ?? '13:00',
+    break_end:          formData.break_end          ?? '14:00',
+    friday_break_start: formData.friday_break_start ?? '12:30',
+    friday_break_end:   formData.friday_break_end   ?? '14:30',
+  }
+
   if (formData.id) {
     const { error } = await supabase
       .from('clusters')
@@ -125,6 +169,7 @@ export async function saveClusterAction(formData: {
         description: formData.description?.trim() || null,
         color: formData.color || '#2B7FFF',
         updated_at: now,
+        ...officeFields,
       })
       .eq('id', formData.id)
     if (error) return { success: false, error: error.message }
@@ -140,6 +185,7 @@ export async function saveClusterAction(formData: {
       description: formData.description?.trim() || null,
       color: formData.color || '#2B7FFF',
       created_by: user.username,
+      ...officeFields,
     })
     .select('id')
     .single()
@@ -228,6 +274,13 @@ export async function upsertClusterMemberAction(
     return { success: false, error: 'Unauthorized' }
   }
   const supabase = createServerClient()
+
+  // Check minimum-leader constraint when downgrading an existing leader
+  const wouldOrphan = await wouldLeaveClusterWithoutLeader(supabase, clusterId, member.username, member.cluster_role)
+  if (wouldOrphan) {
+    return { success: false, error: 'A hall must have at least one owner or manager. Assign another leader first.' }
+  }
+
   const now = new Date().toISOString()
   const { error } = await supabase
     .from('cluster_members')
@@ -253,6 +306,13 @@ export async function removeClusterMemberAction(
     return { success: false, error: 'Unauthorized' }
   }
   const supabase = createServerClient()
+
+  // Check minimum-leader constraint (undefined = removing entirely)
+  const wouldOrphan = await wouldLeaveClusterWithoutLeader(supabase, clusterId, username, undefined)
+  if (wouldOrphan) {
+    return { success: false, error: 'A hall must have at least one owner or manager. Assign another leader before removing this one.' }
+  }
+
   const { error } = await supabase
     .from('cluster_members')
     .delete()

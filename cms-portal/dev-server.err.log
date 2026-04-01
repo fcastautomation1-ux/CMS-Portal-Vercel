@@ -72,3 +72,494 @@ Error: Failed to set Next.js data cache, items over 2MB can not be cached (97410
     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
     at async Promise.all (index 1)
     at async TasksPage (webpack-internal:///(rsc)/./src/app/dashboard/tasks/page.tsx:26:27)
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7142
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7190)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\api\\version\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/version'
+}
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7142
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7190)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\api\\version\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/version'
+}
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\public-branding\route.js:1:3574
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\public-branding\route.js:1:3625)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\api\\version\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/public-branding'
+}
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\public-branding\route.js:1:3574
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\public-branding\route.js:1:3625)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\api\\version\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/public-branding'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\clsx.js'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/clsx' in C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server for build dependencies doesn't lead to expected result 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\clsx.js', but to 'Error: Can't resolve './vendor-chunks/clsx' in 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/clsx (expected C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\clsx.js)
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/motion-utils' in C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server for build dependencies doesn't lead to expected result 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\motion-utils.js', but to 'Error: Can't resolve './vendor-chunks/motion-utils' in 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/motion-utils (expected C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\motion-utils.js)
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/tailwind-merge' in C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server for build dependencies doesn't lead to expected result 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\tailwind-merge.js', but to 'Error: Can't resolve './vendor-chunks/tailwind-merge' in 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/tailwind-merge (expected C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\vendor-chunks\tailwind-merge.js)
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\favicon.ico\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7142
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7190)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\favicon.ico\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/version'
+}
+ ⨯ Error: Cannot find module './8948.js'
+Require stack:
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\favicon.ico\route.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-middleware.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\hot-reloader-webpack.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at __webpack_require__.f.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:203:28)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:116:40
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:115:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:167:22)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7142
+    at Object.<anonymous> (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\api\version\route.js:1:7190)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at requirePage (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js:109:84)
+    at C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:84
+    at async loadComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js:103:26)
+    at async DevServer.findPageComponentsImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:714:36)
+    at async DevServer.findPageComponents (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:577:20)
+    at async DevServer.renderPageComponent (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1910:24)
+    at async DevServer.renderToResponseImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:1962:32)
+    at async DevServer.pipeImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\base-server.js:818:17)
+    at async C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:179:21)
+    at async handleRequest (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:359:24)
+    at async requestHandlerImpl (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\router-server.js:383:13)
+    at async Server.requestListener (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\lib\start-server.js:141:13) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\webpack-runtime.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\.next\\server\\app\\favicon.ico\\route.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\require.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\load-components.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\build\\utils.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-middleware.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\dev\\hot-reloader-webpack.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-utils\\setup-dev-bundler.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\router-server.js',
+    'C:\\Users\\ahsan iqbal\\Desktop\\automation code\\CMS Portal new code\\portal plan\\CMS-Portal-Vercel\\cms-portal\\node_modules\\next\\dist\\server\\lib\\start-server.js'
+  ],
+  page: '/api/version'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\app\_not-found\page.js)
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz_' -> 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz_' -> 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz_' -> 'C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\cache\webpack\client-development\0.pack.gz'
+ ⨯ TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\ahsan iqbal\Desktop\automation code\CMS Portal new code\portal plan\CMS-Portal-Vercel\cms-portal\.next\server\webpack-runtime.js:33:42)
+digest: "1772000606"
+^C

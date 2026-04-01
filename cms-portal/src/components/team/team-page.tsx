@@ -42,6 +42,24 @@ function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
 }
 
+function isTaskCompletedForUsername(task: Todo, username: string): boolean {
+  const userLower = username.toLowerCase()
+  const assignees = task.multi_assignment?.assignees ?? []
+
+  const directEntry = assignees.find((entry) => (entry.username || '').toLowerCase() === userLower)
+  if (directEntry) return directEntry.status === 'completed' || directEntry.status === 'accepted'
+
+  for (const entry of assignees) {
+    const delegatedEntry = Array.isArray(entry.delegated_to)
+      ? entry.delegated_to.find((sub) => (sub.username || '').toLowerCase() === userLower)
+      : null
+    if (delegatedEntry) return delegatedEntry.status === 'completed' || delegatedEntry.status === 'accepted'
+  }
+
+  if ((task.completed_by || '').toLowerCase() === userLower) return true
+  return task.completed || task.task_status === 'done'
+}
+
 export function TeamPage({ members: initialMembers, tasks: initialTasks, user }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
@@ -59,25 +77,27 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const currentUsername = user?.username ?? ''
 
   // Use cached data from React Query — served instantly on revisit within staleTime
-  const { data: members = initialMembers } = useQuery({
+  const { data: members = initialMembers, refetch: refetchMembers } = useQuery({
     queryKey: queryKeys.teamMembers(currentUsername),
     queryFn: () => getTeamMembers(),
     initialData: initialMembers,
-    staleTime: 60_000,
+    initialDataUpdatedAt: 0,   // treat SSR data as immediately stale so React Query refetches on mount
+    staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
   })
 
-  const { data: tasks = initialTasks } = useQuery({
+  const { data: tasks = initialTasks, refetch: refetchTasks } = useQuery({
     queryKey: queryKeys.teamTodos(currentUsername),
     queryFn: () => getTeamTodos(),
     initialData: initialTasks,
-    staleTime: 60_000,
+    initialDataUpdatedAt: 0,
+    staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: false,
     refetchOnWindowFocus: false,
   })
+
+  const refetchAll = () => { refetchMembers(); refetchTasks() }
 
   const departments = useMemo(() => {
     // Collect all dept names from members (may have old names)
@@ -106,6 +126,25 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     [departments]
   )
   const memberOptions = useMemo(() => [...new Set(members.map((member) => member.username))].sort(), [members])
+  const teamMemberUsernames = useMemo(() => members.map((member) => member.username), [members])
+  const taskMatchesFocusedTeam = useMemo(() => {
+    const targets = memberFilter ? [memberFilter] : teamMemberUsernames
+    const lowered = targets.map((username) => username.toLowerCase())
+    return (task: Todo) => {
+      if (lowered.includes((task.username || '').toLowerCase())) return true
+      if (lowered.includes((task.assigned_to || '').toLowerCase())) return true
+      if (lowered.includes((task.completed_by || '').toLowerCase())) return true
+      const assignees = task.multi_assignment?.assignees ?? []
+      return assignees.some((entry) => {
+        if (lowered.includes((entry.username || '').toLowerCase())) return true
+        return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => lowered.includes((sub.username || '').toLowerCase()))
+      })
+    }
+  }, [memberFilter, teamMemberUsernames])
+  const isTaskCompletedForCurrentTeamScope = useMemo(() => {
+    const targets = memberFilter ? [memberFilter] : teamMemberUsernames
+    return (task: Todo) => targets.some((username) => isTaskCompletedForUsername(task, username))
+  }, [memberFilter, teamMemberUsernames])
 
   const counts = useMemo(
     () => ({
@@ -115,7 +154,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       tasks_in_progress: tasks.filter((task) => !task.completed && task.task_status === 'in_progress').length,
       tasks_pending: members.reduce((sum, member) => sum + member.taskStats.pending, 0),
       tasks_overdue: members.reduce((sum, member) => sum + member.taskStats.overdue, 0),
-      tasks_queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
+      tasks_queue: tasks.filter((task) => task.cluster_inbox === true).length,
     }),
     [members, tasks]
   )
@@ -123,11 +162,24 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const queueByDept = useMemo(() => {
     const map: Record<string, number> = {}
     tasks.forEach((task) => {
-      if (task.queue_status === 'queued' && task.queue_department) {
+      if (task.cluster_inbox === true && task.queue_department) {
         map[task.queue_department] = (map[task.queue_department] || 0) + 1
       }
     })
     return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [tasks])
+
+  const teamMemberTaskSummary = useMemo(() => {
+    const map: Record<string, { active: number; queued: number }> = {}
+    tasks.forEach((task) => {
+      if (!task.assigned_to || task.completed) return
+      const u = task.assigned_to
+      if (!map[u]) map[u] = { active: 0, queued: 0 }
+      const state = (task as unknown as Record<string, unknown>).scheduler_state as string | null
+      if (state === 'active') map[u].active += 1
+      else if (state === 'user_queue' || state === 'paused' || state === 'blocked') map[u].queued += 1
+    })
+    return map
   }, [tasks])
 
   const filteredModalDepts = useMemo(() => {
@@ -163,7 +215,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     if (scope === 'tasks_queue') return list.filter((member) => {
       const memberLower = member.username.toLowerCase()
       return tasks.some((task) => {
-        if (task.queue_status !== 'queued' || !task.queue_department) return false
+        if (task.cluster_inbox !== true) return false
         if ((task.username || '').toLowerCase() === memberLower) return true
         if ((task.assigned_to || '').toLowerCase() === memberLower) return true
         const assignees = task.multi_assignment?.assignees ?? []
@@ -178,15 +230,26 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   }, [members, tasks, search, deptFilter, memberFilter, scope])
 
   const filteredTasks = useMemo(() => {
-    let list = tasks
+    let list = tasks.filter((task) => taskMatchesFocusedTeam(task))
     const searchQuery = search.trim().toLowerCase()
     const today = new Date()
 
     if (deptFilter) {
+      const filterKey = canonicalDepartmentKey(deptFilter)
       if (scope === 'tasks_queue') {
-        list = list.filter((task) => canonicalDepartmentKey(task.queue_department || '') === canonicalDepartmentKey(deptFilter))
+        list = list.filter((task) => canonicalDepartmentKey(task.queue_department || '') === filterKey)
       } else {
-        list = list.filter((task) => canonicalDepartmentKey(task.creator_department || task.category || '') === canonicalDepartmentKey(deptFilter))
+        list = list.filter((task) => {
+          // creator_department and category can be comma-separated — split and check each
+          const creatorDepts = (task.creator_department || '').split(',').map((d) => d.trim()).filter(Boolean)
+          const categoryDepts = (task.category || '').split(',').map((d) => d.trim()).filter(Boolean)
+          const assigneeDepts = (task.assignee_department || '').split(',').map((d) => d.trim()).filter(Boolean)
+          return (
+            creatorDepts.some((d) => canonicalDepartmentKey(d) === filterKey) ||
+            categoryDepts.some((d) => canonicalDepartmentKey(d) === filterKey) ||
+            assigneeDepts.some((d) => canonicalDepartmentKey(d) === filterKey)
+          )
+        })
       }
     }
 
@@ -195,6 +258,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       list = list.filter((task) => {
         if ((task.username || '').toLowerCase() === memberLower) return true
         if ((task.assigned_to || '').toLowerCase() === memberLower) return true
+        if ((task.completed_by || '').toLowerCase() === memberLower) return true
         const assignees = task.multi_assignment?.assignees ?? []
         return assignees.some((entry) => {
           if ((entry.username || '').toLowerCase() === memberLower) return true
@@ -214,24 +278,24 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     }
 
     if (scope === 'tasks_completed') {
-      list = list.filter((task) => task.completed || task.task_status === 'done')
+      list = list.filter((task) => isTaskCompletedForCurrentTeamScope(task))
     } else if (scope === 'tasks_in_progress') {
-      list = list.filter((task) => !task.completed && task.task_status === 'in_progress')
+      list = list.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && task.task_status === 'in_progress')
     } else if (scope === 'tasks_pending') {
       list = list.filter((task) => {
-        if (task.completed || task.task_status === 'done') return false
+        if (isTaskCompletedForCurrentTeamScope(task)) return false
         if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       })
     } else if (scope === 'tasks_overdue') {
-      list = list.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today)
+      list = list.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && !!task.due_date && new Date(task.due_date) < today)
     } else if (scope === 'tasks_queue') {
-      list = list.filter((task) => task.queue_status === 'queued' && !!task.queue_department)
+      list = list.filter((task) => task.cluster_inbox === true)
     }
 
     return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  }, [tasks, search, deptFilter, memberFilter, scope])
+  }, [tasks, search, deptFilter, memberFilter, scope, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
 
   const taskPaginationSignature = `${scope}|${search}|${deptFilter}|${memberFilter}`
   const currentTaskPage = paginationState.signature === taskPaginationSignature ? paginationState.page : 1
@@ -244,20 +308,21 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
 
   const taskKpis = useMemo(() => {
     const today = new Date()
+    const relevantTasks = tasks.filter((task) => taskMatchesFocusedTeam(task))
     return {
-      total: tasks.length,
-      completed: tasks.filter((task) => task.completed || task.task_status === 'done').length,
-      in_progress: tasks.filter((task) => !task.completed && task.task_status === 'in_progress').length,
-      pending: tasks.filter((task) => {
-        if (task.completed || task.task_status === 'done') return false
+      total: relevantTasks.length,
+      completed: relevantTasks.filter((task) => isTaskCompletedForCurrentTeamScope(task)).length,
+      in_progress: relevantTasks.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && task.task_status === 'in_progress').length,
+      pending: relevantTasks.filter((task) => {
+        if (isTaskCompletedForCurrentTeamScope(task)) return false
         if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       }).length,
-      overdue: tasks.filter((task) => !task.completed && !!task.due_date && new Date(task.due_date) < today).length,
-      queue: tasks.filter((task) => task.queue_status === 'queued' && !!task.queue_department).length,
+      overdue: relevantTasks.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && !!task.due_date && new Date(task.due_date) < today).length,
+      queue: relevantTasks.filter((task) => task.cluster_inbox === true).length,
     }
-  }, [tasks])
+  }, [tasks, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
 
   const scopeLabel = useMemo(() => {
     if (scope === 'tasks_all') return 'Task'
@@ -289,7 +354,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
               { key: 'tasks_in_progress', label: 'In Progress', value: taskKpis.in_progress, icon: PlayCircle, tone: 'text-[#0891B2]', bg: 'bg-[#ECFEFF]', border: 'border-[#A5F3FC]' },
               { key: 'tasks_pending', label: 'Pending', value: taskKpis.pending, icon: Hourglass, tone: 'text-[#D97706]', bg: 'bg-[#FFFBEB]', border: 'border-[#FDE68A]' },
               { key: 'tasks_overdue', label: 'Overdue', value: taskKpis.overdue, icon: AlertTriangle, tone: 'text-[#E11D48]', bg: 'bg-[#FFF1F2]', border: 'border-[#FECDD3]' },
-              { key: 'tasks_queue', label: 'Queue', value: taskKpis.queue, icon: Inbox, tone: 'text-[#7C3AED]', bg: 'bg-[#F3E8FF]', border: 'border-[#DDD6FE]' },
+              { key: 'tasks_queue', label: 'Hall Queue', value: taskKpis.queue, icon: Inbox, tone: 'text-[#F97316]', bg: 'bg-[#FFF7ED]', border: 'border-[#FED7AA]' },
             ].map((item) => {
               const Icon = item.icon
               const isActive = scope === item.key
@@ -354,6 +419,16 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                 <option key={member} value={member}>{member}</option>
               ))}
             </select>
+            {!isTaskScope && (
+              <button
+                type="button"
+                onClick={() => startTransition(() => refetchAll())}
+                className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                <RefreshCw size={14} />
+                Refresh
+              </button>
+            )}
             {scope === 'tasks_queue' && (
               <button
                 onClick={() => {
@@ -491,9 +566,11 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                       key={task.id}
                       task={task}
                       currentUsername={user?.username ?? ''}
+                      currentUserRole={user?.role}
                       currentUserDept={user?.department ?? null}
                       currentUserTeamMembers={user?.teamMembers ?? []}
                       currentUserTeamMemberDeptKeys={teamMemberDeptKeys}
+                      teamMemberTaskSummary={teamMemberTaskSummary}
                       enableQueueAssign
                       onEdit={(nextTask) => {
                         sessionStorage.setItem('task-detail-back', '/dashboard/team?scope=tasks_queue')
@@ -558,7 +635,11 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
               return (
                 <div
                   key={member.username}
-                  className="animate-fade-in rounded-2xl p-6 text-center transition-all duration-300"
+                  onClick={() => {
+                    setMemberFilter(member.username)
+                    router.replace('/dashboard/team?scope=tasks_all', { scroll: false })
+                  }}
+                  className="animate-fade-in cursor-pointer rounded-2xl p-6 text-center transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
                   style={{
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border)',

@@ -1,13 +1,15 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useTransition, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useState, useTransition, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Todo, MultiAssignmentEntry, MultiAssignmentSubEntry } from '@/types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
 import { UserAvatar } from '@/components/ui/user-avatar'
-import { formatPakistanDate, formatPakistanTime, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
+import { formatPakistanDate, formatPakistanTime, pakistanInputValue, pakistanOfficeMinInputValue } from '@/lib/pakistan-time'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
@@ -27,11 +29,17 @@ import {
   duplicateTodoAction,
   claimQueuedTaskAction,
   assignQueuedTaskToTeamMemberAction,
+  claimClusterInboxTaskAction,
+  assignClusterInboxTaskAction,
+  assignHallInboxTaskWithSchedulerAction,
+  activateHallTaskAction,
+  pauseHallTaskAction,
   sendTaskToDepartmentQueueAction,
   convertTaskToMultiAssignmentAction,
   updateSingleTaskDueDateAction,
   updateAssignmentStepAction,
   extendMultiAssignmentStepAction,
+  reassignTaskAction,
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
@@ -60,10 +68,13 @@ const TaskHandoffDialog = dynamic(
 interface TaskCardProps {
   task: Todo
   currentUsername: string
+  currentUserRole?: string
   currentUserDept?: string | null
   currentUserTeamMembers?: string[]
   currentUserTeamMemberDeptKeys?: string[]
+  teamMemberTaskSummary?: Record<string, { active: number; queued: number }>
   enableQueueAssign?: boolean
+  hasOtherQueuedTasks?: boolean
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -74,11 +85,13 @@ interface TaskCardProps {
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
+  | { type: 'creator-reopen' }
   | { type: 'approve' }
   | { type: 'decline-approval' }
   | { type: 'single-due-date' }
   | { type: 'step-edit'; assigneeUsername: string }
   | { type: 'queue-assign' }
+  | { type: 'hall-assign' }
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
   | { type: 'reject-assignee'; assigneeUsername: string }
@@ -600,22 +613,29 @@ function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNod
 export function TaskCard({
   task,
   currentUsername,
+  currentUserRole,
   currentUserDept,
   currentUserTeamMembers = [],
   currentUserTeamMemberDeptKeys = [],
+  teamMemberTaskSummary = {},
   enableQueueAssign = false,
+  hasOtherQueuedTasks = false,
   onEdit,
   onViewDetail,
   onRefresh,
   compact = false,
 }: TaskCardProps) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [showMa, setShowMa] = useState(false)
   const [taskDialog, setTaskDialog] = useState<TaskActionDialogState>(null)
-  const [showCreatorReopenConfirm, setShowCreatorReopenConfirm] = useState(false)
   const [showHandoffDialog, setShowHandoffDialog] = useState(false)
   const [dialogValue, setDialogValue] = useState('')
   const [dialogExtraValue, setDialogExtraValue] = useState('')
+  const [hallAssignPriority, setHallAssignPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium')
+  const [hallAssignDays, setHallAssignDays] = useState('')
+  const [hallAssignHours, setHallAssignHours] = useState('')
+  const [stepEditNewAssignee, setStepEditNewAssignee] = useState('')
   const [dialogFiles, setDialogFiles] = useState<File[]>([])
   const [dialogSearch, setDialogSearch] = useState('')
   const [dialogSelectedUsers, setDialogSelectedUsers] = useState<Array<{ username: string; dueDate: string }>>([])
@@ -662,7 +682,11 @@ export function TaskCard({
   const myDelegatedEntry = delegatedEntry?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
 
   const ackNeeded = isAssignee && task.task_status === 'backlog' && !isCompleted
-  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted
+  // Hall-scheduled tasks auto-start when assigned (scheduler_state = 'active'), so no Start Work button needed.
+  // For user_queue state they wait for auto-start — also no manual start button.
+  const hallSchedulerState = (task as unknown as Record<string, unknown>).scheduler_state as string | null
+  const isHallScheduledTaskForMe = isAssignee && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
+  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted && !isHallScheduledTaskForMe
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
   
   // A user can "Complete" if they are the assignee AND it's not MA
@@ -671,8 +695,13 @@ export function TaskCard({
   const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const currentAssigneeApproved = (task.approval_status === 'approved' || !task.approval_status) && !!task.completed_by
   
+  // Hall queue task that is waiting — user can manually activate if queued
+  const showHallActivateBtn = isHallScheduledTaskForMe && hallSchedulerState === 'user_queue' && !isCompleted
+  // Hall active task — user can pause it only when they have other tasks waiting in the queue
+  const showHallPauseBtn = isHallScheduledTaskForMe && hallSchedulerState === 'active' && !isCompleted && hasOtherQueuedTasks
+
   const showCompleteBtn = !task.completed && !isPendingApproval && (
-    ((isAssignee && !maEnabled) && task.task_status === 'in_progress') || 
+    ((isAssignee && !maEnabled) && (task.task_status === 'in_progress' || (isHallScheduledTaskForMe && hallSchedulerState === 'active'))) || 
     (isStepOwner && currentAssigneeApproved)
   )
 
@@ -680,24 +709,35 @@ export function TaskCard({
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
   const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
-  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
-    (!queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
+  const isLeaderRole = currentUserRole === 'Manager' || currentUserRole === 'Supervisor' || currentUserRole === 'Super Manager' || currentUserRole === 'Admin'
+  // Leaders (Manager/Supervisor/Super Manager/Admin) can claim any queued task regardless of dept
+  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+    (isLeaderRole || !queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
-  // Assign button only when task's queue_dept matches supervisor's own dept OR a team member's dept
   const teamMemberDeptKeySet = new Set(currentUserTeamMemberDeptKeys)
-  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isCompleted &&
-    queueDeptKey !== '' && queueAssignableTeamMembers.length > 0 &&
-    (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))
+  // Leaders can assign any queued task to their team (no dept restriction)
+  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+    queueAssignableTeamMembers.length > 0 &&
+    (isLeaderRole || (queueDeptKey !== '' && (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))))
+  // Hall Queue (cluster_inbox) actions — only for leader roles in the receiving cluster
+  const isHallQueueTask = task.cluster_inbox === true && !isGloballyDone
+  // Task that has already been assigned out of hall inbox into the scheduler flow
+  const isHallScheduledTask = !task.cluster_inbox && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
+  const showHallClaimBtn = isHallQueueTask && isLeaderRole
+  const showHallAssignBtn = isHallQueueTask && isLeaderRole && queueAssignableTeamMembers.length > 0
 
   // ANY user in the chain can "Assign/Reassign" if they are the current assignee
   // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
-  const showReassignBtn = !isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled
+  // BUT not for hall-scheduled tasks — cross-hall tasks are done by the assignee only
+  const showReassignBtn = !isGloballyDone && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled && !task.cluster_id
+  // Hall manager re-assignment buttons (for any hall task with cluster_id)
+  const showHallMgrReassignBtn = !!task.cluster_id && !task.cluster_inbox && !isGloballyDone && isLeaderRole && !isCreator
 
   const singleStepOwner = !maEnabled && task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
   const hasSingleStepChain = !maEnabled && !!task.assigned_to && (task.assignment_chain || []).some((entry) => (entry.next_user || '').toLowerCase() === task.assigned_to!.toLowerCase())
   const canEditSingleDueDate =
     !maEnabled &&
-    !isCompleted &&
+    !isGloballyDone &&
     !isPendingApproval &&
     !!task.assigned_to &&
     hasSingleStepChain &&
@@ -710,7 +750,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showReopenBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showReopenBtn || showHallActivateBtn || showHallPauseBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -780,13 +820,18 @@ export function TaskCard({
     }
 
     startTransition(async () => {
-      const result = await fn()
-      if (result.success) {
+      try {
+        const result = await fn()
+        if (result.success) {
+          onRefresh()
+        } else {
+          // Rollback on error handled by onRefresh or manual logic if needed
+          setActionError(result.error ?? 'Action failed. Please try again.')
+          onRefresh() // Ensure state is synced with server
+        }
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : 'Unexpected action error')
         onRefresh()
-      } else {
-        // Rollback on error handled by onRefresh or manual logic if needed
-        setActionError(result.error ?? 'Action failed. Please try again.')
-        onRefresh() // Ensure state is synced with server
       }
     })
   }
@@ -808,8 +853,12 @@ export function TaskCard({
     setDialogFiles([])
     setDialogSearch('')
     setDialogSelectedUsers([])
-    if (dialog.type === 'step-edit' && maEnabled) {
-      void getUsersForAssignment().then((users) => {
+    setHallAssignPriority('medium')
+    setHallAssignDays('')
+    setHallAssignHours('')
+    setStepEditNewAssignee('')
+    if (dialog.type === 'step-edit') {
+      void getUsersForAssignment(dialog.assigneeUsername).then((users) => {
         setAssignableUsers(users)
       })
     }
@@ -822,6 +871,10 @@ export function TaskCard({
     setDialogFiles([])
     setDialogSearch('')
     setDialogSelectedUsers([])
+    setHallAssignPriority('medium')
+    setHallAssignDays('')
+    setHallAssignHours('')
+    setStepEditNewAssignee('')
   }
 
   const toggleDialogSelectedUser = (username: string, checked: boolean) => {
@@ -909,9 +962,17 @@ export function TaskCard({
         closeTaskDialog()
         return
       case 'step-edit':
-        if (!dialogValue.trim()) return
-        if (dialogSelectedUsers.some((entry) => !entry.dueDate.trim())) return
         startTransition(async () => {
+          // If a new assignee is selected, reassign the task to them
+          if (stepEditNewAssignee.trim()) {
+            const res = await reassignTaskAction(task.id, stepEditNewAssignee.trim(), dialogExtraValue.trim() || undefined)
+            if (!res.success) { setActionError(res.error ?? 'Failed to reassign'); return }
+            closeTaskDialog()
+            onRefresh()
+            return
+          }
+          if (!dialogValue.trim()) return
+          if (dialogSelectedUsers.some((entry) => !entry.dueDate.trim())) return
           const first = await updateAssignmentStepAction(task.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined)
           if (!first.success) return
           if (dialogSelectedUsers.length > 0) {
@@ -931,11 +992,30 @@ export function TaskCard({
         doAction(() => assignQueuedTaskToTeamMemberAction(task.id, dialogValue.trim()))
         closeTaskDialog()
         return
+      case 'hall-assign': {
+        if (!dialogValue.trim()) return
+        const totalEstimatedHours = (parseFloat(hallAssignDays) || 0) * 8 + (parseFloat(hallAssignHours) || 0)
+        if (totalEstimatedHours <= 0) { setActionError('Please enter estimated hours required.'); return }
+        doAction(() => assignHallInboxTaskWithSchedulerAction(task.id, dialogValue.trim(), hallAssignPriority, totalEstimatedHours))
+        closeTaskDialog()
+        return
+      }
       case 'delegate':
         if (!dialogValue.trim()) return
         doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
+      case 'creator-reopen':
+        {
+        const reopenReason = dialogValue.trim()
+        if (!reopenReason) {
+          setActionError('Reopen reason is required.')
+          return
+        }
+        doAction(() => toggleTodoCompleteAction(task.id, false, reopenReason))
+        closeTaskDialog()
+        return
+        }
       case 'sub-submit': {
         const note = dialogValue.trim()
         if (!note) {
@@ -1010,7 +1090,7 @@ export function TaskCard({
       >
         <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
         <div className="mb-2 flex items-start justify-between gap-2">
-          <StatusDot status={task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+          <StatusDot status={isCompleted ? 'done' : task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
         {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
@@ -1121,7 +1201,7 @@ export function TaskCard({
 
           {/* Row 2: Status dot + Priority badge only */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+            <StatusDot status={isCompleted ? 'done' : task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
 
@@ -1142,7 +1222,13 @@ export function TaskCard({
             <div className="mt-4 flex flex-wrap gap-2">
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id), { task_status: 'in_progress' })} color="blue" disabled={isPending}>Start Work</ActBtn>}
+              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>Start Task</ActBtn>}
+              {showHallPauseBtn && <ActBtn onClick={() => doAction(() => pauseHallTaskAction(task.id), { scheduler_state: 'paused' })} color="amber" disabled={isPending}>Pause</ActBtn>}
               {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id), { assigned_to: currentUsername, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
+              {showHallClaimBtn && <ActBtn onClick={() => doAction(() => claimClusterInboxTaskAction(task.id), { assigned_to: currentUsername, cluster_inbox: false, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
+              {showHallAssignBtn && (
+                <ActBtn onClick={() => router.push(`/dashboard/tasks/hall-assign/${task.id}`)} color="indigo" disabled={isPending}>Assign to Team</ActBtn>
+              )}
               {showReassignBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1154,13 +1240,27 @@ export function TaskCard({
                   Assign To Next
                 </ActBtn>
               )}
+              {showHallMgrReassignBtn && (
+                <ActBtn
+                  onClick={() => router.push(`/dashboard/tasks/hall-assign/${task.id}`)}
+                  color="indigo"
+                  disabled={isPending}
+                >
+                  Assign to Team Member
+                </ActBtn>
+              )}
+              {showHallMgrReassignBtn && (
+                <ActBtn
+                  onClick={() => router.push(`/dashboard/tasks/route-cluster/${task.id}`)}
+                  color="violet"
+                  disabled={isPending}
+                >
+                  Assign to Other Department
+                </ActBtn>
+              )}
               {showSingleDueDateBtn && (
                 <ActBtn
-                  onClick={() => {
-                    openTaskDialog({ type: 'step-edit', assigneeUsername: task.assigned_to! })
-                    setDialogValue(pakistanInputValue(task.actual_due_date))
-                    setDialogExtraValue(getAssignmentStepNote(task, task.assigned_to!))
-                  }}
+                  onClick={() => router.push(`/dashboard/tasks/edit-assignee/${task.id}`)}
                   color="teal"
                   disabled={isPending}
                 >
@@ -1422,10 +1522,10 @@ export function TaskCard({
                 {task.assignee_department && <span> ({task.assignee_department})</span>}
               </span>
             )}
-            {(task.expected_due_date || task.due_date) && (
+            {task.due_date && (
               <span className={cn('flex items-center gap-1', isOverdue(task.due_date) && !isCompleted ? 'font-semibold text-red-500' : '')}>
                 <Calendar size={10} className="shrink-0" />
-                Expected: {fmtShort(task.expected_due_date || task.due_date)}
+                Expected: {fmtShort(task.due_date)}
               </span>
             )}
           </div>
@@ -1440,18 +1540,26 @@ export function TaskCard({
               <div className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', isCompleted ? 'text-green-700' : 'text-slate-400')}>
                 {isCompleted ? 'Finished' : 'Expected'}
               </div>
-              <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-700')}>
-                {task.due_date ? fmtShort(task.due_date) : 'No date'}
-              </div>
-              {task.due_date && (
-                <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
-                  {isCompleted && task.completed_at ? (
-                    getCompletionStatusText(task.due_date, task.completed_at)
-                  ) : (
-                    fmtTime(task.due_date)
-                  )}
-                </div>
-              )}
+              {(() => {
+                // For hall-scheduled tasks, prefer effective_due_at (computed within office hours)
+                const displayDate = (task.scheduler_state && task.effective_due_at) ? task.effective_due_at : task.due_date
+                return (
+                  <>
+                    <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-700')}>
+                      {displayDate ? fmtShort(displayDate) : 'No date'}
+                    </div>
+                    {displayDate && (
+                      <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
+                        {isCompleted && task.completed_at ? (
+                          getCompletionStatusText(task.due_date, task.completed_at)
+                        ) : (
+                          fmtTime(displayDate)
+                        )}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
 
@@ -1495,7 +1603,7 @@ export function TaskCard({
             {showReopenBtn && (
               <button
                 onClick={() => {
-                  setShowCreatorReopenConfirm(true)
+                  openTaskDialog({ type: 'creator-reopen' })
                 }}
                 className="inline-flex items-center justify-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700"
               >
@@ -1548,11 +1656,13 @@ export function TaskCard({
       <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
+            taskDialog.type === 'creator-reopen' ? 'Reopen task' :
             taskDialog.type === 'decline-approval' ? 'Decline completion request' :
             taskDialog.type === 'approve' ? 'Approve completion request' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
           taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
             taskDialog.type === 'queue-assign' ? 'Assign queued task' :
+            taskDialog.type === 'hall-assign' ? 'Assign Hall Queue task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
           taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
@@ -1561,18 +1671,20 @@ export function TaskCard({
         }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
+            taskDialog.type === 'creator-reopen' ? 'Explain why this task is being reopened. It will go back only to the last submitter.' :
             taskDialog.type === 'decline-approval' ? 'Explain why this completion is declined so assignee can fix it.' :
           taskDialog.type === 'approve' ? 'Add a brief note about the approved work.' :
           taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
           taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
             taskDialog.type === 'queue-assign' ? 'Assign this department-queue task directly to one of your team members.' :
+            taskDialog.type === 'hall-assign' ? 'Assign this Hall Queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
           taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'approve' ? 'Approve & Pass' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' || taskDialog.type === 'hall-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'creator-reopen' ? 'Reopen task' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'approve' ? 'Approve & Pass' : taskDialog.type === 'single-due-date' ? 'Save changes' : taskDialog.type === 'step-edit' ? (stepEditNewAssignee.trim() ? 'Reassign task' : 'Save changes') : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
         error={actionError}
@@ -1582,14 +1694,82 @@ export function TaskCard({
             <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
             <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
           </div>
+        ) : taskDialog.type === 'creator-reopen' ? (
+          <DialogTextarea
+            label="Reopen Reason"
+            value={dialogValue}
+            onChange={setDialogValue}
+            placeholder="Explain what needs to be corrected before this task can be accepted again."
+          />
         ) : taskDialog.type === 'decline-approval' ? (
           <DialogTextarea label="Decline Reason" value={dialogValue} onChange={setDialogValue} placeholder="Tell assignee what to fix before re-submitting." />
         ) : taskDialog.type === 'single-due-date' ? (
-          <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+          <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
         ) : taskDialog.type === 'step-edit' ? (
           <div className="space-y-3">
-            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
-            <DialogTextarea label="Step Detail" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
+            <DialogTextarea label="Step Detail / Note" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
+            {/* Reassign to a different user */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Reassign to different user <span className="normal-case font-normal text-slate-400">(optional)</span></p>
+              {assignableUsers.length > 0 ? (
+                <>
+                  <input
+                    value={stepEditNewAssignee}
+                    onChange={(e) => setStepEditNewAssignee(e.target.value)}
+                    placeholder="Search users..."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 mb-2"
+                  />
+                  <div className="max-h-44 overflow-y-auto space-y-1 rounded-lg">
+                    {assignableUsers
+                      .filter((u) => {
+                        const currentAssignee = (taskDialog as {type:'step-edit';assigneeUsername:string}).assigneeUsername
+                        return u.username.toLowerCase() !== currentAssignee.toLowerCase() &&
+                          (!stepEditNewAssignee.trim() || u.username.toLowerCase().includes(stepEditNewAssignee.toLowerCase()))
+                      })
+                      .map((u) => {
+                        const summary = teamMemberTaskSummary[u.username]
+                        const active = summary?.active ?? 0
+                        const queued = summary?.queued ?? 0
+                        const isSelected = stepEditNewAssignee === u.username
+                        return (
+                          <button key={u.username} type="button"
+                            onClick={() => setStepEditNewAssignee(isSelected ? '' : u.username)}
+                            className={cn(
+                              'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-all',
+                              isSelected ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                            )}>
+                            <div className={cn('w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white')}
+                              style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : 'linear-gradient(135deg,#94a3b8,#64748b)' }}>
+                              {u.username.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn('text-sm font-medium truncate', isSelected ? 'text-violet-700' : 'text-slate-700')}>{u.username}</p>
+                              {u.department && <p className="text-[11px] text-slate-400 truncate">{u.department}</p>}
+                            </div>
+                            {active > 0 ? (
+                              <span className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full flex-shrink-0">Already assigned ({active})</span>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex-shrink-0">free</span>
+                            )}
+                            {queued > 0 && <span className="text-[11px] text-slate-400 flex-shrink-0">{queued}q</span>}
+                          </button>
+                        )
+                      })}
+                  </div>
+                  {stepEditNewAssignee.trim() && (
+                    <p className="text-xs text-amber-600 mt-2">⚠ Saving will reassign this task to <strong>{stepEditNewAssignee}</strong></p>
+                  )}
+                </>
+              ) : (
+                <input
+                  value={stepEditNewAssignee}
+                  onChange={(e) => setStepEditNewAssignee(e.target.value)}
+                  placeholder="Type username to reassign..."
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              )}
+            </div>
             {maEnabled && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="mb-2 text-sm font-semibold text-slate-700">Add more users</div>
@@ -1646,7 +1826,7 @@ export function TaskCard({
                           value={entry.dueDate}
                           onChange={(value) => setDialogSelectedUsers((current) => current.map((item) => item.username === entry.username ? { ...item, dueDate: value } : item))}
                           type="datetime-local"
-                          min={pakistanNowInputValue()}
+                          min={pakistanOfficeMinInputValue()}
                         />
                       </div>
                     ))}
@@ -1691,6 +1871,105 @@ export function TaskCard({
               })}
             </div>
           </div>
+        ) : taskDialog.type === 'hall-assign' ? (
+          <div className="space-y-4">
+            {/* Team member picker */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Select a team member</p>
+              <div className="max-h-44 space-y-1.5 overflow-y-auto pr-0.5">
+              {queueAssignableTeamMembers.map((member) => {
+                const initials = member.slice(0, 2).toUpperCase()
+                const isSelected = dialogValue === member
+                return (
+                  <button
+                    key={member}
+                    type="button"
+                    onClick={() => setDialogValue(member)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-left transition-all',
+                      isSelected
+                        ? 'border-violet-400 bg-violet-50'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300'
+                    )}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                      style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : 'linear-gradient(135deg,#94a3b8,#64748b)' }}
+                    >
+                      {initials}
+                    </div>
+                    <span className={cn('text-sm font-medium flex-1', isSelected ? 'text-violet-700' : 'text-slate-700')}>{member}</span>
+                    {isSelected && (
+                      <svg className="w-4 h-4 text-violet-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                      </svg>
+                    )}
+                  </button>
+                )
+              })}
+              </div>
+            </div>
+            {/* Selected user task summary */}
+            {dialogValue && (() => {
+              const summary = teamMemberTaskSummary[dialogValue]
+              if (!summary && !teamMemberTaskSummary[dialogValue]) return null
+              const active = summary?.active ?? 0
+              const queued = summary?.queued ?? 0
+              return (
+                <div className={cn('flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-sm',
+                  active > 0 ? 'border-orange-200 bg-orange-50' : 'border-emerald-200 bg-emerald-50')}>
+                  <div className={cn('w-2 h-2 rounded-full flex-shrink-0', active > 0 ? 'bg-orange-400' : 'bg-emerald-400')} />
+                  <span className={cn('font-medium', active > 0 ? 'text-orange-700' : 'text-emerald-700')}>
+                    {active > 0
+                      ? `${dialogValue} has ${active} active task${active > 1 ? 's' : ''}`
+                      : `${dialogValue} has no active task — will start immediately`}
+                  </span>
+                  {queued > 0 && <span className="ml-auto text-xs text-slate-500">{queued} queued</span>}
+                </div>
+              )
+            })()}
+            {/* Priority */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Priority</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(['low', 'medium', 'high', 'urgent'] as const).map((p) => {
+                  const colors: Record<string, string> = { low: 'border-slate-300 text-slate-600 bg-slate-50', medium: 'border-blue-300 text-blue-700 bg-blue-50', high: 'border-orange-300 text-orange-700 bg-orange-50', urgent: 'border-red-400 text-red-700 bg-red-50' }
+                  const selectedColors: Record<string, string> = { low: 'border-slate-500 bg-slate-200 text-slate-900', medium: 'border-blue-500 bg-blue-200 text-blue-900', high: 'border-orange-500 bg-orange-200 text-orange-900', urgent: 'border-red-600 bg-red-200 text-red-900' }
+                  const isP = hallAssignPriority === p
+                  return (
+                    <button key={p} type="button" onClick={() => setHallAssignPriority(p)}
+                      className={cn('px-2 py-1.5 rounded-lg border text-xs font-semibold capitalize transition-all', isP ? selectedColors[p] : colors[p])}>
+                      {p}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            {/* Estimated work time */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Estimated Work Time <span className="text-slate-300">(1 day = 8 hrs office time)</span></p>
+              <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                  <input type="number" min="0" step="1" placeholder="0"
+                    value={hallAssignDays} onChange={(e) => setHallAssignDays(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 text-slate-800" />
+                  <p className="text-[11px] text-slate-400 mt-0.5 text-center">Days</p>
+                </div>
+                <span className="text-slate-400 font-bold pb-4">+</span>
+                <div className="flex-1">
+                  <input type="number" min="0" max="23" step="0.5" placeholder="0"
+                    value={hallAssignHours} onChange={(e) => setHallAssignHours(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 text-slate-800" />
+                  <p className="text-[11px] text-slate-400 mt-0.5 text-center">Hours</p>
+                </div>
+              </div>
+              {(parseFloat(hallAssignDays) > 0 || parseFloat(hallAssignHours) > 0) && (
+                <p className="text-xs text-violet-600 mt-1.5 font-medium">
+                  ≈ {((parseFloat(hallAssignDays) || 0) * 8 + (parseFloat(hallAssignHours) || 0)).toFixed(1)} office hours total
+                </p>
+              )}
+            </div>
+          </div>
         ) : taskDialog.type === 'delegate' ? (
           <div className="space-y-3">
             <DialogInput label="Username" value={dialogValue} onChange={setDialogValue} placeholder="Enter username" />
@@ -1701,7 +1980,7 @@ export function TaskCard({
         ) : taskDialog.type === 'reopen-assignee' ? (
           <div className="space-y-3">
             <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-            <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanNowInputValue()} />
+            <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
           </div>
         ) : (
           <div className="space-y-3">
@@ -1742,20 +2021,6 @@ export function TaskCard({
         }}
       />
     )}
-    <ConfirmDialog
-      open={showCreatorReopenConfirm}
-      title="Reopen this task?"
-      description="Only the task creator can reopen a completed task. This will move the task back to in-progress."
-      confirmLabel={isPending ? 'Reopening...' : 'Reopen task'}
-      onCancel={() => {
-        if (isPending) return
-        setShowCreatorReopenConfirm(false)
-      }}
-      onConfirm={() => {
-        doAction(() => toggleTodoCompleteAction(task.id, false))
-        setShowCreatorReopenConfirm(false)
-      }}
-    />
     </>
   )
 }
@@ -1777,6 +2042,8 @@ function ActionDialog({
   children: ReactNode
   error?: string
 }) {
+  if (typeof document === 'undefined') return null
+
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
       <div className="my-auto w-full max-w-lg rounded-[28px] border border-white/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
@@ -1787,7 +2054,7 @@ function ActionDialog({
         <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {error && (
-              <div className="rounded-xl bg-red-50 px-4 py-2 text-xs font-semibold text-red-600 border border-red-100">
+              <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-xs font-semibold text-red-600">
                 {error}
               </div>
             )}
@@ -1809,6 +2076,14 @@ function ActionDialog({
 }
 
 function DialogInput({ label, value, onChange, placeholder, type = 'text', min }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; min?: string }) {
+  if (type === 'datetime-local') {
+    return (
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
+        <OfficeDateTimePicker value={value} onChange={onChange} min={min} className="w-full" />
+      </label>
+    )
+  }
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>

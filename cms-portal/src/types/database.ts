@@ -392,6 +392,13 @@ export type Database = {
         Row: {
           id: string
           name: string
+          app_name: string | null
+          department: string | null
+          playconsole_account: string | null
+          marketer: string | null
+          product_owner: string | null
+          monetization: string | null
+          admob: string | null
           description: string | null
           category: string | null
           price: number | null
@@ -399,11 +406,17 @@ export type Database = {
           created_by: string | null
           created_at: string
           updated_at: string
-          app_name: string | null
         }
         Insert: {
           id?: string
           name: string
+          app_name?: string | null
+          department?: string | null
+          playconsole_account?: string | null
+          marketer?: string | null
+          product_owner?: string | null
+          monetization?: string | null
+          admob?: string | null
           description?: string | null
           category?: string | null
           price?: number | null
@@ -411,11 +424,17 @@ export type Database = {
           created_by?: string | null
           created_at?: string
           updated_at?: string
-          app_name?: string | null
         }
         Update: {
           id?: string
           name?: string
+          app_name?: string | null
+          department?: string | null
+          playconsole_account?: string | null
+          marketer?: string | null
+          product_owner?: string | null
+          monetization?: string | null
+          admob?: string | null
           description?: string | null
           category?: string | null
           price?: number | null
@@ -423,7 +442,6 @@ export type Database = {
           created_by?: string | null
           created_at?: string
           updated_at?: string
-          app_name?: string | null
         }
       }
     }

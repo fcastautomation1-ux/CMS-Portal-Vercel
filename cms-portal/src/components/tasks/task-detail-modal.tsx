@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useTransition, useCallback, useEffect, useMemo, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -33,7 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { formatPakistanDate, formatPakistanDateTime, pakistanInputValue, pakistanNowInputValue } from '@/lib/pakistan-time'
+import { formatPakistanDate, formatPakistanDateTime, pakistanInputValue, pakistanOfficeMinInputValue } from '@/lib/pakistan-time'
 import { CMS_STORAGE_BUCKET } from '@/lib/storage'
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { normalizeTaskDescription } from '@/lib/task-description'
@@ -41,6 +42,7 @@ import { subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import { UserAvatar } from '@/components/ui/user-avatar'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
 import { formatDistanceToNow } from 'date-fns'
 import type { Todo, TodoDetails, HistoryEntry, MultiAssignmentEntry } from '@/types'
 import {
@@ -75,6 +77,8 @@ import {
   updateMaAssigneeStatusAction,
   updateMaSubAssigneeStatusAction,
   updateSingleTaskDueDateAction,
+  pauseHallTaskAction,
+  activateHallTaskAction,
 } from '@/app/dashboard/tasks/actions'
 
 const TaskHandoffDialog = dynamic(
@@ -808,6 +812,7 @@ export function TaskDetailModal({
   onEdit,
   onRefresh,
 }: TaskDetailModalProps) {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'info' | 'history' | 'files' | 'share'>('info')
@@ -934,6 +939,7 @@ export function TaskDetailModal({
           ? task
           : {
               ...task,
+              unread_comment_count: 0,
               history: task.history.map((entry) => clearCurrentUserUnreadFlags(entry, currentUsername)),
             }
       )
@@ -1039,6 +1045,10 @@ export function TaskDetailModal({
   const isAdminOrSuperManager = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
   const isCreator = t.username === currentUsername
   const isAssignee = t.assigned_to === currentUsername
+  const tAny = t as unknown as Record<string, unknown>
+  const hallSchedulerState = tAny.scheduler_state as string | null
+  const isHallScheduledTask = !!t.cluster_id && t.workflow_state === 'claimed_by_department'
+  const isHallScheduledForMe = isHallScheduledTask && isAssignee
   const isPendingApproval = t.approval_status === 'pending_approval'
   const pendingApprover = t.pending_approver || t.username
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
@@ -1054,7 +1064,7 @@ export function TaskDetailModal({
   const currentAssigneeApproved = (t.approval_status === 'approved' || !t.approval_status) && !!t.completed_by
   
   const showCompleteBtn = !t.completed && !isPendingApproval && (
-    (isAssignee && !maEnabled && t.task_status === 'in_progress') || 
+    (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && hallSchedulerState === 'active'))) || 
     (isStepOwner && currentAssigneeApproved)
   )
 
@@ -1510,10 +1520,10 @@ export function TaskDetailModal({
           {isAssignee && t.task_status === 'backlog' && (
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="Acknowledge" color="blue" onClick={() => doAction(() => acknowledgeTaskAction(t.id))} loading={isPending} />
           )}
-          {isAssignee && t.task_status === 'todo' && (
+          {isAssignee && t.task_status === 'todo' && !isHallScheduledForMe && (
             <PrimaryBtn icon={<PlayCircle size={14}/>} label="Start Work" color="blue" onClick={() => doAction(() => startTaskAction(t.id))} loading={isPending} />
           )}
-          {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!t.assigned_to && !maEnabled && (
+          {!isCompleted && !isPendingApproval && (isAssignee || canCreatorControlSingleFlow) && !!t.assigned_to && !maEnabled && !isHallScheduledTask && (
             <button
               onClick={() => setShowHandoffDialog(true)}
               className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
@@ -1523,13 +1533,7 @@ export function TaskDetailModal({
           )}
           {showSingleDueDateBtn && (
             <button
-                onClick={() => {
-                  openTaskDialog(
-                    { type: 'step-edit', assigneeUsername: t.assigned_to! },
-                    pakistanInputValue(t.actual_due_date),
-                    getAssignmentStepNote(t, t.assigned_to!)
-                  )
-                }}
+                onClick={() => router.push(`/dashboard/tasks/edit-assignee/${t.id}`)}
               className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition-colors hover:bg-teal-100"
             >
               Edit Assignee
@@ -1551,8 +1555,27 @@ export function TaskDetailModal({
             />
           )}
 
+          {/* Activate button — hall task waiting in queue, no active task */}
+          {isHallScheduledForMe && hallSchedulerState === 'user_queue' && !isCompleted && (
+            <button
+              onClick={() => doAction(() => activateHallTaskAction(t.id))}
+              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+            >
+              Start Task
+            </button>
+          )}
+
+          {/* Pause button — only for hall-scheduled tasks that are active AND user has queued tasks */}
+          {isHallScheduledForMe && hallSchedulerState === 'active' && !isCompleted && (
+            <button
+              onClick={() => doAction(() => pauseHallTaskAction(t.id))}
+              className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100"
+            >
+              Pause
+            </button>
+          )}
           {/* Multi-level Assignment button (Assign to next person) */}
-          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && !maEnabled && (
+          {!isCompleted && !isPendingApproval && (isAssignee || isCreator) && !!t.assigned_to && !maEnabled && !isHallScheduledTask && (
             <button 
               onClick={() => openTaskDialog({ type: 'reassign' })}
               className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
@@ -1735,13 +1758,7 @@ export function TaskDetailModal({
                         <div className="mt-2 flex flex-wrap gap-2">
                         {((getAssignmentStepOwner(t, a.username) || '').toLowerCase() === currentUsername.toLowerCase()) && !isCompleted && (
                           <button
-                            onClick={() => {
-                              openTaskDialog(
-                                { type: 'step-edit', assigneeUsername: a.username },
-                                pakistanInputValue(a.actual_due_date),
-                                getAssignmentStepNote(t, a.username)
-                              )
-                            }}
+                            onClick={() => router.push(`/dashboard/tasks/edit-assignee/${t.id}`)}
                             className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                           >
                             Edit
@@ -2175,7 +2192,7 @@ export function TaskDetailModal({
               <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
             </div>
           ) : taskDialog.type === 'single-due-date' ? (
-            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+            <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
           ) : taskDialog.type === 'split-multi' ? (
             <DialogTextarea
               label="Assignees"
@@ -2204,7 +2221,7 @@ export function TaskDetailModal({
                   <div className="mt-1 text-xs text-slate-500">Current note: <span className="italic text-slate-700">{dialogExtraValue}</span></div>
                 )}
               </div>
-              <DialogInput label="New Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanNowInputValue()} />
+              <DialogInput label="New Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
               <DialogTextarea label="Step Detail / Instructions" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
             </div>
           ) : taskDialog.type === 'remove-delegation' ? (
@@ -2214,7 +2231,7 @@ export function TaskDetailModal({
           ) : taskDialog.type === 'reopen-assignee' ? (
             <div className="space-y-3">
               <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanNowInputValue()} />
+              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
             </div>
           ) : (
             <div className="space-y-3">
@@ -2342,6 +2359,14 @@ function ActionDialog({
 }
 
 function DialogInput({ label, value, onChange, placeholder, type = 'text', min }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; min?: string }) {
+  if (type === 'datetime-local') {
+    return (
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>
+        <OfficeDateTimePicker value={value} onChange={onChange} min={min} className="w-full" />
+      </label>
+    )
+  }
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-semibold text-slate-700">{label}</span>

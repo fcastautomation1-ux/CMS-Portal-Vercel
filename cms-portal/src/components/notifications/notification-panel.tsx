@@ -16,7 +16,7 @@ import {
   deleteNotification,
   sendNotificationReply,
 } from '@/app/dashboard/notifications/actions'
-import { subscribeToPostgresChanges } from '@/lib/realtime'
+import { buildRealtimeEqFilter, subscribeToPostgresChanges } from '@/lib/realtime'
 import { queryKeys } from '@/lib/query-keys'
 import type { Notification } from '@/types'
 
@@ -239,7 +239,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
     return subscribeToPostgresChanges(
       `notifications:${currentUsername}`,
       [
-        { table: 'notifications', filter: `user_id=eq.${currentUsername}` },
+        { table: 'notifications', filter: buildRealtimeEqFilter('user_id', currentUsername) },
       ],
       () => {
         void pollNotifications()
