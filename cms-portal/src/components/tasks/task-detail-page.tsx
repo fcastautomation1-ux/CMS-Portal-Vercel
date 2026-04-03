@@ -1190,7 +1190,7 @@ export function TaskDetailPage({
       )
       if (assigneeEntry?.actual_due_date) setDialogValue(pakistanInputValue(assigneeEntry.actual_due_date))
       if (assigneeEntry?.notes) setDialogExtraValue(assigneeEntry.notes)
-      void getUsersForAssignment(dialog.assigneeUsername).then((users) => {
+      void getUsersForAssignment().then((users) => {
         setShareUsers(users)
       })
     }

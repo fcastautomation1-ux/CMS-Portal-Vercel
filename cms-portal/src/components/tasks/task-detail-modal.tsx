@@ -1135,7 +1135,7 @@ export function TaskDetailModal({
     setDialogExtraValue(initialExtraValue)
     setStepEditNewAssignee('')
     if (dialog.type === 'step-edit') {
-      void getUsersForAssignment(dialog.assigneeUsername).then((users) => {
+      void getUsersForAssignment().then((users) => {
         setShareUsers(users)
       })
     }
