@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase/server'
@@ -17,6 +18,8 @@ export default async function DashboardLayout({
   const enrichedUser = { ...user, avatarData }
 
   return (
-    <DashboardShell user={enrichedUser}>{children}</DashboardShell>
+    <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--color-bg)' }} />}>
+      <DashboardShell user={enrichedUser}>{children}</DashboardShell>
+    </Suspense>
   )
 }

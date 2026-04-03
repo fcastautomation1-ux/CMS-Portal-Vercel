@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import {
   LayoutGrid, TrendingUp, Users, CheckSquare, Building2,
   AlertCircle, Clock, CheckCircle2, Activity,
@@ -10,10 +11,13 @@ import {
 import type { SessionUser } from '@/types'
 import type { OverviewStats, ManagerOverviewStats, PersonalStats } from '@/app/dashboard/overview/actions'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell, CartesianGrid,
+  LazyResponsiveContainer as ResponsiveContainer,
+  LazyBarChart as BarChart,
+  LazyPieChart as PieChart,
+  Bar, XAxis, YAxis, Tooltip,
+  Pie, Cell, CartesianGrid,
   type PieLabelRenderProps,
-} from 'recharts'
+} from '@/components/ui/lazy-charts'
 
 // ── KPI Card ─────────────────────────────────────────────────
 
@@ -637,8 +641,7 @@ function AdminOverview({ stats, user }: AdminOverviewProps) {
                   </span>
                   <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #8B5CF6)' }}>
                     {p.avatarData ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.avatarData} alt={p.username} className="w-full h-full object-cover" />
+                      <Image src={p.avatarData} alt={p.username} width={28} height={28} className="w-full h-full object-cover" unoptimized />
                     ) : (
                       p.username.charAt(0).toUpperCase()
                     )}
@@ -943,8 +946,7 @@ function ManagerOverview({ stats, user }: ManagerOverviewProps) {
                   </span>
                   <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center text-xs font-bold text-white" style={{ background: 'linear-gradient(135deg, #2B7FFF, #8B5CF6)' }}>
                     {p.avatarData ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.avatarData} alt={p.username} className="w-full h-full object-cover" />
+                      <Image src={p.avatarData} alt={p.username} width={28} height={28} className="w-full h-full object-cover" unoptimized />
                     ) : (
                       p.username.charAt(0).toUpperCase()
                     )}

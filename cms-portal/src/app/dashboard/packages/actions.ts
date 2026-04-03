@@ -42,7 +42,7 @@ export async function getPackages(): Promise<Package[]> {
   return unstable_cache(async () => {
     const supabase = createServerClient()
     const [{ data, error }, assignmentRows] = await Promise.all([
-      supabase.from('packages').select('*').order('name'),
+      supabase.from('packages').select('id, name, app_name, department, playconsole_account, marketer, product_owner, monetization, admob, description, category, price, is_active, created_by, created_at, updated_at').order('name'),
       getUserPackageRows(supabase),
     ])
 
@@ -319,10 +319,11 @@ export async function bulkAssignPackagesToUsers(
   const supabase = createServerClient()
   const cleanIds = Array.from(new Set(packageIds.filter(Boolean)))
 
+  // Fetch all existing assignments once instead of per-user
+  const allExistingRows = await getUserPackageRows(supabase)
+
   for (const username of usernames) {
-    // Get existing assignments for this user
-    const existingRows = await getUserPackageRows(supabase)
-    const existing = existingRows
+    const existing = allExistingRows
       .filter(r => r.username === username)
       .map(r => r.package_id)
     const merged = Array.from(new Set([...existing, ...cleanIds]))

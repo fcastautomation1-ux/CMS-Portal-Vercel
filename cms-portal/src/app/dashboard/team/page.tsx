@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getTeamMembers, getTeamTodos } from './actions'
@@ -11,5 +12,9 @@ export default async function Page() {
   ])
   if (!user) redirect('/login')
 
-  return <TeamPage members={members} tasks={tasks} user={user} />
+  return (
+    <Suspense>
+      <TeamPage members={members} tasks={tasks} user={user} />
+    </Suspense>
+  )
 }

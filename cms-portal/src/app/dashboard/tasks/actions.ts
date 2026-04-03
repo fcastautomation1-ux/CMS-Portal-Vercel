@@ -336,8 +336,12 @@ function findAssignmentStepOwner(
   const targetLower = target.toLowerCase()
   const chain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
 
+  // Skip 'submitted_for_approval' entries — those are submission records, not assignments.
+  // We only want actual assignment entries (assigned, claimed, routed, reassigned_after_approval, etc.)
   for (let i = chain.length - 1; i >= 0; i -= 1) {
     const entry = chain[i]
+    const role = normalizeChainUsername(entry?.role).toLowerCase()
+    if (role === 'submitted_for_approval') continue
     const nextUser = normalizeChainUsername(entry?.next_user)
     const actor = normalizeChainUsername(entry?.user)
     if (nextUser && nextUser.toLowerCase() === targetLower && actor) {
@@ -707,9 +711,7 @@ export async function getTodos(): Promise<Todo[]> {
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
       .contains('assignment_chain', [{ user: user.username }]),
     // chainAssigneeRes: user was the ASSIGNEE in the chain (next_user field).
-    // This catches cross-hall tasks where the user was assigned from the inbox
-    // but completed_by was later overwritten by an intermediate approver submitting
-    // their own work up the chain.
+    // Use JSONB containment (@>) to find tasks where any chain entry has next_user = this user.
     supabase.from('todos').select(TASK_LIST_SELECT).eq('archived', false)
       .contains('assignment_chain', [{ next_user: user.username }]),
     // cluster memberships — needed for inbox tasks below
@@ -887,8 +889,9 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').eq('completed_by', user.username).eq('archived', false) as any),
     (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').contains('multi_assignment', { assignees: [{ username: user.username }] }).eq('archived', false) as any),
     (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').contains('assignment_chain', [{ user: user.username }]).eq('archived', false) as any),
-    // Catch cross-hall tasks where user was the ASSIGNEE (next_user) but completed_by was later overwritten
-    (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').contains('assignment_chain', [{ next_user: user.username }]).eq('archived', false) as any),
+    // Catch cross-hall tasks where user is next_user in assignment chain — JSONB containment
+    (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').eq('archived', false)
+      .contains('assignment_chain', [{ next_user: user.username }]) as any),
     (supabase.from('todos').select(SIDEBAR_TASK_SELECT + ',assignment_chain').ilike('manager_id', `%${user.username}%`).eq('archived', false) as any),
     (supabase.from('todo_shares').select('todo_id').eq('shared_with', user.username) as any),
     userDeptKeys.length > 0
@@ -928,8 +931,22 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     const isGloballyDone = task.completed || task.task_status === 'done'
     const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
     const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
+    const chain = task.assignment_chain || []
+    const hasForwardedSubmission = chain.some((entry) => {
+      const actor = (entry.user || '').toLowerCase()
+      const role = String(entry.role || '').toLowerCase()
+      const action = String(entry.action || '').toLowerCase()
+      return actor === userLower && (
+        role === 'submitted_for_approval' ||
+        action === 'submit' ||
+        action === 'complete' ||
+        action === 'complete_final'
+      )
+    })
     if (isGloballyDone) return true
     if (isMySubmission && !isCurrentlyAssignedToMe) return true
+    if (isMySubmission && task.approval_status === 'pending_approval') return true
+    if (hasForwardedSubmission && (task.approval_status === 'pending_approval' || !isCurrentlyAssignedToMe)) return true
     return false
   }
 
@@ -1178,8 +1195,13 @@ export async function saveTodoAction(
   const hallHours = await getClusterOfficeHours(supabase, input.cluster_id ?? null)
 
   if (input.due_date) {
-    const dueDateErr = validatePakistanOfficeDueDate(input.due_date, hallHours)
-    if (dueDateErr) return { success: false, error: dueDateErr }
+    const dueDate = new Date(input.due_date)
+    if (Number.isNaN(dueDate.getTime())) {
+      return { success: false, error: 'Invalid due date.' }
+    }
+    if (dueDate.getTime() <= Date.now()) {
+      return { success: false, error: 'Due date must be in the future.' }
+    }
   }
   if (input.multi_assignment?.enabled) {
     const invalidEntry = input.multi_assignment.assignees.find((entry) =>
@@ -1361,7 +1383,6 @@ export async function saveTodoAction(
     // The sender does NOT control routing inside the destination Hall.
     if (input.routing === 'cluster') {
       if (!input.cluster_id) return { success: false, error: 'Destination Hall (cluster) is required.' }
-      if (!input.due_date) return { success: false, error: 'Due date is required for cross-Hall tasks.' }
 
       // Verify destination cluster exists and get its name
       const { data: destCluster } = await supabase
@@ -1412,9 +1433,10 @@ export async function saveTodoAction(
         priority: input.priority,
         category: null,
         kpi_type: input.kpi_type,
-        due_date: input.due_date,
-        expected_due_date: input.due_date,
+        due_date: null,
+        expected_due_date: null,
         actual_due_date: null,
+        requested_due_at: null,
         notes: input.notes || null,
         package_name: input.package_name || null,
         app_name: input.app_name || null,
@@ -1842,6 +1864,7 @@ export async function toggleTodoCompleteAction(
     const history = parseJson<HistoryEntry[]>(task.history, [])
     let updateData: Record<string, unknown> = { updated_at: now }
     const multiAssignment = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+    const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
 
     if (completed) {
     const note = String(submissionNote || '').trim()
@@ -1881,16 +1904,25 @@ export async function toggleTodoCompleteAction(
     } else {
       const pendingChain = buildPendingApprovalChain(task, user.username, now)
       const nextApprover = pendingChain[0]?.user || (task.username as string)
+      assignmentChain.push({
+        user: user.username,
+        role: 'submitted_for_approval',
+        assignedAt: now,
+        next_user: nextApprover,
+        feedback: note || undefined,
+      })
       updateData = {
         ...updateData,
         completed: false,
         approval_status: 'pending_approval',
-        completed_by: user.username,
+        // Preserve original worker if already set (e.g. intermediate submission)
+        completed_by: (task.completed_by as string) || user.username,
         // Keep as in_progress so it stays active in the dashboard for the chain
         task_status: 'in_progress',
         workflow_state: 'submitted_for_approval',
         pending_approver: nextApprover,
         approval_chain: JSON.stringify(pendingChain),
+        assignment_chain: JSON.stringify(assignmentChain),
         approval_requested_at: now,
         approval_sla_due_at: addHoursIso(now, 48),
       }
@@ -1942,78 +1974,14 @@ export async function toggleTodoCompleteAction(
       })
     }
   } else {
-    if (!isOwner) return { success: false, error: 'Only the task creator can reopen a completed task.' }
-    const reopenReason = String(submissionNote || '').trim()
-    if (!reopenReason) return { success: false, error: 'Reopen reason is required.' }
-    const previousAssignee = String(task.completed_by || task.assigned_to || '').trim() || null
-    updateData = {
-      ...updateData,
-      completed: false,
-      completed_at: null,
-      completed_by: null,
-      assigned_to: previousAssignee,
-      task_status: 'in_progress',
-      approval_status: 'approved',
-      workflow_state: 'in_progress',
-      pending_approver: null,
-      approval_chain: JSON.stringify([]),
-      approval_requested_at: null,
-      approval_sla_due_at: null,
-    }
-    history.push({
-      type: 'uncompleted',
-      user: user.username,
-      details: `Task reopened by ${user.username}. Reason: ${reopenReason}`,
-      timestamp: now,
-      icon: '↩️',
-      title: 'Task Reopened',
-    })
-    const commentParticipants = new Set<string>()
-    if (task.username) commentParticipants.add(String(task.username))
-    if (task.assigned_to) commentParticipants.add(String(task.assigned_to))
-    if (task.completed_by) commentParticipants.add(String(task.completed_by))
-    if (task.manager_id) {
-      String(task.manager_id)
-        .split(',')
-        .map((v) => v.trim())
-        .filter(Boolean)
-        .forEach((v) => commentParticipants.add(v))
-    }
-    const commentUnreadBy = Array.from(commentParticipants).filter(
-      (u) => u.toLowerCase() !== user.username.toLowerCase()
-    )
-    history.push({
-      type: 'comment',
-      user: user.username,
-      details: reopenReason,
-      timestamp: now,
-      icon: '💬',
-      title: 'Reopen Reason',
-      message_id: crypto.randomUUID(),
-      unread_by: commentUnreadBy,
-      read_by: [user.username],
-      mention_users: previousAssignee ? [previousAssignee] : [],
-    })
-    }
+    return { success: false, error: 'Reopen task is disabled.' }
+  }
 
     updateData.history = JSON.stringify(history)
     await supabase.from('todos').update(updateData).eq('id', todoId)
 
-    if (!completed) {
-      const reopenedFor = String(task.completed_by || task.assigned_to || '').trim()
-      if (reopenedFor && reopenedFor.toLowerCase() !== user.username.toLowerCase()) {
-        await createNotification(supabase, {
-          userId: reopenedFor,
-          type: 'task_assigned',
-          title: 'Task Reopened',
-          body: `${user.username} reopened "${task.title}" for you. Reason: ${String(submissionNote || '').trim()}`,
-          relatedId: todoId,
-        })
-      }
-    }
-
     revalidateTasksData()
-    emitTaskWebhook(completed ? 'task.completed' : 'task.reopened', todoId, user.username, {
+    emitTaskWebhook('task.completed', todoId, user.username, {
       submissionNote: submissionNote ? submissionNote.trim() : '',
     })
     return { success: true }
@@ -2021,7 +1989,7 @@ export async function toggleTodoCompleteAction(
     console.error('toggleTodoCompleteAction failed:', error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unexpected reopen/completion error',
+      error: error instanceof Error ? error.message : 'Unexpected completion error',
     }
   }
 }
@@ -2114,17 +2082,43 @@ export async function approveTodoAction(todoId: string, note?: string): Promise<
     // Keep completed_by intact so User C can still see their step as completed.
     const isCreator = String(task.username || '').toLowerCase() === user.username.toLowerCase()
     if (!isCreator) {
+      // Add a chain entry so findAssignmentStepOwner can trace who "assigned" this user
+      // back to the original sender. The previous approver (who submitted) becomes the
+      // step owner link so the chain walks correctly upward.
+      const assignmentChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+      const previousAssignedTo = normalizeChainUsername(task.assigned_to)
+      // Find who originally assigned this approver into the chain
+      // (walk chain for the most recent actual assignment entry pointing to the previous assignee)
+      let stepOrigin = normalizeChainUsername(task.username) // fallback: creator
+      for (let i = assignmentChain.length - 1; i >= 0; i -= 1) {
+        const e = assignmentChain[i]
+        const role = normalizeChainUsername(e?.role).toLowerCase()
+        if (role === 'submitted_for_approval') continue
+        const nu = normalizeChainUsername(e?.next_user)
+        if (nu && nu.toLowerCase() === previousAssignedTo.toLowerCase() && normalizeChainUsername(e?.user)) {
+          stepOrigin = normalizeChainUsername(e.user)
+          break
+        }
+      }
+      assignmentChain.push({
+        user: stepOrigin,
+        role: 'reassigned_after_approval',
+        assignedAt: now,
+        next_user: user.username,
+        feedback: note || undefined,
+      })
+      updatePayload.assignment_chain = JSON.stringify(assignmentChain)
       updatePayload.completed = false
-      // DO NOT clear completed_by — preserves User C's completion so they see their step as done
+      // DO NOT clear completed_by — preserves the original worker's credit
       updatePayload.task_status = 'in_progress'
       updatePayload.approval_status = 'approved'
+      updatePayload.assigned_to = user.username
       updatePayload.pending_approver = null
       updatePayload.approval_requested_at = null
       updatePayload.approval_sla_due_at = null
       updatePayload.approved_at = now
       updatePayload.approved_by = user.username
       updatePayload.workflow_state = 'in_progress'
-      updatePayload.assigned_to = user.username
     } else {
       // Creator approved — task is fully complete
       updatePayload.completed = true
@@ -4464,90 +4458,11 @@ export async function reopenMaAssigneeAction(
   feedback: string,
   newDueDate: string
 ): Promise<{ success: boolean; error?: string }> {
-  const user = await getSession()
-  if (!user) return { success: false, error: 'Not authenticated.' }
-  if (!feedback.trim()) return { success: false, error: 'Feedback is required.' }
-  if (!newDueDate.trim()) return { success: false, error: 'New due date is required.' }
-
-  const parsedDueDate = new Date(newDueDate)
-  if (Number.isNaN(parsedDueDate.getTime())) return { success: false, error: 'Invalid due date.' }
-
-  const supabase = createServerClient()
-  const { data: existing } = await supabase
-    .from('todos')
-    .select('username,assigned_to,multi_assignment,history,title,cluster_id')
-    .eq('id', todoId)
-    .single()
-  if (!existing) return { success: false, error: 'Task not found.' }
-
-  const hallHours = await getClusterOfficeHours(supabase, (existing as Record<string, unknown>).cluster_id as string | null)
-  {
-    const dueErr = validatePakistanOfficeDueDate(newDueDate, hallHours)
-    if (dueErr) return { success: false, error: dueErr }
-  }
-
-  const task = existing as Record<string, unknown>
-  const stepOwner = findAssignmentStepOwner(task, assigneeUsername)
-  const isStepOwner = (stepOwner || '').toLowerCase() === user.username.toLowerCase()
-  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
-  if (!isStepOwner && !isAdmin) return { success: false, error: 'Only the person who assigned this step (or admin) can reopen accepted work.' }
-
-  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
-  if (!ma?.enabled) return { success: false, error: 'Not a multi-assignment task.' }
-
-  const idx = ma.assignees.findIndex((entry) => (entry.username || '').toLowerCase() === assigneeUsername.toLowerCase())
-  if (idx === -1) return { success: false, error: 'Assignee not found.' }
-  if (ma.assignees[idx].status !== 'accepted' && ma.assignees[idx].status !== 'completed') return { success: false, error: 'Only submitted or accepted work can be reopened.' }
-
-  const now = new Date().toISOString()
-  ma.assignees[idx] = {
-    ...ma.assignees[idx],
-    status: 'in_progress',
-    notes: feedback.trim(),
-    rejection_reason: feedback.trim(),
-    actual_due_date: parsedDueDate.toISOString(),
-    completed_at: undefined,
-    accepted_at: undefined,
-    accepted_by: undefined,
-  }
-  touchMultiAssignmentProgress(ma)
-  const rolledDue = getMaxMaDueDate(ma)
-
-  const history = parseJson<HistoryEntry[]>(task.history, [])
-  history.push({
-    type: 'uncompleted',
-    user: user.username,
-    details: `${user.username} reopened ${assigneeUsername}'s work. Feedback: ${feedback.trim()}. New due date: ${parsedDueDate.toISOString()}`,
-    timestamp: now,
-    icon: '↩️',
-    title: 'Work Reopened',
-  })
-
-  await supabase.from('todos').update({
-    multi_assignment: JSON.stringify(ma),
-    history: JSON.stringify(history),
-    completed: false,
-    completed_at: null,
-    approval_status: 'approved',
-    task_status: 'in_progress',
-    workflow_state: 'rework_required',
-    ...(rolledDue ? { due_date: rolledDue, expected_due_date: rolledDue } : {}),
-    pending_approver: null,
-    approval_chain: JSON.stringify([]),
-    approval_requested_at: null,
-    approval_sla_due_at: null,
-    updated_at: now,
-  }).eq('id', todoId)
-
-  await notifyUsers(supabase, [assigneeUsername], {
-    type: 'task_assigned',
-    title: 'Accepted Work Reopened',
-    body: `${user.username} reopened your accepted work on "${task.title}". Feedback: ${feedback.trim()}. New due date: ${parsedDueDate.toISOString()}`,
-    relatedId: todoId,
-  }, user.username)
-
-  revalidateTasksData()
-  return { success: true }
+  void todoId
+  void assigneeUsername
+  void feedback
+  void newDueDate
+  return { success: false, error: 'Reopen task is disabled.' }
 }
 
 export async function delegateMaAssigneeAction(
@@ -5058,16 +4973,12 @@ export async function sendTaskToClusterInboxAction(
   if (!destinationClusterId) return { success: false, error: 'Destination cluster is required.' }
   if (!dueDate) return { success: false, error: 'Due date is required.' }
 
-  {
-    const supabase = createServerClient()
-    const hallHours = await getClusterOfficeHours(supabase, destinationClusterId)
-    const dueErr = validatePakistanOfficeDueDate(dueDate, hallHours)
-    if (dueErr) return { success: false, error: dueErr }
-  }
-
   const parsedDue = new Date(dueDate)
   if (Number.isNaN(parsedDue.getTime())) {
     return { success: false, error: 'Invalid due date.' }
+  }
+  if (parsedDue.getTime() <= Date.now()) {
+    return { success: false, error: 'Due date must be in the future.' }
   }
   const dueIso = parsedDue.toISOString()
 
@@ -7207,8 +7118,17 @@ export async function updateTaskPriorityAction(
 // ─── Hall Cross-Department Routing ──────────────────────────────────────────
 
 export type RouteClusterPageData = {
-  task: { id: string; title: string; cluster_id: string; cluster_name: string }
-  availableClusters: { id: string; name: string; color: string }[]
+  task: {
+    id: string
+    title: string
+    cluster_id: string
+    cluster_name: string
+    cluster_inbox: boolean
+    creator_username: string
+    due_date: string | null
+    queue_department: string | null
+  }
+  availableDepartments: { name: string }[]
 }
 
 export async function getRouteClusterPageData(taskId: string): Promise<RouteClusterPageData | null> {
@@ -7216,17 +7136,27 @@ export async function getRouteClusterPageData(taskId: string): Promise<RouteClus
   if (!user) return null
   const supabase = createServerClient()
 
-  // 1. Get the task + its cluster
+  // 1. Get the task + its hall context
   const { data: taskRow } = await supabase
     .from('todos')
-    .select('id,title,cluster_id')
+    .select('id,title,cluster_id,cluster_inbox,username,due_date,expected_due_date,effective_due_at,queue_department')
     .eq('id', taskId)
     .single()
   if (!taskRow) return null
-  const t = taskRow as { id: string; title: string; cluster_id: string | null }
+  const t = taskRow as {
+    id: string
+    title: string
+    cluster_id: string | null
+    cluster_inbox: boolean | null
+    username: string | null
+    due_date: string | null
+    expected_due_date: string | null
+    effective_due_at: string | null
+    queue_department: string | null
+  }
   if (!t.cluster_id) return null
 
-  // 2. Get current cluster name
+  // 2. Get current hall name
   const { data: clusterRow } = await supabase
     .from('clusters')
     .select('name')
@@ -7234,47 +7164,39 @@ export async function getRouteClusterPageData(taskId: string): Promise<RouteClus
     .single()
   const clusterName = (clusterRow as Record<string, string> | null)?.name ?? ''
 
-  // 3. Get departments linked to the task's cluster
-  const { data: myDepts } = await supabase
+  // 3. Get departments linked to this hall only.
+  const { data: hallDepts } = await supabase
     .from('cluster_departments')
-    .select('department_id')
+    .select('departments(name)')
     .eq('cluster_id', t.cluster_id)
-  const myDeptIds = ((myDepts ?? []) as Array<{ department_id: string }>).map((d) => d.department_id)
+  const creatorUsername = String(t.username || '').trim()
+  const currentQueueDepartment = String(t.queue_department || '').trim()
 
-  let availableClusters: { id: string; name: string; color: string }[] = []
-
-  if (myDeptIds.length > 0) {
-    // 4. Find OTHER clusters that share at least one of those departments
-    const { data: linkedDepts } = await supabase
-      .from('cluster_departments')
-      .select('cluster_id')
-      .in('department_id', myDeptIds)
-      .neq('cluster_id', t.cluster_id)
-    const linkedClusterIds = [...new Set(((linkedDepts ?? []) as Array<{ cluster_id: string }>).map((d) => d.cluster_id))]
-
-    if (linkedClusterIds.length > 0) {
-      const { data: clusters } = await supabase
-        .from('clusters')
-        .select('id,name,color')
-        .in('id', linkedClusterIds)
-        .order('name')
-      availableClusters = (clusters ?? []) as { id: string; name: string; color: string }[]
-    }
-  }
-
-  // Fallback: if no linked clusters found, show all clusters except the task's own
-  if (availableClusters.length === 0) {
-    const { data: allClusters } = await supabase
-      .from('clusters')
-      .select('id,name,color')
-      .neq('id', t.cluster_id)
-      .order('name')
-    availableClusters = (allClusters ?? []) as { id: string; name: string; color: string }[]
-  }
+  const availableDepartments = Array.from(
+    new Set(
+      ((hallDepts ?? []) as Array<Record<string, unknown>>)
+        .map((row) => (row.departments as Record<string, string> | null)?.name ?? '')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .filter((name) => name.toLowerCase() !== creatorUsername.toLowerCase())
+        .filter((name) => name.toLowerCase() !== currentQueueDepartment.toLowerCase())
+    )
+  )
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({ name }))
 
   return {
-    task: { id: t.id, title: t.title, cluster_id: t.cluster_id, cluster_name: clusterName },
-    availableClusters,
+    task: {
+      id: t.id,
+      title: t.title,
+      cluster_id: t.cluster_id,
+      cluster_name: clusterName,
+      cluster_inbox: Boolean(t.cluster_inbox),
+      creator_username: creatorUsername,
+      due_date: t.effective_due_at || t.due_date || t.expected_due_date || null,
+      queue_department: currentQueueDepartment || null,
+    },
+    availableDepartments,
   }
 }
 

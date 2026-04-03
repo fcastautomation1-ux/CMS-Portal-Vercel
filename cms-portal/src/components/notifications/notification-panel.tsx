@@ -169,11 +169,10 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
       syncUnreadFromList(data)
       return data
     },
-    initialData: notifications,
     enabled: Boolean(currentUsername),
     staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnMount: false,
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
   })
 
@@ -196,8 +195,12 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
       const [data, count] = await Promise.all([getNotifications(), getUnreadCount()])
       if (cancelled) return
       const unreadItems = data.filter(n => !norm(n).isRead)
+      // Only fire desktop notifications for truly recent items (arrived in last 2 min),
+      // not for the entire unread history every time the component mounts.
+      const twoMinAgo = Date.now() - 2 * 60 * 1000
       if (permGranted) {
-        for (const notif of unreadItems) fireDesktopNotification(notif)
+        const recentUnread = unreadItems.filter(n => new Date(n.created_at).getTime() > twoMinAgo)
+        for (const notif of recentUnread) fireDesktopNotification(notif)
       }
       data.forEach(n => seenIdsRef.current.add(n.id))
       const listUnread = unreadItems.length
@@ -271,7 +274,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
       setNotifications(prev => prev.map(n => ({ ...n, read: true, is_read: true })))
       setUnreadCount(0)
       prevUnreadRef.current = 0
-      setTab('unread')
+      // Stay on current tab — switching to 'unread' would show an empty list
     } else {
       await refreshNotifications(true)
     }
@@ -325,7 +328,7 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => { void requestDesktopPermission(); setOpen(true) }}
         className="relative w-9 h-9 flex items-center justify-center rounded-lg transition-all hover:bg-slate-100 dark:hover:bg-slate-700"
         aria-label="Notifications"
         style={{ color: 'var(--color-text-muted)' }}
@@ -355,13 +358,13 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
         }}
       >
         <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.1)' }}>
-              <Bell size={15} style={{ color: '#3B82F6' }} />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.12)' }}>
+              <Bell size={16} style={{ color: '#3B82F6', fontWeight: 'bold' }} />
             </div>
             <div>
-              <h2 className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>Notifications</h2>
-              {unreadCount > 0 && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{unreadCount} unread</p>}
+              <h2 className="font-bold text-base" style={{ color: 'var(--color-text)', fontWeight: '700' }}>Notifications</h2>
+              {unreadCount > 0 && <p className="text-xs mt-0.5 font-medium" style={{ color: '#FF6B6B', fontWeight: '600' }}>{unreadCount} unread</p>}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -369,8 +372,8 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
               <button
                 onClick={handleMarkAllRead}
                 disabled={markingAllRead}
-                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                style={{ color: '#3B82F6', background: 'rgba(59,130,246,0.08)', opacity: markingAllRead ? 0.6 : 1, cursor: markingAllRead ? 'not-allowed' : 'pointer' }}
+                className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
+                style={{ color: '#3B82F6', background: 'rgba(59,130,246,0.1)', opacity: markingAllRead ? 0.6 : 1, cursor: markingAllRead ? 'not-allowed' : 'pointer', fontWeight: '600' }}
                 title="Mark all as read"
               >
                 <CheckCheck size={13} /> {markingAllRead ? 'Marking...' : 'Mark all read'}
@@ -384,33 +387,33 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
 
         <div className="px-5 pt-3 pb-0 shrink-0">
           <div className="relative">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#64748B', fontWeight: 'bold' }} />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search notifications..."
-              className="w-full h-8 pl-8 pr-3 rounded-lg text-xs outline-none"
-              style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)' }}
+              className="w-full h-9 pl-9 pr-9 rounded-lg text-xs outline-none font-medium transition-all"
+              style={{ border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: 'var(--color-text)', fontWeight: '500' }}
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                <X size={12} />
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors hover:text-slate-600" style={{ color: '#94A3B8' }}>
+                <X size={14} />
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex px-5 pt-2 pb-0 gap-1 shrink-0">
+        <div className="flex px-5 pt-2 pb-0 gap-1.5 shrink-0">
           {(['all', 'unread', 'read'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all"
-              style={{ background: tab === t ? '#3B82F6' : 'transparent', color: tab === t ? 'white' : 'var(--color-text-muted)' }}
+              className="px-3 py-2 rounded-lg text-xs font-bold capitalize transition-all"
+              style={{ background: tab === t ? '#3B82F6' : '#F1F5F9', color: tab === t ? 'white' : '#64748B', fontWeight: '700' }}
             >
               {t}
               {t === 'unread' && unreadCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: tab === t ? 'rgba(255,255,255,0.25)' : 'rgba(239,68,68,0.15)', color: tab === t ? 'white' : '#EF4444' }}>
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" style={{ background: tab === t ? 'rgba(255,255,255,0.3)' : '#FEE2E2', color: tab === t ? 'white' : '#DC2626', fontWeight: '700' }}>
                   {unreadCount}
                 </span>
               )}
@@ -425,14 +428,14 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
             </div>
           ) : displayed.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 px-6">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.08)' }}>
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.12)' }}>
                 <BellOff size={22} style={{ color: '#3B82F6' }} />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+                <p className="text-sm font-bold" style={{ color: 'var(--color-text)', fontWeight: '700' }}>
                   {search ? `No matches for "${search}"` : tab === 'unread' ? 'All caught up!' : tab === 'read' ? 'No read notifications' : 'No notifications'}
                 </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                <p className="text-xs mt-1.5 font-medium" style={{ color: '#94A3B8', fontWeight: '500' }}>
                   {search ? 'Try a different search term' : tab === 'unread' ? 'No unread notifications.' : 'Notifications will appear here.'}
                 </p>
               </div>
@@ -440,8 +443,8 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
           ) : (
             grouped.map(group => (
               <div key={group.label}>
-                <div className="px-5 py-2" style={{ background: group.label === 'Today' ? 'var(--color-primary-light)' : 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
-                  <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: group.label === 'Today' ? '#1D4ED8' : 'var(--color-text-muted)' }}>
+                <div className="px-5 py-2.5" style={{ background: group.label === 'Today' ? 'rgba(59,130,246,0.08)' : 'transparent', borderBottom: '1px solid #E2E8F0' }}>
+                  <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: group.label === 'Today' ? '#1D4ED8' : '#94A3B8', fontWeight: '700' }}>
                     {group.label}
                   </span>
                 </div>
@@ -505,21 +508,31 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <p className="text-sm leading-snug truncate" style={{ color: n.isRead ? 'var(--slate-500)' : 'var(--color-text)', fontWeight: n.isRead ? '500' : '600' }}>
+                              <p className="text-sm leading-snug truncate font-bold" style={{ color: n.isRead ? '#64748B' : 'var(--color-text)', fontWeight: '700' }}>
                                 {notif.title}
                               </p>
                               {isReminder && (
-                                <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ background: markerBg, color: markerColor }}>
+                                <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: markerBg, color: markerColor }}>
                                   Reminder
                                 </span>
                               )}
                             </div>
-                            {n.bodyText && <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--color-text-muted)' }}>{n.bodyText}</p>}
-                            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                              <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>Time: {timeAgo(notif.created_at)}</span>
-                              {n.senderName && <span className="text-[11px]" style={{ color: 'var(--slate-400)' }}>By: {n.senderName}</span>}
-                              <span className="text-[10px] font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5" style={{ color: '#3B82F6' }}>
-                                Go <ArrowRight size={9} />
+                            {n.bodyText && (
+                              <p className="text-xs mt-1.5 line-clamp-3 leading-relaxed" style={{ color: n.isRead ? '#78909C' : '#555555', fontWeight: '500' }}>
+                                {n.bodyText}
+                              </p>
+                            )}
+                            <div className="flex items-center flex-wrap gap-x-2.5 gap-y-1 mt-2.5">
+                              <span className="text-[11px] font-medium" style={{ color: '#90A4AE' }}>
+                                <span style={{ color: '#B0BEC5', fontWeight: '600' }}>Time:</span> {timeAgo(notif.created_at)}
+                              </span>
+                              {n.senderName && (
+                                <span className="text-[11px] font-medium" style={{ color: '#90A4AE' }}>
+                                  <span style={{ color: '#B0BEC5', fontWeight: '600' }}>By:</span> {n.senderName}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5" style={{ color: '#3B82F6' }}>
+                                View <ArrowRight size={9} />
                               </span>
                             </div>
                           </div>
@@ -567,8 +580,8 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
           )}
         </div>
 
-        <div className="shrink-0 px-5 py-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+        <div className="shrink-0 px-5 py-3.5" style={{ borderTop: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+          <p className="text-xs text-center font-medium" style={{ color: '#94A3B8', fontWeight: '500' }}>
             {notifications.length > 0
               ? `Showing ${displayed.length} of ${notifications.length} notification${notifications.length !== 1 ? 's' : ''}`
               : 'Notifications appear here in real time'}

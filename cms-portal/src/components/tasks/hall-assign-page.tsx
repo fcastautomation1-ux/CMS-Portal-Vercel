@@ -4,93 +4,15 @@ import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Clock, User, CheckCircle2, AlertCircle, Zap, ListOrdered } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import type { HallAssignPageData, HallAssignMemberTask, PriorityNum } from '@/app/dashboard/tasks/actions'
+import type { HallAssignPageData, HallAssignMemberTask } from '@/app/dashboard/tasks/actions'
 import {
   assignHallInboxTaskWithSchedulerAction,
-  updateTaskPriorityAction,
 } from '@/app/dashboard/tasks/actions'
 import { formatPakistanDateTime } from '@/lib/pakistan-time'
 import { calculateEffectiveDueAt } from '@/lib/hall-scheduler'
 import type { HallOfficeHours } from '@/lib/pakistan-time'
 
-// Local constants (cannot live in 'use server' actions file)
-const PRIORITY_NUM_MAP: Record<string, PriorityNum> = { low: 1, medium: 2, high: 3, urgent: 4 }
-const NUM_PRIORITY_MAP: Record<PriorityNum, string> = { 1: 'low', 2: 'medium', 3: 'high', 4: 'urgent' }
 
-// Priority mapping
-const P_LABEL: Record<PriorityNum, string> = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' }
-const P_COLOR: Record<PriorityNum, string> = {
-  1: 'bg-slate-100 text-slate-600 border-slate-200',
-  2: 'bg-blue-50 text-blue-700 border-blue-200',
-  3: 'bg-orange-50 text-orange-700 border-orange-200',
-  4: 'bg-red-50 text-red-700 border-red-200',
-}
-const P_RING: Record<PriorityNum, string> = {
-  1: 'ring-slate-300',
-  2: 'ring-blue-400',
-  3: 'ring-orange-400',
-  4: 'ring-red-500',
-}
-
-function PriorityBadge({ num, size = 'sm', editable, taskId, onUpdated }: {
-  num: PriorityNum
-  size?: 'sm' | 'lg'
-  editable?: boolean
-  taskId?: string
-  onUpdated?: (taskId: string, newNum: PriorityNum) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [pending, startTransition] = useTransition()
-
-  const changePriority = (n: PriorityNum) => {
-    if (!taskId || !onUpdated) return
-    startTransition(async () => {
-      const res = await updateTaskPriorityAction(taskId, n)
-      if (res.success) { onUpdated(taskId, n) }
-      setEditing(false)
-    })
-  }
-
-  if (editable && editing) {
-    return (
-      <div className="flex items-center gap-1">
-        {([1, 2, 3, 4] as PriorityNum[]).map((n) => (
-          <button
-            key={n}
-            type="button"
-            disabled={pending}
-            onClick={() => changePriority(n)}
-            className={cn(
-              'w-7 h-7 rounded-lg border text-xs font-bold flex items-center justify-center transition-all',
-              n === num ? `ring-2 ${P_RING[n]} ${P_COLOR[n]}` : P_COLOR[n],
-              pending && 'opacity-50'
-            )}
-          >
-            {n}
-          </button>
-        ))}
-        <button type="button" onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-slate-600 ml-1">✕</button>
-      </div>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={editable ? () => setEditing(true) : undefined}
-      className={cn(
-        'rounded-lg border font-bold flex items-center justify-center transition-all',
-        size === 'lg' ? 'w-9 h-9 text-base' : 'w-7 h-7 text-xs',
-        P_COLOR[num],
-        editable && 'cursor-pointer hover:ring-2 hover:ring-offset-1',
-        editable && P_RING[num]
-      )}
-      title={editable ? `Priority ${num} — ${P_LABEL[num]} (click to change)` : `Priority ${num} — ${P_LABEL[num]}`}
-    >
-      {num}
-    </button>
-  )
-}
 
 interface Props {
   data: HallAssignPageData
@@ -117,16 +39,14 @@ export function HallAssignPage({ data }: Props) {
   const [selectedMember, setSelectedMember] = useState<string>('')
   const [days, setDays] = useState(0)
   const [hours, setHours] = useState(0)
-  const [priorityNum, setPriorityNum] = useState<PriorityNum>(3)
   const [insertAt, setInsertAt] = useState<number | null>(null) // null = end of queue
   const [note, setNote] = useState('')
   const [loading, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  // Local copy of members so we can update priorities in-place
   type MemberState = HallAssignPageData['members'][number] & { activeTasks: HallAssignMemberTask[] }
-  const [members, setMembers] = useState<MemberState[]>(() =>
+  const [members] = useState<MemberState[]>(() =>
     data.members.map((m) => ({ ...m, activeTasks: [...m.activeTasks] }))
   )
 
@@ -164,22 +84,6 @@ export function HallAssignPage({ data }: Props) {
       ? `Queue position #${insertAt + (activeTask ? 1 : 0)}`
       : `Queue position #${queuedTasks.length + 1 + (activeTask ? 1 : 0)}`
 
-  const handlePriorityUpdated = (taskId: string, newNum: PriorityNum) => {
-    setMembers((prev) =>
-      prev.map((m) => ({
-        ...m,
-        activeTasks: m.activeTasks.map((t) =>
-          t.id === taskId ? { ...t, priority: NUM_PRIORITY_MAP[newNum], priorityNum: newNum } : t
-        ),
-        priorityCounts: m.activeTasks.reduce((acc, t2) => {
-          const pn = t2.id === taskId ? newNum : t2.priorityNum
-          acc[pn] = (acc[pn] ?? 0) + 1
-          return acc
-        }, { 1: 0, 2: 0, 3: 0, 4: 0 } as Record<PriorityNum, number>),
-      }))
-    )
-  }
-
   const handleAssign = () => {
     setError(null)
     if (!selectedMember) { setError('Please select a team member.'); return }
@@ -195,7 +99,7 @@ export function HallAssignPage({ data }: Props) {
       const res = await assignHallInboxTaskWithSchedulerAction(
         data.task.id,
         selectedMember,
-        NUM_PRIORITY_MAP[priorityNum],
+        'medium',
         totalEstHours,
         note.trim() || undefined,
         rawInsertAtRank,
@@ -278,14 +182,10 @@ export function HallAssignPage({ data }: Props) {
                     </p>
                     {m.department && <p className="text-xs text-slate-400 truncate">{m.department}</p>}
                   </div>
-                  {/* Priority count pills */}
                   <div className="flex flex-col items-end gap-0.5">
-                    {([4, 3, 2, 1] as PriorityNum[]).map((n) => m.priorityCounts[n] > 0 && (
-                      <span key={n} className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full border leading-none', P_COLOR[n])}>
-                        {m.priorityCounts[n]}×{n}
-                      </span>
-                    ))}
-                    {m.totalTasks === 0 && (
+                    {m.totalTasks > 0 ? (
+                      <span className="text-[10px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full">{m.totalTasks} task{m.totalTasks !== 1 ? 's' : ''}</span>
+                    ) : (
                       <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">free</span>
                     )}
                   </div>
@@ -319,7 +219,6 @@ export function HallAssignPage({ data }: Props) {
                     <ListOrdered size={14} className="text-slate-400" />
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                       {selectedMember}&apos;s Task Queue
-                      <span className="ml-2 normal-case font-normal text-slate-400">— click priority number to change urgency</span>
                     </p>
                   </div>
                   <div className="p-3 space-y-0.5 max-h-64 overflow-y-auto">
@@ -327,7 +226,6 @@ export function HallAssignPage({ data }: Props) {
                     {activeTask && (
                       <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-100 mb-2">
                         <span className="text-[10px] font-bold bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">ACTIVE</span>
-                        <PriorityBadge num={activeTask.priorityNum} editable taskId={activeTask.id} onUpdated={handlePriorityUpdated} />
                         <p className="text-sm font-medium text-blue-900 truncate flex-1">{activeTask.title}</p>
                       </div>
                     )}
@@ -351,7 +249,6 @@ export function HallAssignPage({ data }: Props) {
                             effectiveInsertAt === qPos ? 'border-violet-200 bg-violet-50/50' : 'border-slate-100 bg-slate-50'
                           )}>
                             <span className="text-[10px] font-bold text-slate-400 w-5 text-center flex-shrink-0">#{displayPos}</span>
-                            <PriorityBadge num={t.priorityNum} editable taskId={t.id} onUpdated={handlePriorityUpdated} />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-slate-700 truncate">{t.title}</p>
                             </div>
@@ -386,32 +283,6 @@ export function HallAssignPage({ data }: Props) {
               {/* Assign form */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-5">
                 <h2 className="font-semibold text-slate-800 text-base">Assign to {selectedMember}</h2>
-
-                {/* Priority */}
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Priority <span className="normal-case font-normal">(1 = Low · 2 = Medium · 3 = High · 4 = Urgent)</span>
-                  </p>
-                  <div className="flex items-center gap-2">
-                    {([1, 2, 3, 4] as PriorityNum[]).map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setPriorityNum(n)}
-                        className={cn(
-                          'w-12 h-12 rounded-xl border text-lg font-bold transition-all',
-                          priorityNum === n
-                            ? `ring-2 ring-offset-1 ${P_RING[n]} ${P_COLOR[n]}`
-                            : `${P_COLOR[n]} opacity-60 hover:opacity-100`
-                        )}
-                        title={`${P_LABEL[n]}`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                    <span className="text-sm text-slate-500 ml-2">{P_LABEL[priorityNum]}</span>
-                  </div>
-                </div>
 
                 {/* Estimated work time */}
                 <div>

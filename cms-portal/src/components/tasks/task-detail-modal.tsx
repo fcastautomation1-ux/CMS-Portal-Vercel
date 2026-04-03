@@ -2057,12 +2057,27 @@ export function TaskDetailModal({
                           {a.file_size ? ` · ${(a.file_size / 1024).toFixed(0)} KB` : ''}
                         </p>
                       </div>
-                      <a
-                        href={a.file_url}
-                        download={a.file_name}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(a.file_url)
+                            const blob = await res.blob()
+                            const objectUrl = URL.createObjectURL(blob)
+                            const anchor = document.createElement('a')
+                            anchor.href = objectUrl
+                            anchor.download = a.file_name
+                            document.body.appendChild(anchor)
+                            anchor.click()
+                            document.body.removeChild(anchor)
+                            URL.revokeObjectURL(objectUrl)
+                          } catch {
+                            window.open(a.file_url, '_blank')
+                          }
+                        }}
                         className="px-3 py-1.5 text-xs rounded-lg text-blue-600 hover:bg-blue-100 font-semibold transition-colors opacity-0 group-hover:opacity-100">
                         Download
-                      </a>
+                      </button>
                       <a
                         href={a.file_url}
                         target="_blank"

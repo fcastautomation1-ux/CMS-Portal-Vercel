@@ -20,7 +20,6 @@ import {
   MessageCircle,
   Paperclip,
   PlayCircle,
-  RotateCcw,
   Send,
   Tag,
   Target,
@@ -67,7 +66,6 @@ import {
   rejectMaAssigneeAction,
   rejectMaSubAssigneeAction,
   removeMaDelegationAction,
-  reopenMaAssigneeAction,
   saveTodoAttachmentAction,
   shareTodoAction,
   startTaskAction,
@@ -99,7 +97,6 @@ const TASK_WORKFLOW_FOCUS_KEY = 'cms-task-workflow-focus'
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
-  | { type: 'creator-reopen' }
   | { type: 'single-due-date' }
   | { type: 'step-edit'; assigneeUsername: string }
   | { type: 'reassign' }
@@ -107,7 +104,6 @@ type TaskActionDialogState =
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
   | { type: 'reject-assignee'; assigneeUsername: string }
-  | { type: 'reopen-assignee'; assigneeUsername: string }
   | { type: 'reject-sub'; delegatorUsername: string; subUsername: string }
   | { type: 'remove-delegation'; delegatorUsername: string; subUsername: string }
   | { type: 'delete-comment'; messageId: string }
@@ -1076,7 +1072,22 @@ export function TaskDetailPage({
   const isPendingApproval = t.approval_status === 'pending_approval'
   const pendingApprover = t.pending_approver || t.username
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
-  const isCompleted = t.completed
+  const isMySubmission = (t.completed_by || '').toLowerCase() === currentUsername.toLowerCase()
+  const isCurrentlyAssignedToMe = (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase()
+  const hasForwardedSubmission = (t.assignment_chain || []).some((entry) => {
+    const actor = (entry.user || '').toLowerCase()
+    const role = String(entry.role || '').toLowerCase()
+    const action = String(entry.action || '').toLowerCase()
+    return actor === currentUsername.toLowerCase() && (
+      role === 'submitted_for_approval' ||
+      action === 'submit' ||
+      action === 'complete' ||
+      action === 'complete_final'
+    )
+  })
+  const isCompleted = t.completed ||
+    (isMySubmission && (!isCurrentlyAssignedToMe || isPendingApproval)) ||
+    (hasForwardedSubmission && (isPendingApproval || !isCurrentlyAssignedToMe))
   const ma = t.multi_assignment
   const maEnabled = !!(ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0)
   const singleStepOwner = !maEnabled && t.assigned_to ? getAssignmentStepOwner(t, t.assigned_to) : null
@@ -1272,17 +1283,6 @@ export function TaskDetailPage({
         void doAction(() => delegateMaAssigneeAction(t.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
         closeTaskDialog()
         return
-      case 'creator-reopen':
-        {
-        const reopenReason = dialogValue.trim()
-        if (!reopenReason) {
-          setActionError('Reopen reason is required.')
-          return
-        }
-        void doAction(() => toggleTodoCompleteAction(t.id, false, reopenReason))
-        closeTaskDialog()
-        return
-        }
       case 'sub-submit': {
         const note = dialogValue.trim() || undefined
         const files = dialogFiles.slice()
@@ -1310,18 +1310,6 @@ export function TaskDetailPage({
           return
         }
         void doAction(() => rejectMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim()))
-        closeTaskDialog()
-        return
-      case 'reopen-assignee':
-        if (!dialogValue.trim()) {
-          setActionError('Feedback is required.')
-          return
-        }
-        if (!dialogExtraValue.trim()) {
-          setActionError('New due date is required.')
-          return
-        }
-        void doAction(() => reopenMaAssigneeAction(t.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim()))
         closeTaskDialog()
         return
       case 'reject-sub':
@@ -1670,15 +1658,6 @@ export function TaskDetailPage({
                   loading={isPending}
                 />
               )}
-              {isCreator && isCompleted && (
-                <PrimaryBtn
-                  icon={<RotateCcw size={14} />}
-                  label="Reopen Task"
-                  color="amber"
-                  onClick={() => openTaskDialog({ type: 'creator-reopen' })}
-                  loading={isPending}
-                />
-              )}
               {canApproveCurrentStep && (
                 <>
                   <PrimaryBtn icon={<CheckCheck size={14} />} label="Approve" color="green" onClick={() => doAction(() => approveTodoAction(t.id))} loading={isPending} />
@@ -1936,14 +1915,6 @@ export function TaskDetailPage({
                                         Reject
                                       </button>
                                     </>
-                                  )}
-                                  {isCreator && assignee.status === 'accepted' && (
-                                    <button
-                                      onClick={() => openTaskDialog({ type: 'reopen-assignee', assigneeUsername: assignee.username })}
-                                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-                                    >
-                                      Reopen
-                                    </button>
                                   )}
                                 </div>
                                 {Array.isArray(assignee.delegated_to) && assignee.delegated_to.length > 0 && (
@@ -2359,31 +2330,27 @@ export function TaskDetailPage({
         <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
-            taskDialog.type === 'creator-reopen' ? 'Reopen task' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
             taskDialog.type === 'step-edit' ? `Edit ${taskDialog.assigneeUsername}'s step` :
             taskDialog.type === 'split-multi' ? 'Split into multi-assignment' :
             taskDialog.type === 'delegate' ? 'Delegate task work' :
             taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
-            taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
             taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Send feedback' :
             taskDialog.type === 'delete-comment' ? 'Delete message' :
             'Add summary'
           }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
-            taskDialog.type === 'creator-reopen' ? 'Explain why this task is being reopened. It will go back only to the last submitter.' :
             taskDialog.type === 'single-due-date' ? 'Set the assignee due date for this single task.' :
             taskDialog.type === 'step-edit' ? 'Update only this child assignee step. This will not change other users.' :
             taskDialog.type === 'split-multi' ? 'Add one assignee per line: username|YYYY-MM-DDTHH:mm (due optional).' :
             taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
             taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
-            taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
             taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'creator-reopen' ? 'Reopen task' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -2397,13 +2364,6 @@ export function TaskDetailPage({
               />
               <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
             </div>
-          ) : taskDialog.type === 'creator-reopen' ? (
-            <DialogTextarea
-              label="Reopen Reason"
-              value={dialogValue}
-              onChange={setDialogValue}
-              placeholder="Explain what needs to be corrected before this task can be accepted again."
-            />
           ) : taskDialog.type === 'single-due-date' ? (
             <DialogInput label="Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
           ) : taskDialog.type === 'step-edit' ? (
@@ -2427,11 +2387,6 @@ export function TaskDetailPage({
             <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>
           ) : taskDialog.type === 'delete-comment' ? (
             <p className="text-sm text-slate-600">Are you sure you want to delete this message?</p>
-          ) : taskDialog.type === 'reopen-assignee' ? (
-            <div className="space-y-3">
-              <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-              <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
-            </div>
           ) : (
             <div className="space-y-3">
               <DialogTextarea

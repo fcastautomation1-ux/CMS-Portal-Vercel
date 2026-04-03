@@ -28,7 +28,7 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from('smtp_settings')
-    .select('*')
+    .select('id, host, port, username, password, from_name, from_email, encryption, enabled, updated_at')
     .order('updated_at', { ascending: false })
     .limit(1)
     .single()

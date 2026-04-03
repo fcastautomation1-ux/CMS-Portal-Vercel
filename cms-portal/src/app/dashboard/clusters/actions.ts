@@ -46,7 +46,7 @@ export async function getClusters(): Promise<Cluster[]> {
       const supabase = createServerClient()
       const { data, error } = await supabase
         .from('clusters')
-        .select('*')
+        .select('id, name, description, color, created_by, created_at, updated_at, office_start, office_end, break_start, break_end, friday_break_start, friday_break_end')
         .order('name')
       if (error) { console.error('getClusters error:', error); return [] }
       return (data ?? []) as Cluster[]
@@ -69,9 +69,9 @@ export async function getClusterDetails(): Promise<ClusterDetail[]> {
     { data: departments },
     { data: users },
   ] = await Promise.all([
-    supabase.from('clusters').select('*').order('name'),
+    supabase.from('clusters').select('id, name, description, color, created_by, created_at, updated_at, office_start, office_end, break_start, break_end, friday_break_start, friday_break_end').order('name'),
     supabase.from('cluster_departments').select('cluster_id, department_id'),
-    supabase.from('cluster_members').select('*'),
+    supabase.from('cluster_members').select('id, cluster_id, username, cluster_role, scoped_departments, created_at, updated_at'),
     supabase.from('departments').select('id, name'),
     supabase.from('users').select('username, role, avatar_data'),
   ])
@@ -328,7 +328,7 @@ export async function removeClusterMemberAction(
 export async function getUnclusteredDepartments(): Promise<Department[]> {
   const supabase = createServerClient()
   const [{ data: allDepts }, { data: assigned }] = await Promise.all([
-    supabase.from('departments').select('*').order('name'),
+    supabase.from('departments').select('id, name, description, created_at').order('name'),
     supabase.from('cluster_departments').select('department_id'),
   ])
   const assignedIds = new Set((assigned ?? []).map((r: Record<string, string>) => r.department_id))

@@ -2,14 +2,18 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import {
   BarChart3, CheckCircle, Clock, AlertTriangle, TrendingUp,
   Users, CalendarCheck, X, Activity,
 } from 'lucide-react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell, CartesianGrid,
-} from 'recharts'
+  LazyResponsiveContainer as ResponsiveContainer,
+  LazyBarChart as BarChart,
+  LazyPieChart as PieChart,
+  Bar, XAxis, YAxis, Tooltip,
+  Pie, Cell, CartesianGrid,
+} from '@/components/ui/lazy-charts'
 import type { SessionUser } from '@/types'
 import type { AnalyticsData, AnalyticsTask } from '@/app/dashboard/analytics/actions'
 
@@ -500,8 +504,7 @@ export function AnalyticsPage({ analytics, user }: Props) {
                     <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: i < 3 ? 'linear-gradient(135deg, #F59E0B, #D97706)' : 'var(--slate-100)', color: i < 3 ? '#FFF' : 'var(--slate-500)' }}>{i + 1}</span>
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white overflow-hidden" style={{ background: 'linear-gradient(135deg, #3B82F6, #2563EB)' }}>
                       {u.avatarData ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={u.avatarData} alt={u.username} className="w-full h-full object-cover" />
+                        <Image src={u.avatarData} alt={u.username} width={28} height={28} className="w-full h-full object-cover" unoptimized />
                       ) : (
                         u.username.charAt(0).toUpperCase()
                       )}

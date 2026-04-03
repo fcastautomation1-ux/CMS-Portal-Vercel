@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import Image from 'next/image'
 import {
   GripVertical, User, Clock, CheckCircle2,
   AlertOctagon, PauseCircle, RefreshCw, ChevronDown, ChevronUp, AlertTriangle,
@@ -106,7 +107,7 @@ function UserQueue({
       >
         <div className="flex items-center gap-3">
           {member.avatar_data ? (
-            <img src={member.avatar_data} alt={member.username} className="h-7 w-7 rounded-full object-cover" />
+            <Image src={member.avatar_data} alt={member.username} width={28} height={28} className="h-7 w-7 rounded-full object-cover" unoptimized />
           ) : (
             <div className="h-7 w-7 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
               <User className="h-4 w-4 text-blue-500" />

@@ -316,6 +316,18 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const isGloballyDone = task.completed || task.task_status === 'done'
     const isMySubmission = (task.completed_by || '').toLowerCase() === userLow
     const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLow
+    const chain = task.assignment_chain ?? []
+    const hasForwardedSubmission = chain.some((entry) => {
+      const actor = (entry.user || '').toLowerCase()
+      const role = String(entry.role || '').toLowerCase()
+      const action = String(entry.action || '').toLowerCase()
+      return actor === userLow && (
+        role === 'submitted_for_approval' ||
+        action === 'submit' ||
+        action === 'complete' ||
+        action === 'complete_final'
+      )
+    })
 
     if (isGloballyDone) return true
 
@@ -325,18 +337,28 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // If I submitted it and it's now pending approval (even if still assigned to me), consider it done from my view.
     if (isMySubmission && task.approval_status === 'pending_approval') return true
 
+    // Intermediate approvers should also keep seeing their own submitted step.
+    if (hasForwardedSubmission && (task.approval_status === 'pending_approval' || !isCurrentlyAssignedToMe)) return true
+
     return false
   }, [])
 
   const rowTouchesCurrentUser = useCallback((row: Record<string, unknown> | null | undefined) => {
     if (!row) return false
     const current = currentUsername.toLowerCase()
-    return (
-      String(row.username || '').toLowerCase() === current ||
-      String(row.assigned_to || '').toLowerCase() === current ||
-      String(row.pending_approver || '').toLowerCase() === current ||
-      String(row.completed_by || '').toLowerCase() === current
-    )
+    if (String(row.username || '').toLowerCase() === current) return true
+    if (String(row.assigned_to || '').toLowerCase() === current) return true
+    if (String(row.pending_approver || '').toLowerCase() === current) return true
+    if (String(row.completed_by || '').toLowerCase() === current) return true
+    // Check multi-assignment assignees (realtime payload delivers JSONB as parsed object)
+    try {
+      const ma = row.multi_assignment as Record<string, unknown> | null | undefined
+      if (ma?.enabled) {
+        const assignees = Array.isArray(ma.assignees) ? ma.assignees as Record<string, unknown>[] : []
+        if (assignees.some((a) => String(a.username || '').toLowerCase() === current)) return true
+      }
+    } catch { /* ignore parse errors */ }
+    return false
   }, [currentUsername])
 
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -389,6 +411,14 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // open session — at 50 concurrent users this becomes hundreds of server
     // calls per minute for a typical mutation burst.
     // Admins still subscribe broadly because they see all tasks.
+    // Build department queue subscriptions so dept members see newly-queued tasks in real-time
+    const deptQueueConfigs: Array<{ table: 'todos'; filter: string }> = !isAdmin && currentUserDept
+      ? splitDepartmentsCsv(currentUserDept).map((dept) => ({
+          table: 'todos' as const,
+          filter: buildRealtimeEqFilter('queue_department', dept.trim()),
+        }))
+      : []
+
     const todosConfigs = isAdmin
       ? [{ table: 'todos' as const }]
       : [
@@ -396,6 +426,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           { table: 'todos' as const, filter: buildRealtimeEqFilter('assigned_to', currentUsername) },
           { table: 'todos' as const, filter: buildRealtimeEqFilter('pending_approver', currentUsername) },
           { table: 'todos' as const, filter: buildRealtimeEqFilter('completed_by', currentUsername) },
+          ...deptQueueConfigs,
         ]
 
     const unsubscribe = subscribeToPostgresChanges(
@@ -403,10 +434,25 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       [
         ...todosConfigs,
         { table: 'todo_shares', filter: buildRealtimeEqFilter('shared_with', currentUsername) },
+        // Notifications channel: when a task_assigned notification arrives it means
+        // someone added this user to a multi-assignment (which has no dedicated realtime
+        // channel since Supabase can't filter by JSONB array content). Scheduling a
+        // refresh ensures multi-assigned tasks appear without manual reload.
+        { table: 'notifications', filter: buildRealtimeEqFilter('user_id', currentUsername) },
       ],
       (payload) => {
         if (payload.table === 'todo_shares') {
           scheduleRefresh()
+          return
+        }
+
+        if (payload.table === 'notifications') {
+          // A new task_assigned notification means this user was just added to a task
+          // (e.g. multi-assignment) that may not be in their cache yet. Refresh so it appears.
+          const notifType = String((payload.new as Record<string, unknown>)?.type || '')
+          if (payload.eventType === 'INSERT' && (notifType === 'task_assigned' || notifType === 'multi_assigned')) {
+            scheduleRefresh()
+          }
           return
         }
 
@@ -498,27 +544,30 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const matchesQueueVisibility = useCallback((task: Todo) => {
     if (task.queue_status !== 'queued') return false
     if (!task.queue_department) return false
+
+    // Only Admins and Super Managers see ALL queued tasks system-wide
+    if (currentUserRole === 'Admin' || currentUserRole === 'Super Manager') return true
+
+    // Task creator/router always sees their own queued tasks regardless of dept
     if ((task.username || '').toLowerCase() === currentUsername.toLowerCase()) return true
 
+    // All other roles (Manager, Supervisor, User) see only tasks for their own department
     const userDepts = splitDepartmentsCsv(currentUserDept || '')
     if (userDepts.length === 0) return false
     const taskDepts = splitDepartmentsCsv(task.queue_department)
     return taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))
-  }, [currentUserDept, currentUsername])
+  }, [currentUserDept, currentUsername, currentUserRole])
 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()
     if (task.archived) return false
 
-    // If task is globally done OR user submitted it (waiting approval/next step),
-    // it's "completed" for them and should not show in "Assigned to me"
-    const isGloballyDone = task.completed || task.task_status === 'done'
-    const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
-    const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
-    const isCompletedForMe = isGloballyDone || (isMySubmission && !isCurrentlyAssignedToMe) || (isMySubmission && task.approval_status === 'pending_approval')
-
     if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
-    if (scope === 'assigned_to_me') return (isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)) && !isCompletedForMe
+    // "Assigned to me" includes ALL tasks where this user was assigned (including completed).
+    // Completed tasks still appear in the Completed KPI and in the list when status=completed.
+    // Previously excluding completed tasks caused the Completed Task KPI to show 0 after
+    // a cross-hall approval chain completed (task globally done, completed_by overwritten).
+    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)
     return (
       task.username.toLowerCase() === userLower ||
       (task.completed_by || '').toLowerCase() === userLower ||
@@ -559,8 +608,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return true
     }).length
 
-    // Queue KPI on personal tasks page = only tasks queued for THIS user's own dept
-    const queue = tasks.filter((task) => isQueuedTaskForDepartmentUser(task, effectiveUser)).length
+    // Queue KPI = count of tasks that would appear in the queue view (matches queue filter display)
+    const queue = tasks.filter((task) => !task.archived && matchesQueueVisibility(task)).length
 
     return {
       total: scopedTasksForKpis.length,
@@ -570,7 +619,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, isQueuedTaskForDepartmentUser, isTaskCompletedForUser, effectiveUser])
+  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -609,6 +658,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         if ((t.completed_by || '').toLowerCase() === userLower) return true
         if (t.username.toLowerCase() === userLower) return true
         if ((t.cluster_routed_by || '').toLowerCase() === userLower) return true
+        if ((t.assignment_chain || []).some((entry) =>
+          (entry.user || '').toLowerCase() === userLower ||
+          (entry.next_user || '').toLowerCase() === userLower
+        )) return true
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
     } else if (quickFilter === 'assigned_by_me') {

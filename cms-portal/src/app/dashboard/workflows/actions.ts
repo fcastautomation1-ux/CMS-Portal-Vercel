@@ -23,7 +23,7 @@ export async function getWorkflows(): Promise<Workflow[]> {
       const supabase = createServerClient()
       const { data, error } = await supabase
         .from('workflows')
-        .select('*')
+        .select('workflow_name, enabled, schedule, last_run, description')
         .order('workflow_name')
       if (error) { console.error('getWorkflows error:', error); return [] }
       return (data as unknown as Workflow[]) ?? []

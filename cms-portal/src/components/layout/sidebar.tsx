@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -183,11 +184,22 @@ export function Sidebar({
   const [tasksOpen, setTasksOpen] = useState(true)
   const [teamOpen, setTeamOpen] = useState(true)
   const [teamTaskOpen, setTeamTaskOpen] = useState(true)
-  const [branding, setBranding] = useState<PublicBranding>({
-    portal_name: 'CMS Portal',
-    portal_tagline: 'Operations Hub',
-    logo_url: null,
+
+  const brandingQuery = useQuery({
+    queryKey: ['public-branding'],
+    queryFn: () =>
+      fetch('/api/public-branding')
+        .then((r) => r.json())
+        .then((d): PublicBranding => ({
+          portal_name: d?.portal_name || 'CMS Portal',
+          portal_tagline: d?.portal_tagline || 'Operations Hub',
+          logo_url: d?.logo_url || null,
+        }))
+        .catch((): PublicBranding => ({ portal_name: 'CMS Portal', portal_tagline: 'Operations Hub', logo_url: null })),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   })
+  const branding = brandingQuery.data ?? { portal_name: 'CMS Portal', portal_tagline: 'Operations Hub', logo_url: null }
 
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
@@ -338,28 +350,14 @@ export function Sidebar({
   }, [router, teamPrefetchUrls])
 
   useEffect(() => {
-    let mounted = true
-    const loadBranding = () => {
-      fetch('/api/public-branding', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          if (!mounted) return
-          setBranding({
-            portal_name: data?.portal_name || 'CMS Portal',
-            portal_tagline: data?.portal_tagline || 'Operations Hub',
-            logo_url: data?.logo_url || null,
-          })
-        })
-        .catch(() => { })
+    const onBrandingUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ['public-branding'] })
     }
-
-    loadBranding()
-    window.addEventListener('portal-branding-updated', loadBranding)
+    window.addEventListener('portal-branding-updated', onBrandingUpdated)
     return () => {
-      mounted = false
-      window.removeEventListener('portal-branding-updated', loadBranding)
+      window.removeEventListener('portal-branding-updated', onBrandingUpdated)
     }
-  }, [])
+  }, [queryClient])
 
   return (
     <aside
@@ -380,7 +378,7 @@ export function Sidebar({
           style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--violet-600))' }}
         >
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt={branding.portal_name} className="w-full h-full object-cover" />
+            <Image src={branding.logo_url} alt={branding.portal_name} width={32} height={32} className="w-full h-full object-cover" unoptimized />
           ) : (
             <ShieldCheck size={15} className="text-white" />
           )}

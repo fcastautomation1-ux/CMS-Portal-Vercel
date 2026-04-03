@@ -47,7 +47,7 @@ export async function getAccounts(): Promise<Account[]> {
       const supabase = createServerClient()
       let query = supabase
         .from('accounts')
-        .select('*')
+        .select('customer_id, account_name, google_sheet_link, drive_code_comments, enabled, status, last_run, workflow, created_date')
         .order('created_date', { ascending: false })
 
       if (Array.isArray(filter) && filter.length > 0) {
@@ -73,7 +73,7 @@ export async function getAccountFiles(accountId: string): Promise<AccountFile[]>
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from('account_files')
-    .select('*')
+    .select('id, account_id, file_name, file_size, mime_type, storage_path, uploaded_by, created_at')
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
 

@@ -2,12 +2,13 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X, PlayCircle } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
-import { getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
+import { getFreshHallQueueTodos, getTeamMembers, getTeamTodos } from '@/app/dashboard/team/actions'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/cn'
 import { TaskCard } from '@/components/tasks/task-card'
@@ -94,10 +95,26 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     initialDataUpdatedAt: 0,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: scope === 'tasks_queue' ? 10_000 : false,
   })
 
-  const refetchAll = () => { refetchMembers(); refetchTasks() }
+  const { data: hallQueueTasks = [], refetch: refetchHallQueueTasks } = useQuery({
+    queryKey: queryKeys.teamHallQueue(currentUsername),
+    queryFn: () => getFreshHallQueueTodos(),
+    initialData: initialTasks.filter((task) => task.cluster_inbox === true),
+    initialDataUpdatedAt: 0,
+    staleTime: 0,
+    gcTime: 5 * 60_000,
+    enabled: scope === 'tasks_queue',
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 3_000,
+  })
+
+  const refetchAll = () => { refetchMembers(); refetchTasks(); refetchHallQueueTasks() }
 
   const departments = useMemo(() => {
     // Collect all dept names from members (may have old names)
@@ -154,20 +171,21 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       tasks_in_progress: tasks.filter((task) => !task.completed && task.task_status === 'in_progress').length,
       tasks_pending: members.reduce((sum, member) => sum + member.taskStats.pending, 0),
       tasks_overdue: members.reduce((sum, member) => sum + member.taskStats.overdue, 0),
-      tasks_queue: tasks.filter((task) => task.cluster_inbox === true).length,
+      tasks_queue: scope === 'tasks_queue' ? hallQueueTasks.length : tasks.filter((task) => task.cluster_inbox === true).length,
     }),
-    [members, tasks]
+    [hallQueueTasks.length, members, scope, tasks]
   )
 
   const queueByDept = useMemo(() => {
     const map: Record<string, number> = {}
-    tasks.forEach((task) => {
+    const sourceTasks = scope === 'tasks_queue' ? hallQueueTasks : tasks
+    sourceTasks.forEach((task) => {
       if (task.cluster_inbox === true && task.queue_department) {
         map[task.queue_department] = (map[task.queue_department] || 0) + 1
       }
     })
     return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [tasks])
+  }, [hallQueueTasks, scope, tasks])
 
   const teamMemberTaskSummary = useMemo(() => {
     const map: Record<string, { active: number; queued: number }> = {}
@@ -212,25 +230,17 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     if (scope === 'tasks_in_progress') return list.filter((member) => member.taskStats.in_progress > 0)
     if (scope === 'tasks_pending') return list.filter((member) => member.taskStats.pending > 0)
     if (scope === 'tasks_overdue') return list.filter((member) => member.taskStats.overdue > 0)
-    if (scope === 'tasks_queue') return list.filter((member) => {
-      const memberLower = member.username.toLowerCase()
-      return tasks.some((task) => {
-        if (task.cluster_inbox !== true) return false
-        if ((task.username || '').toLowerCase() === memberLower) return true
-        if ((task.assigned_to || '').toLowerCase() === memberLower) return true
-        const assignees = task.multi_assignment?.assignees ?? []
-        return assignees.some((entry) => {
-          if ((entry.username || '').toLowerCase() === memberLower) return true
-          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === memberLower)
-        })
-      })
-    })
+    // Hall Queue: show all members (inbox tasks are unassigned — no member filter)
+    if (scope === 'tasks_queue') return list
 
     return list
-  }, [members, tasks, search, deptFilter, memberFilter, scope])
+  }, [members, search, deptFilter, memberFilter, scope])
 
   const filteredTasks = useMemo(() => {
-    let list = tasks.filter((task) => taskMatchesFocusedTeam(task))
+    // Hall Queue shows all cluster_inbox tasks regardless of team membership (they are unassigned)
+    let list = scope === 'tasks_queue'
+      ? hallQueueTasks.filter((task) => task.cluster_inbox === true)
+      : tasks.filter((task) => taskMatchesFocusedTeam(task))
     const searchQuery = search.trim().toLowerCase()
     const today = new Date()
 
@@ -253,7 +263,8 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       }
     }
 
-    if (memberFilter) {
+    // For Hall Queue, inbox tasks are unassigned — skip member filter so they stay visible
+    if (memberFilter && scope !== 'tasks_queue') {
       const memberLower = memberFilter.toLowerCase()
       list = list.filter((task) => {
         if ((task.username || '').toLowerCase() === memberLower) return true
@@ -295,7 +306,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     }
 
     return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  }, [tasks, search, deptFilter, memberFilter, scope, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
+  }, [tasks, hallQueueTasks, search, deptFilter, memberFilter, scope, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
 
   const taskPaginationSignature = `${scope}|${search}|${deptFilter}|${memberFilter}`
   const currentTaskPage = paginationState.signature === taskPaginationSignature ? paginationState.page : 1
@@ -320,9 +331,9 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
         return true
       }).length,
       overdue: relevantTasks.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && !!task.due_date && new Date(task.due_date) < today).length,
-      queue: relevantTasks.filter((task) => task.cluster_inbox === true).length,
+      queue: scope === 'tasks_queue' ? hallQueueTasks.length : tasks.filter((task) => task.cluster_inbox === true).length,
     }
-  }, [tasks, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
+  }, [hallQueueTasks.length, isTaskCompletedForCurrentTeamScope, scope, taskMatchesFocusedTeam, tasks])
 
   const scopeLabel = useMemo(() => {
     if (scope === 'tasks_all') return 'Task'
@@ -651,8 +662,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                     style={{ background: gradient }}
                   >
                     {member.avatar_data ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={member.avatar_data} alt={member.username} className="h-full w-full rounded-full object-cover" />
+                      <Image src={member.avatar_data} alt={member.username} width={48} height={48} className="h-full w-full rounded-full object-cover" unoptimized />
                     ) : (
                       getInitials(member.username)
                     )}

@@ -40,12 +40,12 @@ export async function getUsers(): Promise<User[]> {
       )
 
     if (user.role === 'Admin' || user.role === 'Super Manager') {
-      const { data } = await supabase.from('users').select('*').order('username')
+      const { data } = await supabase.from('users').select('username, email, role, department, password_hash, password_salt, password, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, drive_access_level, module_access, manager_id, team_members, avatar_data, last_login, email_notifications_enabled, created_at, updated_at').order('username')
       return withResolvedAvatars((data as unknown as User[]) ?? [])
     }
 
     if (user.role === 'Manager') {
-      const { data } = await supabase.from('users').select('*').order('username')
+      const { data } = await supabase.from('users').select('username, email, role, department, password_hash, password_salt, password, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, drive_access_level, module_access, manager_id, team_members, avatar_data, last_login, email_notifications_enabled, created_at, updated_at').order('username')
       if (!data) return []
       const all = data as unknown as User[]
 
@@ -223,7 +223,7 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
     ])
 
     const accountsFallback = accountsPrimary.error
-      ? await supabase.from('accounts').select('*').order('customer_id')
+      ? await supabase.from('accounts').select('customer_id, account_name, account_title, account, drive_code_comments, name, id').order('customer_id')
       : null
 
     const lookerResByUpdatedAt = lookerPrimaryBySort.error
@@ -231,7 +231,7 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
       : lookerPrimaryBySort
 
     const lookerFallbackAny = lookerResByUpdatedAt.error
-      ? await supabase.from('looker_reports').select('*').order('id')
+      ? await supabase.from('looker_reports').select('id, title, name').order('id')
       : null
 
     const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{
