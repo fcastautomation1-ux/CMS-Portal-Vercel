@@ -7,7 +7,7 @@ import { TimeSelectPicker } from '@/components/ui/time-select-picker'
 import {
   ArrowLeft, Layers, Save, Building2, Users, UserPlus, Crown,
   ShieldCheck, User, Check, Trash2, Search, X, Plus, Settings2,
-  Clock, Palette, Info, Play, PauseCircle, CheckCircle, ChevronRight,
+  Clock, Palette, Info, Play, PauseCircle, CheckCircle, ChevronRight, Eye,
 } from 'lucide-react'
 import {
   saveClusterAction,
@@ -161,6 +161,7 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
 
   // ── Queue Settings state ──────────────────────────────────────────────────
   const [allowDeptSeeQueue, setAllowDeptSeeQueue] = useState(settings?.allow_dept_users_see_queue ?? false)
+  const [allowNormalUsersSeeQueue, setAllowNormalUsersSeeQueue] = useState(settings?.allow_normal_users_see_queue ?? true)
   const [singleActive, setSingleActive] = useState(settings?.single_active_task_per_user ?? false)
   const [autoStart, setAutoStart] = useState(settings?.auto_start_next_task ?? true)
   const [requirePauseReason, setRequirePauseReason] = useState(settings?.require_pause_reason ?? false)
@@ -258,6 +259,7 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
     startQueueTransition(async () => {
       const result = await saveClusterSettingsAction(savedClusterId, {
         allow_dept_users_see_queue: allowDeptSeeQueue,
+        allow_normal_users_see_queue: allowNormalUsersSeeQueue,
         single_active_task_per_user: singleActive,
         auto_start_next_task: autoStart,
         require_pause_reason: requirePauseReason,
@@ -892,6 +894,16 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
                 desc: 'Allow all users whose department belongs to this hall to see the task queue — not just managers.',
                 checked: allowDeptSeeQueue,
                 onChange: (v: boolean) => setAllowDeptSeeQueue(v),
+              },
+              {
+                id: 'allow_normal_users_see_queue',
+                icon: <Eye size={14} />,
+                label: 'Normal users can view queue',
+                desc: 'When disabled, only Managers, Supervisors and Admins can see the queue. Regular department users will not see it, even if the setting above is on.',
+                checked: allowNormalUsersSeeQueue,
+                onChange: (v: boolean) => setAllowNormalUsersSeeQueue(v),
+                disabled: !allowDeptSeeQueue,
+                indent: true,
               },
               {
                 id: 'single_active',
