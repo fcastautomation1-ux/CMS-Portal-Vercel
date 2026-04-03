@@ -233,6 +233,7 @@ export type TaskWorkflowState =
   | 'in_progress'
   | 'split_to_multi'
   | 'multi_accepted'
+  | 'ma_all_accepted'
   | 'submitted_for_approval'
   | 'rework_required'
   | 'final_approved'

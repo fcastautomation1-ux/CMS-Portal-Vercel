@@ -1120,7 +1120,8 @@ export function TaskDetailPage({
   
   const showCompleteBtn = !t.completed && !isPendingApproval && (
     (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && hallSchedulerState === 'active'))) || 
-    (isStepOwner && currentAssigneeApproved)
+    (isStepOwner && currentAssigneeApproved) ||
+    (isAssignee && maEnabled && t.workflow_state === 'ma_all_accepted')
   )
 
   const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
@@ -1937,7 +1938,7 @@ export function TaskDetailPage({
                                       Edit
                                     </button>
                                   )}
-                                  {isCreator && assignee.status === 'completed' && (
+                                  {((getAssignmentStepOwner(t, assignee.username) || '').toLowerCase() === currentUsername.toLowerCase()) && assignee.status === 'completed' && (
                                     <>
                                       <button onClick={() => void doAction(() => acceptMaAssigneeAction(t.id, assignee.username))} className="rounded-2xl bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-700">
                                         Accept
