@@ -146,6 +146,10 @@ export interface ClusterSettings {
   id?: string
   cluster_id: string
   allow_dept_users_see_queue: boolean
+  /** When false, only Managers/Supervisors/Admins of this hall can see the dept queue.
+   *  Regular Users in the department are hidden from the queue regardless of allow_dept_users_see_queue.
+   *  Only evaluated when allow_dept_users_see_queue = true. Default: true (all dept users may see queue). */
+  allow_normal_users_see_queue: boolean
   // ── Hall Scheduler settings ──────────────────────────────────────────────
   /** When true, users in this hall may only have ONE active task at a time. */
   single_active_task_per_user: boolean

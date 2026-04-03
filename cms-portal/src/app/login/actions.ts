@@ -1,6 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSession, getCookieName } from '@/lib/auth'
 import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
@@ -18,7 +19,6 @@ function normalizeRole(role: unknown): UserRole {
 }
 
 type LoginResult =
-  | { success: true }
   | { success: false; error: string }
 
 export async function loginAction(
@@ -132,7 +132,7 @@ export async function loginAction(
     path: '/',
   })
 
-  return { success: true }
+  redirect('/dashboard')
 }
 
 export async function logoutAction() {

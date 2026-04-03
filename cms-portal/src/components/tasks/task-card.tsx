@@ -640,13 +640,16 @@ export function TaskCard({
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
   const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
   const isLeaderRole = currentUserRole === 'Manager' || currentUserRole === 'Supervisor' || currentUserRole === 'Super Manager' || currentUserRole === 'Admin'
-  // Leaders (Manager/Supervisor/Super Manager/Admin) can claim any queued task regardless of dept
-  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+  // Leaders (Manager/Supervisor/Super Manager/Admin) can claim any queued task regardless of dept,
+  // including tasks they created — management override lets them forcefully pick dept-queue tasks.
+  // Regular users who created the task cannot pick it back (they sent it away).
+  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone && (!isCreator || isLeaderRole) &&
     (isLeaderRole || !queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const teamMemberDeptKeySet = new Set(currentUserTeamMemberDeptKeys)
-  // Leaders can assign any queued task to their team (no dept restriction)
-  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+  // Leaders can assign any queued task to their team (no dept restriction),
+  // including tasks they created — management override for forceful assignment.
+  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone && (!isCreator || isLeaderRole) &&
     queueAssignableTeamMembers.length > 0 &&
     (isLeaderRole || (queueDeptKey !== '' && (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))))
   // Hall Queue (cluster_inbox) actions — only for leader roles in the RECEIVING cluster, not the sender

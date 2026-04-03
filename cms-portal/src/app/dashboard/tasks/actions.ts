@@ -84,7 +84,7 @@ const TASK_LIST_SELECT = [
   'effective_due_at',
 ].join(',')
 
-const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,multi_assignment,scheduler_state,effective_due_at'
+const SIDEBAR_TASK_SELECT = 'id,username,assigned_to,completed_by,completed,task_status,due_date,archived,queue_status,queue_department,cluster_id,multi_assignment,scheduler_state,effective_due_at'
 
 async function resolveAttachmentUrl(
   supabase: ReturnType<typeof createServerClient>,
@@ -771,10 +771,11 @@ export async function getTodos(): Promise<Todo[]> {
       if (hallClusterIds.length > 0) {
         const { data: settingsRows } = await supabase
           .from('cluster_settings')
-          .select('cluster_id,allow_dept_users_see_queue')
+          .select('cluster_id,allow_dept_users_see_queue,allow_normal_users_see_queue')
           .in('cluster_id', hallClusterIds)
         ;(settingsRows || []).forEach((s: Record<string, unknown>) => {
-          if (!s.allow_dept_users_see_queue) {
+          // Block User-role if dept queue is hidden OR if normal-users toggle is off
+          if (!s.allow_dept_users_see_queue || s.allow_normal_users_see_queue === false) {
             blockedClusterIds.add(s.cluster_id as string)
           }
         })
@@ -909,11 +910,46 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     if (sharedTasks) sharedTasks.forEach((r: any) => uniqueMap.set(r.id, r))
   }
 
+  const isLeaderRoleUser = user.role === 'Manager' || user.role === 'Supervisor' || user.role === 'Super Manager' || user.role === 'Admin'
+
   if (deptQueueRes.data) {
     deptQueueRes.data.forEach((r: any) => {
       const qDept = canonicalDepartmentKey(r.queue_department || '')
       if (qDept && userDeptKeys.includes(qDept)) uniqueMap.set(r.id, r)
     })
+
+    // For non-leader users, enforce per-cluster queue visibility settings
+    if (!isLeaderRoleUser) {
+      const uniqueClusterIds = [...new Set(
+        (deptQueueRes.data as any[])
+          .filter((r: any) => r.cluster_id)
+          .map((r: any) => r.cluster_id as string)
+      )]
+      if (uniqueClusterIds.length > 0) {
+        const { data: clusterSettingRows } = await supabase
+          .from('cluster_settings')
+          .select('cluster_id,allow_dept_users_see_queue,allow_normal_users_see_queue')
+          .in('cluster_id', uniqueClusterIds)
+        const blockedClusterIds = new Set<string>()
+        ;(clusterSettingRows || []).forEach((s: any) => {
+          if (!s.allow_dept_users_see_queue || s.allow_normal_users_see_queue === false) {
+            blockedClusterIds.add(s.cluster_id)
+          }
+        })
+        if (blockedClusterIds.size > 0) {
+          for (const [id, task] of Array.from(uniqueMap.entries())) {
+            if (
+              task.queue_status === 'queued' &&
+              task.cluster_id &&
+              blockedClusterIds.has(task.cluster_id) &&
+              (task.username || '').toLowerCase() !== userLower // creator always retains visibility
+            ) {
+              uniqueMap.delete(id)
+            }
+          }
+        }
+      }
+    }
   }
 
   const rawTasks = Array.from(uniqueMap.values())
@@ -990,6 +1026,7 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
     pending: scopedTasks.filter((t) => {
       if (isCompletedForUser(t)) return false
       if (t.task_status === 'in_progress') return false // already counted above
+      if (t.queue_status === 'queued') return false // queued tasks belong in Queue count, not Pending
       // Don't count tasks that are currently assigned to another user — they're that user's responsibility
       if (t.assigned_to && (t.assigned_to || '').toLowerCase() !== userLower) return false
       // Don't count hall-scheduler tasks (in someone else's queue) as creator's "pending"
@@ -5576,6 +5613,7 @@ export async function getClusterSettingsAction(clusterId: string): Promise<Clust
     id: row.id as string,
     cluster_id: row.cluster_id as string,
     allow_dept_users_see_queue: (row.allow_dept_users_see_queue as boolean) ?? false,
+    allow_normal_users_see_queue: (row.allow_normal_users_see_queue as boolean) ?? true,
     single_active_task_per_user: (row.single_active_task_per_user as boolean) ?? false,
     auto_start_next_task: (row.auto_start_next_task as boolean) ?? true,
     require_pause_reason: (row.require_pause_reason as boolean) ?? false,
@@ -5592,6 +5630,7 @@ export async function saveClusterSettingsAction(
   clusterId: string,
   settings: {
     allow_dept_users_see_queue?: boolean
+    allow_normal_users_see_queue?: boolean
     single_active_task_per_user?: boolean
     auto_start_next_task?: boolean
     require_pause_reason?: boolean
@@ -5621,10 +5660,11 @@ export async function saveClusterSettingsAction(
     cluster_id: clusterId,
     updated_at: now,
   }
-  if (settings.allow_dept_users_see_queue !== undefined)  payload.allow_dept_users_see_queue  = settings.allow_dept_users_see_queue
-  if (settings.single_active_task_per_user !== undefined) payload.single_active_task_per_user = settings.single_active_task_per_user
-  if (settings.auto_start_next_task !== undefined)        payload.auto_start_next_task        = settings.auto_start_next_task
-  if (settings.require_pause_reason !== undefined)        payload.require_pause_reason        = settings.require_pause_reason
+  if (settings.allow_dept_users_see_queue !== undefined)   payload.allow_dept_users_see_queue   = settings.allow_dept_users_see_queue
+  if (settings.allow_normal_users_see_queue !== undefined)  payload.allow_normal_users_see_queue  = settings.allow_normal_users_see_queue
+  if (settings.single_active_task_per_user !== undefined)  payload.single_active_task_per_user  = settings.single_active_task_per_user
+  if (settings.auto_start_next_task !== undefined)         payload.auto_start_next_task         = settings.auto_start_next_task
+  if (settings.require_pause_reason !== undefined)         payload.require_pause_reason         = settings.require_pause_reason
 
   const { error } = await supabase
     .from('cluster_settings')

@@ -599,6 +599,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const pending = scopedTasksForKpis.filter((task) => {
       if (isTaskCompletedForUser(task, effectiveUser)) return false
       if (task.task_status === 'in_progress') return false // already in in_progress
+      if (task.queue_status === 'queued') return false // queued tasks belong in Queue KPI, not Pending
       // Exclude hall-scheduled tasks in active states assigned to someone else
       const hs = task.scheduler_state
       if (hs && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(hs) && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
@@ -713,7 +714,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress'
+        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress' && t.queue_status !== 'queued'
         if (statusFilter === 'in_progress') return !isTaskCompletedForUser(t, effectiveUser) && t.task_status === 'in_progress' && !t.archived
         if (statusFilter === 'completed') return isTaskCompletedForUser(t, effectiveUser)
         if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && !!t.due_date && new Date(t.due_date) < now

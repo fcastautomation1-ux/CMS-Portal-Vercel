@@ -141,13 +141,6 @@ export default function LoginPage() {
     usernameRef.current?.focus()
   }, [])
 
-  // Client-side fallback: if server action set success but redirect didn't navigate
-  useEffect(() => {
-    if (state && state.success) {
-      window.location.replace('/dashboard')
-    }
-  }, [state])
-
   useEffect(() => {
     let mounted = true
     fetch('/api/public-branding', { cache: 'no-store' })
@@ -276,7 +269,7 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <SubmitButton keepLoading={Boolean(state?.success)} />
+            <SubmitButton />
           </form>
         </div>
 

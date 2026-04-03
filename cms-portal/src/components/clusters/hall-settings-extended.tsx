@@ -7,6 +7,7 @@ import {
   Play,
   PauseCircle,
   Users,
+  Eye,
   AlertTriangle,
   Check,
   RefreshCw,
@@ -123,12 +124,14 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
   const defaults: ClusterSettings = initialSettings ?? {
     cluster_id: clusterId,
     allow_dept_users_see_queue: false,
+    allow_normal_users_see_queue: true,
     single_active_task_per_user: false,
     auto_start_next_task: true,
     require_pause_reason: false,
   }
 
   const [allowDeptSeeQueue, setAllowDeptSeeQueue] = useState(defaults.allow_dept_users_see_queue)
+  const [allowNormalUsersSeeQueue, setAllowNormalUsersSeeQueue] = useState(defaults.allow_normal_users_see_queue ?? true)
   const [singleActive, setSingleActive] = useState(defaults.single_active_task_per_user)
   const [autoStart, setAutoStart] = useState(defaults.auto_start_next_task)
   const [requirePauseReason, setRequirePauseReason] = useState(defaults.require_pause_reason)
@@ -140,6 +143,7 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
   // Track if anything changed since last save
   const isDirty =
     allowDeptSeeQueue !== defaults.allow_dept_users_see_queue ||
+    allowNormalUsersSeeQueue !== (defaults.allow_normal_users_see_queue ?? true) ||
     singleActive !== defaults.single_active_task_per_user ||
     autoStart !== defaults.auto_start_next_task ||
     requirePauseReason !== defaults.require_pause_reason
@@ -156,6 +160,7 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
     startTransition(async () => {
       const result = await saveClusterSettingsAction(clusterId, {
         allow_dept_users_see_queue: allowDeptSeeQueue,
+        allow_normal_users_see_queue: allowNormalUsersSeeQueue,
         single_active_task_per_user: singleActive,
         auto_start_next_task: autoStart,
         require_pause_reason: requirePauseReason,
@@ -196,6 +201,17 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
           checked={allowDeptSeeQueue}
           onChange={canEdit ? setAllowDeptSeeQueue : () => {}}
           disabled={!canEdit}
+        />
+
+        <SettingRow
+          id="allow_normal_users_see_queue"
+          icon={<Eye size={14} />}
+          label="Normal users can view queue"
+          description="When disabled, only Managers, Supervisors and Admins of this hall can see the task queue. Regular users in the department will not see it, even if the setting above is on."
+          checked={allowNormalUsersSeeQueue}
+          onChange={canEdit && allowDeptSeeQueue ? setAllowNormalUsersSeeQueue : () => {}}
+          disabled={!canEdit || !allowDeptSeeQueue}
+          indent
         />
 
         {/* ── Single-active enforcement ───────────────────────── */}
