@@ -79,6 +79,7 @@ import {
   updateSingleTaskDueDateAction,
   pauseHallTaskAction,
   activateHallTaskAction,
+  reassignTaskAction,
 } from '@/app/dashboard/tasks/actions'
 
 const TaskHandoffDialog = dynamic(
@@ -819,6 +820,7 @@ export function TaskDetailModal({
   const [comment, setComment] = useState('')
   const [shareUsername, setShareUsername] = useState('')
   const [shareUsers, setShareUsers] = useState<Array<{ username: string; role: string; department: string | null; avatar_data: string | null }>>([])
+  const [stepEditNewAssignee, setStepEditNewAssignee] = useState('')
   const [highlightedAssignee, setHighlightedAssignee] = useState<string | null>(null)
   const [declineReason, setDeclineReason] = useState('')
   const [showDeclineInput, setShowDeclineInput] = useState(false)
@@ -1131,6 +1133,12 @@ export function TaskDetailModal({
     setTaskDialog(dialog)
     setDialogValue(initialValue)
     setDialogExtraValue(initialExtraValue)
+    setStepEditNewAssignee('')
+    if (dialog.type === 'step-edit') {
+      void getUsersForAssignment(dialog.assigneeUsername).then((users) => {
+        setShareUsers(users)
+      })
+    }
   }
 
   const closeTaskDialog = () => {
@@ -1138,6 +1146,7 @@ export function TaskDetailModal({
     setDialogValue('')
     setDialogExtraValue('')
     setDialogFiles([])
+    setStepEditNewAssignee('')
   }
 
   const handleWorkflowNodeClick = (node: WorkflowTreeNode) => {
@@ -1210,12 +1219,20 @@ export function TaskDetailModal({
         closeTaskDialog()
         return
       case 'step-edit':
-        if (!dialogValue.trim()) {
-          setActionError('Due date is required.')
-          return
-        }
-        void doAction(() => updateAssignmentStepAction(t.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined))
-        closeTaskDialog()
+        startTransition(async () => {
+          if (stepEditNewAssignee.trim()) {
+            const res = await reassignTaskAction(t.id, stepEditNewAssignee.trim(), dialogExtraValue.trim() || undefined)
+            if (!res.success) { setActionError(res.error ?? 'Failed to reassign'); return }
+            closeTaskDialog()
+            onRefresh()
+            return
+          }
+          if (!dialogValue.trim()) { setActionError('Due date is required.'); return }
+          const res = await updateAssignmentStepAction(t.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim() || undefined)
+          if (!res.success) { setActionError(res.error ?? 'Failed to update step'); return }
+          closeTaskDialog()
+          onRefresh()
+        })
         return
       case 'split-multi': {
         const rows = dialogValue
@@ -1604,11 +1621,6 @@ export function TaskDetailModal({
           )}
           {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (
             <PrimaryBtn icon={<CheckCircle2 size={14}/>} label="MA Submit" color="green" onClick={() => openTaskDialog({ type: 'ma-submit' })} loading={isPending} />
-          )}
-          {myMaEntry && !isCompleted && (
-            <button onClick={() => setShowDelegateDialog(true)} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100">
-              Delegate
-            </button>
           )}
           {myDelegatedEntry && !isCompleted && myDelegatedEntry.status === 'pending' && (
             <button onClick={() => void doAction(() => updateMaSubAssigneeStatusAction(t.id, delegatedOwner!.username, 'in_progress'))} className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100">
@@ -2192,7 +2204,7 @@ export function TaskDetailModal({
             taskDialog.type === 'delete-comment' ? 'This will remove the message from the conversation.' :
             'Add an optional summary for this submission.'
           }
-          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' || taskDialog.type === 'step-edit' ? 'Save changes' : 'Confirm'}
+          primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'delete-comment' ? 'Delete message' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'single-due-date' ? 'Save changes' : taskDialog.type === 'step-edit' ? (stepEditNewAssignee.trim() ? 'Reassign task' : 'Save changes') : 'Confirm'}
           onClose={closeTaskDialog}
           onConfirm={submitTaskDialog}
         >
@@ -2229,15 +2241,60 @@ export function TaskDetailModal({
                   </div>
                   <span className="text-sm font-semibold text-slate-800">{taskDialog.assigneeUsername}</span>
                 </div>
-                {dialogValue && (
-                  <div className="mt-2 text-xs text-slate-500">Current due date: <span className="font-medium text-slate-700">{dialogValue}</span></div>
-                )}
-                {dialogExtraValue && (
-                  <div className="mt-1 text-xs text-slate-500">Current note: <span className="italic text-slate-700">{dialogExtraValue}</span></div>
-                )}
               </div>
               <DialogInput label="New Assignee Due Date" value={dialogValue} onChange={setDialogValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
               <DialogTextarea label="Step Detail / Instructions" value={dialogExtraValue} onChange={setDialogExtraValue} placeholder="Add or update instructions for this assignee only" />
+              {/* Reassign to a different user */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Reassign to different user <span className="normal-case font-normal text-slate-400">(optional)</span></p>
+                {shareUsers.length > 0 ? (
+                  <>
+                    <input
+                      value={stepEditNewAssignee}
+                      onChange={(e) => setStepEditNewAssignee(e.target.value)}
+                      placeholder="Search users..."
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 mb-2"
+                    />
+                    <div className="max-h-44 overflow-y-auto space-y-1 rounded-lg">
+                      {shareUsers
+                        .filter((u) =>
+                          u.username.toLowerCase() !== taskDialog.assigneeUsername.toLowerCase() &&
+                          (!stepEditNewAssignee.trim() || u.username.toLowerCase().includes(stepEditNewAssignee.toLowerCase()))
+                        )
+                        .map((u) => {
+                          const isSelected = stepEditNewAssignee === u.username
+                          return (
+                            <button key={u.username} type="button"
+                              onClick={() => setStepEditNewAssignee(isSelected ? '' : u.username)}
+                              className={cn(
+                                'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-all',
+                                isSelected ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                              )}>
+                              <div className={cn('w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white')}
+                                style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : 'linear-gradient(135deg,#94a3b8,#64748b)' }}>
+                                {u.username.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn('text-sm font-medium truncate', isSelected ? 'text-violet-700' : 'text-slate-700')}>{u.username}</p>
+                                {u.department && <p className="text-[11px] text-slate-400 truncate">{u.department}</p>}
+                              </div>
+                            </button>
+                          )
+                        })}
+                    </div>
+                    {stepEditNewAssignee.trim() && (
+                      <p className="text-xs text-amber-600 mt-2">⚠ Saving will reassign this task to <strong>{stepEditNewAssignee}</strong></p>
+                    )}
+                  </>
+                ) : (
+                  <input
+                    value={stepEditNewAssignee}
+                    onChange={(e) => setStepEditNewAssignee(e.target.value)}
+                    placeholder="Type username to reassign..."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                  />
+                )}
+              </div>
             </div>
           ) : taskDialog.type === 'remove-delegation' ? (
             <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>

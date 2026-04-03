@@ -679,7 +679,7 @@ export function TaskCard({
   const showSingleDueDateBtn = canEditSingleDueDate
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
-  const showMaDelegateBtn = !!myMaEntry && !isCompleted
+  const showMaDelegateBtn = false
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
