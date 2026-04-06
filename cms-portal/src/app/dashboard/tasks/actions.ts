@@ -832,7 +832,26 @@ export async function getTodos(): Promise<Todo[]> {
 
   // Cluster inbox — sequential because cluster IDs come from the mega-batch clusterMembershipsRes
   {
-    const clusterIds = (clusterMembershipsRes.data || []).map((m: Record<string, unknown>) => m.cluster_id as string).filter(Boolean)
+    const explicitClusterIds = (clusterMembershipsRes.data || []).map((m: Record<string, unknown>) => m.cluster_id as string).filter(Boolean)
+
+    // Dept-based hall access: Manager/Supervisor/Super Manager whose department belongs to a hall
+    // can see that hall's inbox even without an explicit cluster_members entry
+    let deptClusterIds: string[] = []
+    if (['Manager', 'Supervisor', 'Super Manager', 'Admin'].includes(user.role)) {
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length > 0) {
+        const { data: matchedDepts } = await supabase
+          .from('departments').select('id').in('name', userDeptNames)
+        const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+        if (deptIds.length > 0) {
+          const { data: hallDepts } = await supabase
+            .from('cluster_departments').select('cluster_id').in('department_id', deptIds)
+          deptClusterIds = ((hallDepts ?? []) as Array<{ cluster_id: string }>).map((d) => d.cluster_id)
+        }
+      }
+    }
+
+    const clusterIds = [...new Set([...explicitClusterIds, ...deptClusterIds])]
     if (clusterIds.length > 0) {
       const { data: inboxTasks } = await supabase
         .from('todos')
@@ -5239,8 +5258,28 @@ export async function assignClusterInboxTaskAction(
       .eq('cluster_id', task.cluster_id as string)
       .eq('username', user.username)
       .single()
-    if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
-      return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+    const hasExplicitRole = membership && ['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)
+    if (!hasExplicitRole) {
+      // Dept-based access: Manager/Supervisor whose dept belongs to this hall
+      if (!['Manager', 'Supervisor', 'Super Manager'].includes(user.role)) {
+        return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+      }
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length > 0) {
+        const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+        const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+        if (deptIds.length > 0) {
+          const { data: hallDept } = await supabase.from('cluster_departments').select('cluster_id')
+            .eq('cluster_id', task.cluster_id as string).in('department_id', deptIds).limit(1)
+          if (!hallDept || hallDept.length === 0) {
+            return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+          }
+        } else {
+          return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+        }
+      } else {
+        return { success: false, error: 'Only cluster owners, managers, or supervisors can assign cluster inbox tasks.' }
+      }
     }
   }
 
@@ -5854,28 +5893,33 @@ export async function assignHallInboxTaskWithSchedulerAction(
       .eq('cluster_id', clusterId)
       .eq('username', user.username)
       .single()
-    if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
-      return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
-    }
-    callerRole = (membership as Record<string, string>).cluster_role
-
-    // Supervisor scope check
-    if (callerRole === 'supervisor') {
-      const scopedDepts = ((membership as Record<string, unknown>).scoped_departments as string[] | null) ?? []
-      if (scopedDepts.length > 0) {
-        const { data: targetUser } = await supabase
-          .from('users')
-          .select('department')
-          .eq('username', toUsername)
-          .single()
-        if (!targetUser) return { success: false, error: 'Target user not found.' }
-        const targetDept = ((targetUser as Record<string, string>).department ?? '').toLowerCase()
-        const inScope = scopedDepts.some((d) => d.toLowerCase() === targetDept)
-        if (!inScope) {
-          return { success: false, error: 'As a supervisor, you can only assign to users in your scoped departments.' }
-        }
+    const hasExplicitRole = membership && ['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)
+    if (!hasExplicitRole) {
+      // Dept-based access: Manager/Supervisor whose dept belongs to this hall
+      if (!['Manager', 'Supervisor', 'Super Manager'].includes(user.role)) {
+        return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
       }
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length > 0) {
+        const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+        const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+        if (deptIds.length > 0) {
+          const { data: hallDept } = await supabase.from('cluster_departments').select('cluster_id')
+            .eq('cluster_id', clusterId).in('department_id', deptIds).limit(1)
+          if (!hallDept || hallDept.length === 0) {
+            return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+          }
+        } else {
+          return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+        }
+      } else {
+        return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+      }
+      callerRole = 'supervisor'
+    } else {
+      callerRole = (membership as Record<string, string>).cluster_role
     }
+    // Supervisors can assign to any member within the hall — no scoped-department restriction
   }
 
   const estimatedWorkMinutes = Math.round(estimatedHours * 60)
@@ -6659,24 +6703,33 @@ export async function enforceHallSingleActiveTaskAction(clusterId: string): Prom
 
 /**
  * Get all tasks in the hall inbox for a specific cluster.
- * Only hall leaders (owner/manager/supervisor) and admins can call this.
+ * Hall owners/managers/supervisors (explicit or dept-based) and admins can call this.
  */
 export async function getHallInboxTasksAction(clusterId: string): Promise<Todo[]> {
   const user = await getSession()
   if (!user || !clusterId) return []
 
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  const supabase = createServerClient()
+
   if (!isAdmin) {
-    const supabase = createServerClient()
     const { data: membership } = await supabase
       .from('cluster_members').select('cluster_role')
       .eq('cluster_id', clusterId).eq('username', user.username).single()
-    if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
-      return []
+    const hasExplicitRole = membership && ['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)
+    if (!hasExplicitRole) {
+      // Dept-based access: Manager/Supervisor whose dept belongs to this hall
+      if (!['Manager', 'Supervisor', 'Super Manager'].includes(user.role)) return []
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length === 0) return []
+      const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+      const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+      if (deptIds.length === 0) return []
+      const { data: hallDept } = await supabase.from('cluster_departments').select('cluster_id')
+        .eq('cluster_id', clusterId).in('department_id', deptIds).limit(1)
+      if (!hallDept || hallDept.length === 0) return []
     }
   }
-
-  const supabase = createServerClient()
   const { data } = await supabase
     .from('todos')
     .select('*')
