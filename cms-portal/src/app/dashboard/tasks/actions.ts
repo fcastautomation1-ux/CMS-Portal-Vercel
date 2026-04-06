@@ -5919,7 +5919,19 @@ export async function assignHallInboxTaskWithSchedulerAction(
     } else {
       callerRole = (membership as Record<string, string>).cluster_role
     }
-    // Supervisors can assign to any member within the hall — no scoped-department restriction
+    // Supervisors (by session role) can only assign to members within their own department
+    if (user.role === 'Supervisor') {
+      const supervisorDepts = splitDepartmentsCsv(user.department ?? '').map((d) => d.toLowerCase()).filter(Boolean)
+      if (supervisorDepts.length > 0) {
+        const { data: targetUserRow } = await supabase
+          .from('users').select('department').eq('username', toUsername).maybeSingle()
+        const targetDept = ((targetUserRow as Record<string, unknown> | null)?.department as string ?? '').toLowerCase()
+        const inScope = supervisorDepts.some((d) => targetDept.includes(d) || d.includes(targetDept))
+        if (!inScope) {
+          return { success: false, error: 'As a supervisor, you can only assign tasks to members of your own department.' }
+        }
+      }
+    }
   }
 
   const estimatedWorkMinutes = Math.round(estimatedHours * 60)
@@ -6045,6 +6057,300 @@ export async function assignHallInboxTaskWithSchedulerAction(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Multi-user hall task assignment ─────────────────────────────────────────
+
+export interface HallMultiAssignEntry {
+  username: string
+  estimatedHours: number
+  priority: string
+  insertAtRank?: number
+}
+
+/**
+ * Assign one hall inbox task to multiple users simultaneously.
+ * - The first entry updates the original task (same as single-assign).
+ * - Each subsequent entry creates a COPY of the original task assigned to that user.
+ * - Each user gets their own scheduler state and queue_rank.
+ */
+export async function assignHallInboxTaskMultiAction(
+  todoId: string,
+  assignments: HallMultiAssignEntry[]
+): Promise<{ success: boolean; error?: string; assignedCount?: number }> {
+  const user = await getSession()
+  if (!user) return { success: false, error: 'Not authenticated.' }
+
+  if (!Array.isArray(assignments) || assignments.length === 0) {
+    return { success: false, error: 'At least one assignment is required.' }
+  }
+
+  // Validate that all usernames present and hours > 0
+  for (const a of assignments) {
+    if (!a.username?.trim()) return { success: false, error: 'Each assignment must have a username.' }
+    if (!a.estimatedHours || a.estimatedHours <= 0) return { success: false, error: `Estimated hours must be > 0 for ${a.username}.` }
+  }
+
+  const supabase = createServerClient()
+
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('username,cluster_id,cluster_inbox,task_status,completed,approval_status,title,description,our_goal,category,kpi_type,priority,notes,package_name,app_name,history,assignment_chain,cluster_origin_id,cluster_routed_by,requested_due_at')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return { success: false, error: 'Task not found.' }
+
+  const task = existing as Record<string, unknown>
+  if ((task.completed as boolean) === true) return { success: false, error: 'Task is already completed.' }
+
+  const clusterId = task.cluster_id as string | null
+  if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+
+  const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+  let callerRole = ''
+
+  if (!isAdmin) {
+    const { data: membership } = await supabase
+      .from('cluster_members')
+      .select('cluster_role')
+      .eq('cluster_id', clusterId)
+      .eq('username', user.username)
+      .maybeSingle()
+    const hasExplicitRole = membership && ['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)
+    if (!hasExplicitRole) {
+      if (!['Manager', 'Supervisor', 'Super Manager'].includes(user.role)) {
+        return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+      }
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length > 0) {
+        const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+        const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+        if (deptIds.length > 0) {
+          const { data: hallDept } = await supabase.from('cluster_departments').select('cluster_id')
+            .eq('cluster_id', clusterId).in('department_id', deptIds).limit(1)
+          if (!hallDept || hallDept.length === 0) {
+            return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+          }
+        } else {
+          return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+        }
+      } else {
+        return { success: false, error: 'Only hall owners, managers, or supervisors can assign hall tasks.' }
+      }
+      callerRole = 'supervisor'
+    } else {
+      callerRole = (membership as Record<string, string>).cluster_role
+    }
+
+    // Supervisors: restrict to own department users only
+    if (user.role === 'Supervisor') {
+      const supervisorDepts = splitDepartmentsCsv(user.department ?? '').map((d) => d.toLowerCase()).filter(Boolean)
+      if (supervisorDepts.length > 0) {
+        const targetUsernames = assignments.map((a) => a.username)
+        const { data: targetUsers } = await supabase.from('users').select('username,department').in('username', targetUsernames)
+        for (const au of assignments) {
+          const targetRow = ((targetUsers ?? []) as Array<{ username: string; department: string | null }>).find(
+            (r) => r.username.toLowerCase() === au.username.toLowerCase()
+          )
+          const targetDept = ((targetRow?.department ?? '')).toLowerCase()
+          const inScope = supervisorDepts.some((d) => targetDept.includes(d) || d.includes(targetDept))
+          if (!inScope) {
+            return { success: false, error: `As a supervisor, you can only assign tasks to members of your own department. ${au.username} is out of scope.` }
+          }
+        }
+      }
+    }
+  }
+
+  void callerRole
+
+  const settings = await getHallSettingsForTask(supabase, clusterId)
+  const hallHours = await getClusterOfficeHours(supabase, clusterId)
+  const now = new Date().toISOString()
+
+  const baseHistory = parseJson<HistoryEntry[]>(task.history, [])
+  const baseChain = parseJson<AssignmentChainEntry[]>(task.assignment_chain, [])
+
+  let assignedCount = 0
+
+  for (let i = 0; i < assignments.length; i++) {
+    const a = assignments[i]
+    const toUsername = a.username.trim()
+    const estimatedWorkMinutes = Math.round(a.estimatedHours * 60)
+
+    // Calculate queue_rank for this user
+    const { data: existingTasks } = await supabase
+      .from('todos')
+      .select('queue_rank, scheduler_state')
+      .eq('assigned_to', toUsername)
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
+    const existingRows = (existingTasks ?? []) as Array<{ queue_rank: number | null; scheduler_state: string }>
+    const maxRank = existingRows.reduce((max, r) => Math.max(max, r.queue_rank ?? 0), 0)
+    const hasActiveTask = existingRows.some((r) => r.scheduler_state === 'active')
+    let newQueueRank = maxRank + 1
+
+    const insertAtRank = a.insertAtRank
+    if (
+      insertAtRank &&
+      Number.isInteger(insertAtRank) &&
+      insertAtRank >= 1 &&
+      insertAtRank <= newQueueRank &&
+      hasActiveTask
+    ) {
+      const { data: toShift } = await supabase
+        .from('todos')
+        .select('id,queue_rank')
+        .eq('assigned_to', toUsername)
+        .eq('cluster_id', clusterId)
+        .eq('completed', false)
+        .gte('queue_rank', insertAtRank)
+        .in('scheduler_state', ['user_queue', 'paused', 'blocked'])
+      for (const st of ((toShift ?? []) as Array<{ id: string; queue_rank: number | null }>)) {
+        await supabase.from('todos').update({ queue_rank: (st.queue_rank ?? 0) + 1 }).eq('id', st.id)
+      }
+      newQueueRank = insertAtRank
+    }
+
+    let initialState: HallSchedulerState = 'user_queue'
+    let activeStartedAt: string | null = null
+    let effectiveDueAt: string | null = null
+
+    if (settings.single_active_task_per_user && !hasActiveTask) {
+      initialState = 'active'
+      activeStartedAt = now
+      effectiveDueAt = calculateEffectiveDueAt(now, estimatedWorkMinutes, hallHours).toISOString()
+    } else if (!settings.single_active_task_per_user) {
+      initialState = 'active'
+      activeStartedAt = now
+      effectiveDueAt = calculateEffectiveDueAt(now, estimatedWorkMinutes, hallHours).toISOString()
+    }
+
+    const entryHistory = [...baseHistory, {
+      type: 'assigned',
+      user: user.username,
+      details: `${user.username} assigned hall task to ${toUsername} with ${a.estimatedHours}h estimate (multi-assign)`,
+      timestamp: now,
+      icon: '👥',
+      title: 'Assigned from Hall Inbox (Multi)',
+    } as HistoryEntry]
+
+    const entryChain = [...baseChain, {
+      user: user.username,
+      role: 'assigned_from_hall_inbox',
+      assignedAt: now,
+      next_user: toUsername,
+    } as AssignmentChainEntry]
+
+    if (i === 0) {
+      // First user: update original task
+      await supabase.from('todos').update({
+        cluster_inbox: false,
+        assigned_to: toUsername,
+        manager_id: user.username,
+        queue_status: 'claimed',
+        task_status: initialState === 'active' ? 'in_progress' : 'todo',
+        workflow_state: 'claimed_by_department',
+        scheduler_state: initialState,
+        priority: a.priority,
+        estimated_work_minutes: estimatedWorkMinutes,
+        remaining_work_minutes: estimatedWorkMinutes,
+        queue_rank: newQueueRank,
+        active_started_at: activeStartedAt,
+        effective_due_at: effectiveDueAt,
+        assignment_chain: JSON.stringify(entryChain),
+        history: JSON.stringify(entryHistory),
+        last_handoff_at: now,
+        updated_at: now,
+      }).eq('id', todoId)
+    } else {
+      // Subsequent users: create a task copy
+      const copyId = crypto.randomUUID()
+      const copyPayload: Record<string, unknown> = {
+        id: copyId,
+        username: task.username as string,
+        title: task.title as string,
+        description: (task.description as string | null) ?? null,
+        our_goal: (task.our_goal as string | null) ?? null,
+        category: (task.category as string | null) ?? null,
+        kpi_type: (task.kpi_type as string | null) ?? null,
+        notes: (task.notes as string | null) ?? null,
+        package_name: (task.package_name as string | null) ?? null,
+        app_name: (task.app_name as string | null) ?? null,
+        priority: a.priority,
+        completed: false,
+        task_status: initialState === 'active' ? 'in_progress' : 'todo',
+        workflow_state: 'claimed_by_department',
+        archived: false,
+        position: 0,
+        queue_status: 'claimed',
+        queue_department: null,
+        cluster_id: clusterId,
+        cluster_inbox: false,
+        cluster_origin_id: (task.cluster_origin_id as string | null) ?? null,
+        cluster_routed_by: (task.cluster_routed_by as string | null) ?? user.username,
+        assigned_to: toUsername,
+        manager_id: user.username,
+        completed_by: null,
+        completed_at: null,
+        approval_status: 'approved',
+        workflow_state_override: null,
+        pending_approver: null,
+        approval_chain: JSON.stringify([]),
+        approval_requested_at: null,
+        approval_sla_due_at: null,
+        approved_at: null,
+        approved_by: null,
+        declined_at: null,
+        declined_by: null,
+        decline_reason: null,
+        multi_assignment: null,
+        scheduler_state: initialState,
+        estimated_work_minutes: estimatedWorkMinutes,
+        remaining_work_minutes: estimatedWorkMinutes,
+        queue_rank: newQueueRank,
+        active_started_at: activeStartedAt,
+        effective_due_at: effectiveDueAt,
+        requested_due_at: (task.requested_due_at as string | null) ?? null,
+        last_handoff_at: now,
+        assignment_chain: JSON.stringify(entryChain),
+        history: JSON.stringify(entryHistory),
+        created_at: now,
+        updated_at: now,
+      }
+      await supabase.from('todos').insert(copyPayload)
+
+      await writeHallWorkLog(supabase, {
+        todoId: copyId,
+        username: user.username,
+        event: 'assigned',
+        notes: `Copy assigned to ${toUsername}, estimate ${a.estimatedHours}h, state ${initialState}`,
+      })
+    }
+
+    await writeHallWorkLog(supabase, {
+      todoId: i === 0 ? todoId : todoId, // first entry always logs original
+      username: user.username,
+      event: 'assigned',
+      notes: `(Multi) Assigned to ${toUsername}, estimate ${a.estimatedHours}h, state ${initialState}`,
+    })
+
+    if (toUsername !== user.username) {
+      await createNotification(supabase, {
+        userId: toUsername,
+        type: 'task_assigned',
+        title: 'Hall Task Assigned to You',
+        body: `${user.username} assigned you a task from the hall inbox: "${task.title as string}" (${a.estimatedHours}h estimate)`,
+        relatedId: todoId,
+      })
+    }
+
+    assignedCount++
+  }
+
+  revalidateTasksData()
+  return { success: true, assignedCount }
+}
 
 /**
  * Manually activate a task that is in user_queue or paused state.
@@ -6897,13 +7203,25 @@ export async function getHallAssignPageData(taskId: string): Promise<HallAssignP
   const clusterId = t.cluster_id as string | null
   if (!clusterId) return null
 
-  // Auth: must be admin/SM or a hall owner/manager/supervisor
+  // Auth: must be admin/SM or a hall owner/manager/supervisor (explicit or dept-based)
   const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
   if (!isAdmin) {
     const { data: mem } = await supabase
       .from('cluster_members').select('cluster_role')
-      .eq('cluster_id', clusterId).eq('username', user.username).single()
-    if (!mem || !['owner', 'manager', 'supervisor'].includes((mem as Record<string, string>).cluster_role)) return null
+      .eq('cluster_id', clusterId).eq('username', user.username).maybeSingle()
+    const hasExplicitRole = mem && ['owner', 'manager', 'supervisor'].includes((mem as Record<string, string>).cluster_role)
+    if (!hasExplicitRole) {
+      // Dept-based access for Manager/Supervisor
+      if (!['Manager', 'Supervisor', 'Super Manager'].includes(user.role)) return null
+      const userDeptNames = splitDepartmentsCsv(user.department).filter(Boolean)
+      if (userDeptNames.length === 0) return null
+      const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+      const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+      if (deptIds.length === 0) return null
+      const { data: hallDept } = await supabase.from('cluster_departments').select('cluster_id')
+        .eq('cluster_id', clusterId).in('department_id', deptIds).limit(1)
+      if (!hallDept || hallDept.length === 0) return null
+    }
   }
 
   const { data: clusterRow } = await supabase.from('clusters').select('name').eq('id', clusterId).single()

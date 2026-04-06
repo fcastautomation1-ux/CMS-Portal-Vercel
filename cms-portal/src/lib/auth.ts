@@ -66,12 +66,30 @@ const hydrateSessionUser = cache(async (username: string): Promise<SessionUser |
     )
   ))
 
-  // Fetch which clusters this user belongs to
+  // Fetch which clusters this user belongs to (explicit membership)
   const { data: clusterMemberships } = await supabase
     .from('cluster_members')
     .select('cluster_id')
     .eq('username', row.username as string)
-  const clusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+  const explicitClusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+
+  // Dept-based cluster IDs: Manager/Supervisor/Super Manager/Admin also get access
+  // to halls whose cluster_departments link to their department(s)
+  let deptClusterIds: string[] = []
+  const normalizedSessionRole = normalizeRole(row.role)
+  if (['Manager', 'Supervisor', 'Super Manager', 'Admin'].includes(normalizedSessionRole)) {
+    const userDeptNames = splitDepartmentsCsv(row.department as string ?? '').filter(Boolean)
+    if (userDeptNames.length > 0) {
+      const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+      const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+      if (deptIds.length > 0) {
+        const { data: hallDepts } = await supabase.from('cluster_departments').select('cluster_id').in('department_id', deptIds)
+        deptClusterIds = ((hallDepts ?? []) as Array<{ cluster_id: string }>).map((d) => d.cluster_id).filter(Boolean)
+      }
+    }
+  }
+
+  const clusterIds = [...new Set([...explicitClusterIds, ...deptClusterIds])]
 
   return {
     username: row.username as string,

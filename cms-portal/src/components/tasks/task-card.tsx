@@ -658,6 +658,8 @@ export function TaskCard({
   const isHallScheduledTask = !task.cluster_inbox && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
   const showHallClaimBtn = isHallQueueTask && isLeaderRole && !isCreator
   const showHallAssignBtn = isHallQueueTask && isLeaderRole && !isCreator && queueAssignableTeamMembers.length > 0
+  const isTopManagement = currentUserRole === 'Admin' || currentUserRole === 'Super Manager' || currentUserRole === 'Manager'
+  const showHallMultiAssignBtn = isHallQueueTask && isTopManagement && !isCreator && queueAssignableTeamMembers.length > 0
 
   // ANY user in the chain can "Assign/Reassign" if they are the current assignee
   // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
@@ -683,7 +685,7 @@ export function TaskCard({
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showHallActivateBtn || showHallPauseBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showHallMultiAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showHallActivateBtn || showHallPauseBtn
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -1144,6 +1146,9 @@ export function TaskCard({
               {showHallClaimBtn && <ActBtn onClick={() => doAction(() => claimClusterInboxTaskAction(task.id), { assigned_to: currentUsername, cluster_inbox: false, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
               {showHallAssignBtn && (
                 <ActBtn onClick={() => router.push(`/dashboard/tasks/hall-assign/${task.id}`)} color="indigo" disabled={isPending}>Assign to Team</ActBtn>
+              )}
+              {showHallMultiAssignBtn && (
+                <ActBtn onClick={() => router.push(`/dashboard/tasks/hall-multi-assign/${task.id}`)} color="violet" disabled={isPending}>Multi Assign</ActBtn>
               )}
               {showReassignBtn && (
                 <ActBtn
