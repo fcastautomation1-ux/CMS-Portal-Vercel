@@ -886,13 +886,19 @@ export async function getTodos(): Promise<Todo[]> {
       const myEntry = ma?.enabled && Array.isArray(ma.assignees)
         ? ma.assignees.find((a) => a.username.toLowerCase() === uLower)
         : undefined
+      const approverEntry = ma?.enabled && Array.isArray(ma.assignees)
+        ? ma.assignees.find((a) =>
+            (a.ma_approval_status === 'pending_approval') &&
+            normalizeChainUsername(a.ma_pending_approver).toLowerCase() === uLower,
+          )
+        : undefined
       const isDelegated = ma?.enabled && Array.isArray(ma.assignees) &&
         ma.assignees.some((a) => Array.isArray(a.delegated_to) &&
           a.delegated_to.some((d) => d.username.toLowerCase() === uLower))
       const chain = parseJson<AssignmentChainEntry[]>(r.assignment_chain, [])
       const inChain = Array.isArray(chain) &&
         chain.some((e) => (e.next_user ?? '').toLowerCase() === uLower)
-      if (myEntry || isDelegated || inChain) {
+      if (myEntry || approverEntry || isDelegated || inChain) {
         // Project per-user JSONB scheduler fields onto the task so cards render correctly
         if (myEntry) {
           if (myEntry.hall_scheduler_state) r.scheduler_state = myEntry.hall_scheduler_state
@@ -900,6 +906,13 @@ export async function getTodos(): Promise<Todo[]> {
           if (myEntry.hall_remaining_minutes != null) r.remaining_work_minutes = myEntry.hall_remaining_minutes
           if (myEntry.hall_active_started_at) r.active_started_at = myEntry.hall_active_started_at
           if (myEntry.hall_effective_due_at) r.effective_due_at = myEntry.hall_effective_due_at
+          if (myEntry.ma_approval_status) r.approval_status = myEntry.ma_approval_status
+          if (myEntry.ma_pending_approver !== undefined) r.pending_approver = myEntry.ma_pending_approver
+        }
+        if (approverEntry) {
+          r.approval_status = 'pending_approval'
+          r.pending_approver = user.username
+          r.completed_by = approverEntry.username
         }
         addTask(r, { is_multi_assigned: true, ...(isDelegated ? { is_delegated_to_me: true } : {}) })
       }
@@ -2187,6 +2200,123 @@ export async function approveTodoAction(todoId: string, note?: string): Promise<
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
+  const multiAssignmentForMaApprove = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (multiAssignmentForMaApprove?.enabled && Array.isArray(multiAssignmentForMaApprove.assignees)) {
+    const now = new Date().toISOString()
+    const history = parseJson<HistoryEntry[]>(task.history, [])
+    const approverLower = user.username.toLowerCase()
+    const idx = multiAssignmentForMaApprove.assignees.findIndex((entry) =>
+      (entry.ma_approval_status === 'pending_approval') &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === approverLower,
+    )
+
+    if (idx !== -1) {
+      const target = multiAssignmentForMaApprove.assignees[idx]
+      const entryChain = Array.isArray(target.ma_approval_chain) ? target.ma_approval_chain : []
+      const currentStepIndex = entryChain.findIndex(
+        (entry) => normalizeApprovalUser(entry.user).toLowerCase() === approverLower && entry.status === 'pending',
+      )
+      if (currentStepIndex !== -1) {
+        entryChain[currentStepIndex] = {
+          ...entryChain[currentStepIndex],
+          status: 'approved',
+          acted_at: now,
+          acted_by: user.username,
+          comment: note?.trim() || undefined,
+        }
+      }
+      const nextPendingMa = entryChain.find((entry) => entry.status === 'pending')
+
+      multiAssignmentForMaApprove.assignees[idx] = {
+        ...target,
+        status: nextPendingMa ? 'completed' : 'accepted',
+        completed_at: target.completed_at ?? now,
+        accepted_at: nextPendingMa ? target.accepted_at : now,
+        accepted_by: nextPendingMa ? target.accepted_by : user.username,
+        hall_scheduler_state: nextPendingMa ? (target.hall_scheduler_state ?? 'waiting_review') : (target.hall_scheduler_state === 'waiting_review' ? 'completed' : (target.hall_scheduler_state ?? 'completed')),
+        hall_remaining_minutes: nextPendingMa ? target.hall_remaining_minutes : 0,
+        hall_active_started_at: null,
+        hall_effective_due_at: null,
+        ma_approval_status: nextPendingMa ? 'pending_approval' : 'approved',
+        ma_pending_approver: nextPendingMa ? nextPendingMa.user : null,
+        ma_approval_chain: entryChain,
+        ma_approval_requested_at: nextPendingMa ? now : null,
+        ma_approval_sla_due_at: nextPendingMa ? addHoursIso(now, 48) : null,
+        ma_approved_at: nextPendingMa ? target.ma_approved_at : now,
+        ma_approved_by: nextPendingMa ? target.ma_approved_by : user.username,
+        ma_declined_at: null,
+        ma_declined_by: null,
+        ma_decline_reason: null,
+      }
+
+      touchMultiAssignmentProgress(multiAssignmentForMaApprove)
+      const allAccepted = multiAssignmentForMaApprove.assignees.every((entry) => entry.status === 'accepted')
+
+      history.push({
+        type: 'approved',
+        user: user.username,
+        details: note?.trim() || (nextPendingMa
+          ? `${user.username} approved ${target.username}'s completion and forwarded it to ${nextPendingMa.user}`
+          : `${user.username} approved ${target.username}'s completion`),
+        timestamp: now,
+        icon: '✅',
+        title: nextPendingMa ? 'Approval Forwarded' : 'Completion Approved',
+      })
+
+      const updatePayload: Record<string, unknown> = {
+        multi_assignment: JSON.stringify(multiAssignmentForMaApprove),
+        history: JSON.stringify(history),
+        updated_at: now,
+      }
+
+      if (allAccepted) {
+        updatePayload.completed = true
+        updatePayload.completed_at = now
+        updatePayload.completed_by = user.username
+        updatePayload.task_status = 'done'
+        updatePayload.approval_status = 'approved'
+        updatePayload.pending_approver = null
+        updatePayload.approval_chain = JSON.stringify([])
+        updatePayload.approval_requested_at = null
+        updatePayload.approval_sla_due_at = null
+        updatePayload.approved_at = now
+        updatePayload.approved_by = user.username
+        updatePayload.workflow_state = 'final_approved'
+      }
+
+      await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+      if (nextPendingMa && normalizeChainUsername(nextPendingMa.user).toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: nextPendingMa.user,
+          type: 'task_assigned',
+          title: 'Approval Required',
+          body: `${user.username} forwarded ${target.username}'s completion of "${task.title as string}" to you for approval.`,
+          relatedId: todoId,
+        })
+      }
+
+      if (target.username.toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: target.username,
+          type: 'task_assigned',
+          title: nextPendingMa ? 'Task Approval Forwarded' : 'Task Approved!',
+          body: nextPendingMa
+            ? `${user.username} approved your completion and forwarded it to ${nextPendingMa.user}.`
+            : `${user.username} approved your completion of "${task.title as string}".`,
+          relatedId: todoId,
+        })
+      }
+
+      revalidateTasksData()
+      emitTaskWebhook('task.approved', todoId, user.username, {
+        nextApprover: nextPendingMa?.user ?? null,
+        multiAssignee: target.username,
+      })
+      return { success: true }
+    }
+  }
+
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
 
   const configuredPendingApprover = normalizeApprovalUser(task.pending_approver)
@@ -2407,6 +2537,82 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
+  const multiAssignmentForMaDecline = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (multiAssignmentForMaDecline?.enabled && Array.isArray(multiAssignmentForMaDecline.assignees)) {
+    const now = new Date().toISOString()
+    const history = parseJson<HistoryEntry[]>(task.history, [])
+    const approverLower = user.username.toLowerCase()
+    const idx = multiAssignmentForMaDecline.assignees.findIndex((entry) =>
+      (entry.ma_approval_status === 'pending_approval') &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === approverLower,
+    )
+
+    if (idx !== -1) {
+      const target = multiAssignmentForMaDecline.assignees[idx]
+      const entryChain = (Array.isArray(target.ma_approval_chain) ? target.ma_approval_chain : []).map((entry) => {
+        if (entry.status !== 'pending') return entry
+        if (normalizeApprovalUser(entry.user).toLowerCase() !== approverLower) return entry
+        return {
+          ...entry,
+          status: 'declined' as const,
+          acted_at: now,
+          acted_by: user.username,
+          comment: reason || undefined,
+        }
+      })
+
+      multiAssignmentForMaDecline.assignees[idx] = {
+        ...target,
+        status: 'in_progress',
+        notes: reason || target.notes,
+        rejection_reason: reason || target.rejection_reason,
+        hall_scheduler_state: target.hall_scheduler_state === 'waiting_review' ? 'paused' : (target.hall_scheduler_state ?? 'paused'),
+        hall_active_started_at: null,
+        ma_approval_status: 'declined',
+        ma_pending_approver: null,
+        ma_approval_chain: entryChain,
+        ma_approval_requested_at: null,
+        ma_approval_sla_due_at: null,
+        ma_declined_at: now,
+        ma_declined_by: user.username,
+        ma_decline_reason: reason || null,
+      }
+      touchMultiAssignmentProgress(multiAssignmentForMaDecline)
+
+      history.push({
+        type: 'declined',
+        user: user.username,
+        details: `${user.username} declined ${target.username}'s completion${reason ? ': ' + reason : ''}`,
+        timestamp: now,
+        icon: '❌',
+        title: 'Completion Declined',
+      })
+
+      await supabase.from('todos').update({
+        multi_assignment: JSON.stringify(multiAssignmentForMaDecline),
+        history: JSON.stringify(history),
+        updated_at: now,
+      }).eq('id', todoId)
+
+      if (target.username.toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: target.username,
+          type: 'task_assigned',
+          title: 'Task Completion Declined',
+          body: `${user.username} declined your completion of "${task.title as string}".${reason ? ' Reason: ' + reason : ''}`,
+          relatedId: todoId,
+        })
+      }
+
+      revalidateTasksData()
+      emitTaskWebhook('task.declined', todoId, user.username, {
+        reason,
+        multiAssignee: target.username,
+      })
+      return { success: true }
+    }
+  }
+
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
 
   const expectedApprover = normalizeApprovalUser(task.pending_approver) || normalizeApprovalUser(task.username)
@@ -3026,6 +3232,30 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    const uLower = user.username.toLowerCase()
+    const myEntry = task.multi_assignment.assignees.find((entry) => (entry.username || '').toLowerCase() === uLower)
+    const approverEntry = task.multi_assignment.assignees.find((entry) =>
+      entry.ma_approval_status === 'pending_approval' &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === uLower,
+    )
+
+    if (myEntry) {
+      if (myEntry.hall_scheduler_state) task.scheduler_state = myEntry.hall_scheduler_state as Todo['scheduler_state']
+      if (myEntry.hall_queue_rank != null) task.queue_rank = myEntry.hall_queue_rank
+      if (myEntry.hall_remaining_minutes != null) task.remaining_work_minutes = myEntry.hall_remaining_minutes
+      if (myEntry.hall_active_started_at !== undefined) task.active_started_at = myEntry.hall_active_started_at
+      if (myEntry.hall_effective_due_at !== undefined) task.effective_due_at = myEntry.hall_effective_due_at
+      if (myEntry.ma_approval_status) task.approval_status = myEntry.ma_approval_status as Todo['approval_status']
+      if (myEntry.ma_pending_approver !== undefined) task.pending_approver = myEntry.ma_pending_approver
+    }
+
+    if (approverEntry) {
+      task.approval_status = 'pending_approval'
+      task.pending_approver = user.username
+      task.completed_by = approverEntry.username
+    }
+  }
   const participantUsernames = new Set<string>()
   if (task.username) participantUsernames.add(task.username)
   if (task.assigned_to) participantUsernames.add(task.assigned_to)
@@ -4479,16 +4709,52 @@ export async function updateMaAssigneeStatusAction(
       hallActiveStartedAt = null
     }
   } else if (newStatus === 'completed') {
-    newHallSchedulerState = 'completed'
+    // Keep MA hall task in review state until the assignee's completion is approved.
+    newHallSchedulerState = clusterId ? 'waiting_review' : undefined
     hallActiveStartedAt = null
   }
+
+  const pendingChain = newStatus === 'completed'
+    ? buildPendingApprovalChain(task, user.username, now)
+    : []
+  const nextApprover = newStatus === 'completed'
+    ? (pendingChain[0]?.user || normalizeChainUsername(task.username))
+    : ''
+  const hasAssigneeApproval = newStatus === 'completed' && !!nextApprover
 
   ma.assignees[assigneeIdx] = {
     ...ma.assignees[assigneeIdx],
     status: newStatus,
     ...(newHallSchedulerState !== undefined ? { hall_scheduler_state: newHallSchedulerState } : {}),
     ...(hallActiveStartedAt !== undefined ? { hall_active_started_at: hallActiveStartedAt } : {}),
-    ...(newStatus === 'completed' ? { completed_at: now, notes: notes || undefined } : { completed_at: undefined }),
+    ...(newStatus === 'completed'
+      ? {
+          completed_at: now,
+          notes: notes || undefined,
+          ma_approval_status: hasAssigneeApproval ? 'pending_approval' as const : 'approved' as const,
+          ma_pending_approver: hasAssigneeApproval ? nextApprover : null,
+          ma_approval_chain: hasAssigneeApproval ? pendingChain : [],
+          ma_approval_requested_at: hasAssigneeApproval ? now : null,
+          ma_approval_sla_due_at: hasAssigneeApproval ? addHoursIso(now, 48) : null,
+          ma_approved_at: hasAssigneeApproval ? null : now,
+          ma_approved_by: hasAssigneeApproval ? null : user.username,
+          ma_declined_at: null,
+          ma_declined_by: null,
+          ma_decline_reason: null,
+        }
+      : {
+          completed_at: undefined,
+          ma_approval_status: undefined,
+          ma_pending_approver: null,
+          ma_approval_chain: [],
+          ma_approval_requested_at: null,
+          ma_approval_sla_due_at: null,
+          ma_approved_at: null,
+          ma_approved_by: null,
+          ma_declined_at: null,
+          ma_declined_by: null,
+          ma_decline_reason: null,
+        }),
   }
 
   touchMultiAssignmentProgress(ma)
@@ -4593,7 +4859,27 @@ export async function acceptMaAssigneeAction(
   if (idx === -1) return { success: false, error: 'Assignee not found.' }
 
   const now = new Date().toISOString()
-  ma.assignees[idx] = { ...ma.assignees[idx], status: 'accepted', completed_at: now, accepted_at: now, accepted_by: user.username }
+  ma.assignees[idx] = {
+    ...ma.assignees[idx],
+    status: 'accepted',
+    completed_at: now,
+    accepted_at: now,
+    accepted_by: user.username,
+    hall_scheduler_state: ma.assignees[idx].hall_scheduler_state === 'waiting_review' ? 'completed' : ma.assignees[idx].hall_scheduler_state,
+    hall_remaining_minutes: 0,
+    hall_active_started_at: null,
+    hall_effective_due_at: null,
+    ma_approval_status: 'approved',
+    ma_pending_approver: null,
+    ma_approval_chain: [],
+    ma_approval_requested_at: null,
+    ma_approval_sla_due_at: null,
+    ma_approved_at: now,
+    ma_approved_by: user.username,
+    ma_declined_at: null,
+    ma_declined_by: null,
+    ma_decline_reason: null,
+  }
   touchMultiAssignmentProgress(ma)
   const allAccepted = ma.assignees.every((a) => a.status === 'accepted')
   const history = parseJson<HistoryEntry[]>(task.history, [])
@@ -4706,9 +4992,21 @@ export async function rejectMaAssigneeAction(
     status: 'in_progress',
     notes: reason.trim(),
     rejection_reason: reason.trim(),
+    hall_scheduler_state: ma.assignees[idx].hall_scheduler_state === 'waiting_review' ? 'paused' : ma.assignees[idx].hall_scheduler_state,
+    hall_active_started_at: null,
     completed_at: undefined,
     accepted_at: undefined,
     accepted_by: undefined,
+    ma_approval_status: 'declined',
+    ma_pending_approver: null,
+    ma_approval_chain: [],
+    ma_approval_requested_at: null,
+    ma_approval_sla_due_at: null,
+    ma_approved_at: null,
+    ma_approved_by: null,
+    ma_declined_at: now,
+    ma_declined_by: user.username,
+    ma_decline_reason: reason.trim(),
   }
   touchMultiAssignmentProgress(ma)
 
@@ -9306,6 +9604,8 @@ export async function getQueuePriorityAction(): Promise<QueuePriorityData | null
         remaining_work_minutes: projectedRemaining,
         active_started_at: myEntry.hall_active_started_at ?? null,
         effective_due_at: myEntry.hall_effective_due_at ?? null,
+        approval_status: myEntry.ma_approval_status ?? t.approval_status,
+        pending_approver: myEntry.ma_pending_approver ?? t.pending_approver,
       } as Todo
     })
 

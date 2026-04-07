@@ -391,6 +391,17 @@ export interface MultiAssignmentEntry {
   hall_remaining_minutes?: number | null
   hall_active_started_at?: string | null
   hall_effective_due_at?: string | null
+  // Per-assignee approval lane (keeps MA behavior aligned with single-task workflow)
+  ma_approval_status?: 'pending_approval' | 'approved' | 'declined'
+  ma_pending_approver?: string | null
+  ma_approval_chain?: ApprovalChainEntry[]
+  ma_approval_requested_at?: string | null
+  ma_approval_sla_due_at?: string | null
+  ma_approved_at?: string | null
+  ma_approved_by?: string | null
+  ma_declined_at?: string | null
+  ma_declined_by?: string | null
+  ma_decline_reason?: string | null
 }
 
 export interface MultiAssignment {
