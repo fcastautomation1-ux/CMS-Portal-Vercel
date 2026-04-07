@@ -659,6 +659,43 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const userLower = effectiveUser.toLowerCase()
     const isQueueStatusActive = statusFilter === 'queue'
 
+    const getMyMaEntry = (t: Todo) => {
+      if (!t.multi_assignment?.enabled || !Array.isArray(t.multi_assignment.assignees)) return null
+      return t.multi_assignment.assignees.find((entry) => (entry.username || '').toLowerCase() === userLower) ?? null
+    }
+
+    const getEffectiveHallState = (t: Todo): string | null => {
+      const myMaEntry = getMyMaEntry(t)
+      if (myMaEntry) {
+        return myMaEntry.hall_scheduler_state
+          ?? (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+          ?? (myMaEntry.status === 'in_progress' ? 'active' : null)
+          ?? ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null)
+          ?? 'user_queue'
+      }
+
+      if ((t.assigned_to || '').toLowerCase() !== userLower) return null
+      return ((t as unknown as Record<string, unknown>).scheduler_state as string | null) ?? null
+    }
+
+    const getEffectiveHallRank = (t: Todo): number => {
+      const myMaEntry = getMyMaEntry(t)
+      if (myMaEntry?.hall_queue_rank != null) return myMaEntry.hall_queue_rank
+      return (((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity)
+    }
+
+    const hallQueuedCandidates = list.filter((t) => {
+      if (t.completed) return false
+      const state = getEffectiveHallState(t)
+      return state === 'user_queue' || state === 'paused'
+    })
+
+    const nextQueuedRank = hallQueuedCandidates.reduce((min, t) => Math.min(min, getEffectiveHallRank(t)), Infinity)
+    const nextQueuedCreatedAt = hallQueuedCandidates.reduce(
+      (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
+      '',
+    )
+
     if (isQueueStatusActive) {
       list = list.filter((t) => !t.archived && matchesQueueVisibility(t))
     } else if (quickFilter === 'created_by_me') {
@@ -748,28 +785,31 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const bCompleted = b.completed ? 1 : 0
       if (aCompleted !== bCompleted) return aCompleted - bCompleted
 
-      // Hall queue priority sort: active tasks first, then queue #1 (user_queue+paused), then rest
-      const userLowerInner = effectiveUser.toLowerCase()
-      const hallStateA = (a as unknown as Record<string, unknown>).scheduler_state as string | null
-      const hallStateB = (b as unknown as Record<string, unknown>).scheduler_state as string | null
-      const isAssigneeA = (a.assigned_to || '').toLowerCase() === userLowerInner
-      const isAssigneeB = (b.assigned_to || '').toLowerCase() === userLowerInner
-      const hallPriority = (t: Todo, state: string | null, isAssignee: boolean): number => {
-        if (!isAssignee || !state) return 3
+      // Main list priority rule:
+      // 1. My active hall task
+      // 2. My next queued/paused hall task
+      // 3. Everything else
+      const hallStateA = getEffectiveHallState(a)
+      const hallStateB = getEffectiveHallState(b)
+      const rankA = getEffectiveHallRank(a)
+      const rankB = getEffectiveHallRank(b)
+      const isNextQueuedA = (hallStateA === 'user_queue' || hallStateA === 'paused') && (
+        rankA === nextQueuedRank || (rankA === Infinity && nextQueuedRank === Infinity && !!a.created_at && a.created_at <= nextQueuedCreatedAt)
+      )
+      const isNextQueuedB = (hallStateB === 'user_queue' || hallStateB === 'paused') && (
+        rankB === nextQueuedRank || (rankB === Infinity && nextQueuedRank === Infinity && !!b.created_at && b.created_at <= nextQueuedCreatedAt)
+      )
+      const hallPriority = (state: string | null, isNextQueued: boolean): number => {
         if (state === 'active') return 0
-        if (state === 'user_queue' || state === 'paused') return 1
-        if (state === 'waiting_review') return 2
-        return 3
+        if (isNextQueued) return 1
+        return 2
       }
-      const hpA = hallPriority(a, hallStateA, isAssigneeA)
-      const hpB = hallPriority(b, hallStateB, isAssigneeB)
+      const hpA = hallPriority(hallStateA, isNextQueuedA)
+      const hpB = hallPriority(hallStateB, isNextQueuedB)
       if (hpA !== hpB) return hpA - hpB
 
-      // Within the hall-queue tier (both user_queue or paused), sort by queue_rank ASC
-      // so the task the user must work on next always appears directly below the active task
-      if (hpA === 1) {
-        const rankA = ((a as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
-        const rankB = ((b as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+      // Within the hall queue tier, keep lower queue_rank higher.
+      if (hallStateA && hallStateB && ['user_queue', 'paused'].includes(hallStateA) && ['user_queue', 'paused'].includes(hallStateB)) {
         if (rankA !== rankB) return rankA < rankB ? -1 : 1
       }
 
