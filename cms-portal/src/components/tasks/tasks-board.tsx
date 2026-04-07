@@ -848,20 +848,6 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return filteredTasks.slice(start, start + perPage)
   }, [filteredTasks, visiblePage, perPage])
 
-  const virtualizer = useVirtualizer({
-    count: paginatedTasks.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 100,
-    overscan: 5,
-  })
-
-  useEffect(() => {
-    // Prefetch likely detail routes to reduce perceived navigation delay.
-    paginatedTasks.slice(0, 20).forEach((task) => {
-      router.prefetch(`/dashboard/tasks/${task.id}`)
-    })
-  }, [paginatedTasks, router])
-
   const bulkDelete = () => {
     startTransition(async () => {
       await Promise.all([...selected].map((id) => deleteTodoAction(id)))
@@ -888,10 +874,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }
 
   const toggleSelectAll = () => {
-    if (selected.size > 0 && paginatedTasks.every((task) => selected.has(task.id))) {
+    if (selected.size > 0 && displayTasks.every((task) => selected.has(task.id))) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(paginatedTasks.map((t: Todo) => t.id)))
+      setSelected(new Set(displayTasks.map((t: Todo) => t.id)))
     }
   }
 
@@ -999,6 +985,73 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       onRefresh: refresh,
     }
   }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, router])
+
+  const displayTasks = useMemo(() => {
+    const usernameLow = currentUsername.toLowerCase()
+    const { minQueueRank, minCreatedAt } = hallQueueState
+
+    const deriveMaState = (task: Todo) => {
+      if (!task.multi_assignment?.enabled) return null
+      const entry = task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+      if (!entry) return null
+      return entry.hall_scheduler_state
+        ?? (entry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+        ?? (entry.status === 'in_progress' ? 'active' : null)
+        ?? ((entry.status === 'completed' || entry.status === 'accepted') ? 'completed' : null)
+        ?? 'user_queue'
+    }
+
+    const getPriority = (task: Todo) => {
+      const topState = ((task as unknown as Record<string, unknown>).scheduler_state as string | null) ?? null
+      const maEntry = task.multi_assignment?.enabled
+        ? task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+        : null
+      const maState = deriveMaState(task)
+      const effectiveState = ((task.assigned_to || '').toLowerCase() === usernameLow ? topState : maState) as string | null
+      const isHallMine = !!task.cluster_id && !task.cluster_inbox && (
+        (((task.assigned_to || '').toLowerCase() === usernameLow) && !!topState) ||
+        (!!maEntry && !!maState)
+      )
+
+      if (isHallMine && effectiveState === 'active') return 0
+
+      const thisRank = maEntry?.hall_queue_rank ?? (((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity)
+      const isFirstInQueue = (() => {
+        if (thisRank !== Infinity) return thisRank <= minQueueRank
+        if (minQueueRank !== Infinity) return false
+        return !!task.created_at && task.created_at <= minCreatedAt
+      })()
+
+      const hasVisibleStart =
+        (isHallMine && (effectiveState === 'user_queue' || effectiveState === 'paused') && isFirstInQueue) ||
+        (!!maEntry && maEntry.status === 'pending' && !task.completed && (!task.cluster_id || maState === 'active'))
+
+      if (hasVisibleStart) return 1
+      if (isHallMine && (effectiveState === 'user_queue' || effectiveState === 'paused' || effectiveState === 'waiting_review')) return 2
+      return 3
+    }
+
+    return [...paginatedTasks].sort((a, b) => {
+      const pa = getPriority(a)
+      const pb = getPriority(b)
+      if (pa !== pb) return pa - pb
+      return 0
+    })
+  }, [paginatedTasks, currentUsername, hallQueueState])
+
+  const virtualizer = useVirtualizer({
+    count: displayTasks.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 100,
+    overscan: 5,
+  })
+
+  useEffect(() => {
+    // Prefetch likely detail routes to reduce perceived navigation delay.
+    displayTasks.slice(0, 20).forEach((task) => {
+      router.prefetch(`/dashboard/tasks/${task.id}`)
+    })
+  }, [displayTasks, router])
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
@@ -1141,7 +1194,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                   onClick={toggleSelectAll}
                   className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
                 >
-                  {paginatedTasks.length > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
+                  {displayTasks.length > 0 && displayTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
                   <span className="hidden sm:inline">{selected.size > 0 ? `${selected.size} selected` : 'Select All'}</span>
                   {selected.size > 0 && <span className="sm:hidden">{selected.size}</span>}
                 </button>
@@ -1282,7 +1335,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             </div>
           )}
 
-          {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
+          {!loading && viewMode === 'list' && displayTasks.length > 0 && (
             <div
               style={{
                 height: `${virtualizer.getTotalSize()}px`,
@@ -1291,7 +1344,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
               }}
             >
               {virtualizer.getVirtualItems().map((virtualItem) => {
-                const task = paginatedTasks[virtualItem.index]
+                  const task = displayTasks[virtualItem.index]
                 if (!task) return null
                 return (
                   <div
