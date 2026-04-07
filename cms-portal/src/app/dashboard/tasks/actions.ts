@@ -6948,6 +6948,37 @@ export async function assignHallInboxTaskMultiAction(
   return { success: true, assignedCount: assignments.length }
 }
 
+// ── MA-aware helper: load task and resolve per-user MA entry ─────────────────
+// Used by all hall scheduler actions to transparently handle both single-assign
+// and multi-assignment tasks.  Returns the MA entry + index when the task is MA,
+// or null when it's a regular single-assign task.
+async function loadMaEntryForUser(
+  supabase: ReturnType<typeof createServerClient>,
+  todoId: string,
+  username: string,
+): Promise<{
+  task: Record<string, unknown>
+  ma: MultiAssignment
+  idx: number
+  entry: MultiAssignmentEntry
+} | null> {
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('multi_assignment, workflow_state, history, assignment_chain, cluster_id, completed, title, username')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return null
+  const task = existing as Record<string, unknown>
+  if (task.workflow_state !== 'split_to_multi') return null
+  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!ma?.enabled || !Array.isArray(ma.assignees)) return null
+  const idx = ma.assignees.findIndex(
+    (a) => (a.username || '').toLowerCase() === username.toLowerCase()
+  )
+  if (idx === -1) return null
+  return { task, ma, idx, entry: ma.assignees[idx] }
+}
+
 /**
  * Manually activate a task that is in user_queue or paused state.
  * Used when auto_start_next_task is OFF, or for manually resuming a paused task.
@@ -6958,6 +6989,78 @@ export async function activateHallTaskAction(todoId: string): Promise<{ success:
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path: activate this user's per-assignee hall_scheduler_state ────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot activate your assignment in state "${maState}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const effectiveDueAt = storedRemaining > 0
+      ? calculateEffectiveDueAt(now, storedRemaining, hallHours).toISOString()
+      : null
+
+    // Auto-pause any currently active single-assign task for this user
+    const { data: activeChecks } = await supabase
+      .from('todos')
+      .select('id, active_started_at, remaining_work_minutes, total_active_minutes, history')
+      .eq('assigned_to', user.username)
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .eq('scheduler_state', 'active')
+      .limit(1)
+    if (activeChecks && activeChecks.length > 0) {
+      const at = activeChecks[0] as Record<string, unknown>
+      const startedAt = at.active_started_at as string | null
+      const workedMinutes = startedAt ? getWorkMinutesInRange(startedAt, now, hallHours) : 0
+      const storedRem = (at.remaining_work_minutes as number | null) ?? 0
+      const totalAct = (at.total_active_minutes as number | null) ?? 0
+      const newRem = Math.max(0, storedRem - workedMinutes)
+      const apHistory = parseJson<HistoryEntry[]>(at.history, [])
+      apHistory.push({ type: 'status_change', user: user.username, details: `Auto-paused — ${user.username} started another queued task. Worked: ${workedMinutes}m. Remaining: ${newRem}m.`, timestamp: now, icon: '⏸️', title: 'Auto-Paused' })
+      await supabase.from('todos').update({ scheduler_state: 'paused', task_status: 'todo', active_started_at: null, remaining_work_minutes: newRem, total_active_minutes: totalAct + workedMinutes, history: JSON.stringify(apHistory), updated_at: now }).eq('id', at.id as string)
+      await writeHallWorkLog(supabase, { todoId: at.id as string, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: 'Auto-paused to start MA task' })
+    }
+
+    // Auto-pause any currently active MA entry for this user in any other task
+    const { data: allClusterMa } = await supabase
+      .from('todos').select('id, multi_assignment, history')
+      .eq('cluster_id', clusterId).eq('completed', false).eq('workflow_state', 'split_to_multi')
+    for (const row of ((allClusterMa ?? []) as Array<{ id: string; multi_assignment: unknown; history: unknown }>)) {
+      if (row.id === todoId) continue
+      const otherMa = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!otherMa?.assignees) continue
+      const otherIdx = otherMa.assignees.findIndex(
+        (a) => a.username.toLowerCase() === user.username.toLowerCase() && a.hall_scheduler_state === 'active'
+      )
+      if (otherIdx === -1) continue
+      const otherEntry = otherMa.assignees[otherIdx]
+      const otherStarted = otherEntry.hall_active_started_at ?? null
+      const otherWorked = otherStarted ? getWorkMinutesInRange(otherStarted, now, hallHours) : 0
+      const otherRem = Math.max(0, (otherEntry.hall_remaining_minutes ?? 0) - otherWorked)
+      otherMa.assignees[otherIdx] = { ...otherEntry, hall_scheduler_state: 'paused', hall_active_started_at: null, hall_remaining_minutes: otherRem, hall_effective_due_at: null }
+      const otherHistory = parseJson<HistoryEntry[]>(row.history, [])
+      otherHistory.push({ type: 'status_change', user: user.username, details: `Auto-paused ${user.username}'s part — started another task. Worked: ${otherWorked}m. Remaining: ${otherRem}m.`, timestamp: now, icon: '⏸️', title: 'Auto-Paused (MA)' })
+      await supabase.from('todos').update({ multi_assignment: JSON.stringify(otherMa), history: JSON.stringify(otherHistory), updated_at: now }).eq('id', row.id)
+    }
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'active', hall_active_started_at: now, hall_effective_due_at: effectiveDueAt, status: entry.status === 'pending' ? 'in_progress' : entry.status }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} activated their assignment`, timestamp: now, icon: '▶️', title: 'Assignment Activated' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: maState === 'paused' ? 'resumed' : 'started' })
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, remaining_work_minutes, queue_rank, history')
@@ -7111,6 +7214,62 @@ export async function pauseHallTaskAction(
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    if (entry.hall_scheduler_state !== 'active') {
+      return { success: false, error: 'Only active assignments can be paused.' }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+
+    // Check if user has other queued/paused tasks to hand off to
+    const { data: otherQueued } = await supabase.from('todos').select('id').eq('assigned_to', user.username).eq('cluster_id', clusterId).in('scheduler_state', ['user_queue', 'paused']).limit(1)
+    let hasOtherQueued = (otherQueued ?? []).length > 0
+    if (!hasOtherQueued) {
+      const { data: maTasks } = await supabase.from('todos').select('id, multi_assignment').eq('cluster_id', clusterId).eq('workflow_state', 'split_to_multi').eq('completed', false)
+      const uLower = user.username.toLowerCase()
+      hasOtherQueued = ((maTasks ?? []) as Array<{ id: string; multi_assignment: unknown }>).some((row) => {
+        if (row.id === todoId) {
+          // Check other assignees in the same task for this user (unlikely but safe)
+          return false
+        }
+        const otherMa = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+        return otherMa?.assignees?.some((a) => a.username.toLowerCase() === uLower && a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state)) ?? false
+      })
+      // Also check other entries in this same task's MA (user might have multiple entries — unlikely but safe)
+      if (!hasOtherQueued) {
+        hasOtherQueued = ma.assignees.some((a, i) => i !== idx && a.username.toLowerCase() === uLower && a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state))
+      }
+    }
+    if (!hasOtherQueued) {
+      return { success: false, error: 'No queued tasks to hand off to. Use "Mark as Blocked" with a reason instead.' }
+    }
+
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+    const activeStartedAt = entry.hall_active_started_at ?? null
+    const workedMinutes = activeStartedAt ? getWorkMinutesInRange(activeStartedAt, now, hallHours) : 0
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'paused', hall_active_started_at: null, hall_remaining_minutes: newRemaining, hall_effective_due_at: null }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} paused their assignment. Worked: ${workedMinutes}m. Remaining: ${newRemaining}m.${reason?.trim() ? ` Reason: ${reason.trim()}` : ''}`, timestamp: now, icon: '⏸️', title: 'Assignment Paused' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: reason?.trim() || undefined })
+
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history, queue_rank')
@@ -7138,7 +7297,6 @@ export async function pauseHallTaskAction(
   const settings = await getHallSettingsForTask(supabase, clusterId)
 
   // Check if there are other queued tasks — required for a simple pause
-  // 1. Single-assignment tasks with scheduler_state in [user_queue, paused]
   const { data: otherQueued } = await supabase
     .from('todos')
     .select('id')
@@ -7150,7 +7308,6 @@ export async function pauseHallTaskAction(
 
   let hasOtherQueued = (otherQueued ?? []).length > 0
 
-  // 2. Multi-assignment tasks: check per-user hall_scheduler_state in JSONB
   if (!hasOtherQueued) {
     const { data: maTasks } = await supabase
       .from('todos')
@@ -7161,9 +7318,9 @@ export async function pauseHallTaskAction(
       .neq('id', todoId)
     const assignedToLower = assignedTo.toLowerCase()
     hasOtherQueued = ((maTasks ?? []) as Array<{ id: string; multi_assignment: unknown }>).some((row) => {
-      const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
-      if (!ma?.enabled) return false
-      return ma.assignees.some(
+      const maTmp = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!maTmp?.enabled) return false
+      return maTmp.assignees.some(
         (a) => a.username.toLowerCase() === assignedToLower &&
           a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state)
       )
@@ -7177,7 +7334,6 @@ export async function pauseHallTaskAction(
     }
   }
 
-  // Calculate worked minutes since activation
   const activeStartedAt = task.active_started_at as string | null
   const hallHours = await getClusterOfficeHours(supabase, clusterId)
   const workedMinutes = activeStartedAt
@@ -7200,7 +7356,6 @@ export async function pauseHallTaskAction(
     title: 'Task Paused',
   })
 
-  // Pause the task, keeping its queue_rank intact
   await supabase.from('todos').update({
     scheduler_state: 'paused',
     active_started_at: null,
@@ -7220,7 +7375,6 @@ export async function pauseHallTaskAction(
     notes: reason?.trim() || undefined,
   })
 
-  // Auto-start the next candidate task (excludes the just-paused task)
   if (settings.auto_start_next_task) {
     await autoActivateNextTask(supabase, assignedTo, clusterId, todoId, hallHours)
   }
@@ -7250,6 +7404,44 @@ export async function blockHallTaskAction(
   if (!reason?.trim()) return { success: false, error: 'A blocked reason is required.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot block an assignment in state "${maState}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'blocked', hall_active_started_at: null, hall_remaining_minutes: newRemaining, hall_effective_due_at: null }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} blocked their assignment. Reason: ${reason.trim()}${workedMinutes > 0 ? `. Worked: ${workedMinutes}m` : ''}`, timestamp: now, icon: '🚫', title: 'Assignment Blocked' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'blocked', minutesDeducted: workedMinutes, notes: reason.trim() })
+
+    if (maState === 'active') {
+      const settings = await getHallSettingsForTask(supabase, clusterId)
+      if (settings.auto_start_next_task) {
+        await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+      }
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history')
@@ -7274,7 +7466,6 @@ export async function blockHallTaskAction(
   const clusterId = task.cluster_id as string | null
   const hallHours = clusterId ? await getClusterOfficeHours(supabase, clusterId) : DEFAULT_OFFICE_HOURS
 
-  // Deduct worked minutes if task was active
   let workedMinutes = 0
   if (state === 'active') {
     const activeStartedAt = task.active_started_at as string | null
@@ -7318,7 +7509,6 @@ export async function blockHallTaskAction(
     notes: reason.trim(),
   })
 
-  // Try to activate next queued task
   if (clusterId) {
     const settings = await getHallSettingsForTask(supabase, clusterId)
     if (settings.auto_start_next_task) {
@@ -7343,6 +7533,68 @@ export async function unblockHallTaskAction(todoId: string): Promise<{ success: 
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    if (entry.hall_scheduler_state !== 'blocked') {
+      return { success: false, error: 'Assignment is not blocked.' }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+
+    const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+    if (!isAdmin) {
+      const { data: membership } = await supabase
+        .from('cluster_members').select('cluster_role')
+        .eq('cluster_id', clusterId).eq('username', user.username).single()
+      if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
+        // assignee can unblock themselves
+        if (user.username !== entry.username) {
+          return { success: false, error: 'Not authorised to unblock this assignment.' }
+        }
+      }
+    }
+
+    const now = new Date().toISOString()
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'user_queue' }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} unblocked their assignment.`, timestamp: now, icon: '✅', title: 'Assignment Unblocked' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'unblocked' })
+
+    // Auto-activate if no active task
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      // Check both single-assign active tasks AND active MA entries for this user
+      const { data: activeCheck } = await supabase
+        .from('todos').select('id')
+        .eq('assigned_to', user.username).eq('cluster_id', clusterId)
+        .eq('scheduler_state', 'active').limit(1)
+      const hasActiveSingle = activeCheck && activeCheck.length > 0
+      if (!hasActiveSingle) {
+        // Also check if user has any other active MA entry in this cluster
+        const { data: clusterTasks } = await supabase
+          .from('todos').select('id, multi_assignment')
+          .eq('cluster_id', clusterId)
+          .eq('workflow_state', 'split_to_multi')
+          .neq('id', todoId)
+        const hasActiveMa = (clusterTasks ?? []).some((t: Record<string, unknown>) => {
+          const m = parseJson<{ enabled: boolean; assignees: Array<{ username: string; hall_scheduler_state?: string }> }>(t.multi_assignment, { enabled: false, assignees: [] })
+          return m.enabled && m.assignees.some((a) => a.username === user.username && a.hall_scheduler_state === 'active')
+        })
+        if (!hasActiveMa) {
+          const hallHours = await getClusterOfficeHours(supabase, clusterId)
+          await autoActivateNextTask(supabase, user.username, clusterId, null, hallHours)
+        }
+      }
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, history, remaining_work_minutes')
@@ -7426,6 +7678,79 @@ export async function completeHallTaskAction(todoId: string): Promise<{ success:
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot complete an assignment in state "${maState ?? 'unknown'}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+
+    ma.assignees[idx] = {
+      ...entry,
+      hall_scheduler_state: 'completed',
+      hall_active_started_at: null,
+      hall_remaining_minutes: 0,
+      hall_effective_due_at: null,
+      status: 'accepted',
+      completed_at: now,
+    }
+
+    // Check if all assignees are now completed
+    const allCompleted = ma.assignees.every((a) => a.hall_scheduler_state === 'completed' || a.status === 'accepted')
+
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'completed', user: user.username, details: `${user.username} completed their assignment. Worked: ${workedMinutes}m.${allCompleted ? ' All assignees are done.' : ''}`, timestamp: now, icon: '✅', title: 'Assignment Completed' })
+
+    const updatePayload: Record<string, unknown> = {
+      multi_assignment: JSON.stringify(ma),
+      history: JSON.stringify(history),
+      updated_at: now,
+    }
+    if (allCompleted) {
+      updatePayload.completed = true
+      updatePayload.completed_at = now
+      updatePayload.task_status = 'done'
+    }
+    await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'completed', minutesDeducted: workedMinutes, notes: `Assignment completed` })
+
+    // Notify original creator if all done
+    if (allCompleted) {
+      const creatorUsername = maTask.username as string | null
+      if (creatorUsername) {
+        await createNotification(supabase, {
+          userId: creatorUsername,
+          type: 'task_approved',
+          title: 'All Group Members Completed',
+          body: `All assignees have completed their parts for the multi-assign task "${maTask.title as string}".`,
+          relatedId: todoId,
+        })
+      }
+    }
+
+    // Auto-start next
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history, title, username, multi_assign_group_id')
@@ -7548,6 +7873,74 @@ export async function submitHallTaskForReviewAction(
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot submit an assignment in state "${maState ?? 'unknown'}" for review.` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    // Build approval chain using the task-level data
+    const pendingChain = buildPendingApprovalChain(maTask as Record<string, unknown>, user.username, now)
+    const nextApprover = pendingChain[0]?.user || (maTask.username as string)
+
+    ma.assignees[idx] = {
+      ...entry,
+      hall_scheduler_state: 'waiting_review',
+      hall_active_started_at: null,
+      hall_remaining_minutes: newRemaining,
+      hall_effective_due_at: null,
+      status: 'pending_review',
+    }
+
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({
+      type: 'completion_submitted',
+      user: user.username,
+      details: submissionNote?.trim()
+        ? `${user.username} submitted their assignment for approval. Awaiting ${nextApprover}. Note: ${submissionNote.trim()}`
+        : `${user.username} submitted their assignment for approval. Awaiting ${nextApprover}.`,
+      timestamp: now,
+      icon: '⏳',
+      title: 'Assignment Submitted for Approval',
+    })
+
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: 'Submitted for approval' })
+
+    // Notify approver
+    await createNotification(supabase, {
+      userId: nextApprover,
+      type: 'task_assigned',
+      title: 'Hall Task Needs Approval',
+      body: `${user.username} submitted their assignment on "${maTask.title as string}" for your approval.`,
+      relatedId: todoId,
+    })
+
+    // Auto-start next
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, queue_rank, history, title, username, multi_assign_group_id, assignment_chain')
