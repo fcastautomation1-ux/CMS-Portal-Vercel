@@ -33,6 +33,7 @@ import {
   Mail,
   Layers,
   Inbox,
+  ListOrdered,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -63,6 +64,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
       { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
       { label: 'Hall Queue', href: '/dashboard/team?scope=tasks_queue', icon: <Inbox size={17} />, color: '#7e5daa' },
+      { label: 'Task Priority', href: '/dashboard/tasks/queue-priority', icon: <ListOrdered size={17} />, color: '#7C3AED' },
     ],
   },
   {
@@ -140,6 +142,10 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       // Only show Hall Queue to managers, supervisors, super managers, and admins
       if (user.clusterIds.length === 0) return false
       return isAdminOrSM || isManager || role === 'Supervisor'
+
+    case '/dashboard/tasks/queue-priority':
+      // Show to any user who belongs to at least one hall cluster
+      return user.clusterIds.length > 0
 
     case '/dashboard/analytics':
       return isAdminOrSM

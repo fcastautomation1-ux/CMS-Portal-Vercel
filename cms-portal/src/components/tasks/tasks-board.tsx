@@ -129,12 +129,13 @@ interface TasksBoardProps {
   currentUserTeamMembers?: string[]
   currentUserTeamMemberDeptKeys?: string[]
   enableQueueAssign?: boolean
+  canAddTask?: boolean
   initialTasks: Todo[]
   initialScope?: QuickFilter
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign = false, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign = false, canAddTask = true, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -727,6 +728,32 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const aCompleted = a.completed ? 1 : 0
       const bCompleted = b.completed ? 1 : 0
       if (aCompleted !== bCompleted) return aCompleted - bCompleted
+
+      // Hall queue priority sort: active tasks first, then queue #1 (user_queue+paused), then rest
+      const userLowerInner = effectiveUser.toLowerCase()
+      const hallStateA = (a as unknown as Record<string, unknown>).scheduler_state as string | null
+      const hallStateB = (b as unknown as Record<string, unknown>).scheduler_state as string | null
+      const isAssigneeA = (a.assigned_to || '').toLowerCase() === userLowerInner
+      const isAssigneeB = (b.assigned_to || '').toLowerCase() === userLowerInner
+      const hallPriority = (t: Todo, state: string | null, isAssignee: boolean): number => {
+        if (!isAssignee || !state) return 3
+        if (state === 'active') return 0
+        if (state === 'user_queue' || state === 'paused') return 1
+        if (state === 'waiting_review') return 2
+        return 3
+      }
+      const hpA = hallPriority(a, hallStateA, isAssigneeA)
+      const hpB = hallPriority(b, hallStateB, isAssigneeB)
+      if (hpA !== hpB) return hpA - hpB
+
+      // Within the hall-queue tier (both user_queue or paused), sort by queue_rank ASC
+      // so the task the user must work on next always appears directly below the active task
+      if (hpA === 1) {
+        const rankA = ((a as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        const rankB = ((b as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        if (rankA !== rankB) return rankA < rankB ? -1 : 1
+      }
+
       let va: string | number = 0
       let vb: string | number = 0
       if (sortBy === 'position') {
@@ -822,12 +849,42 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }
 
   const cardProps = (task: Todo) => {
-    // Pause is only meaningful when user has other tasks waiting in their queue
+    // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
     const hasOtherQueuedTasks = tasks.some(
       (t) =>
         t.id !== task.id &&
         (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
-        t.scheduler_state === 'user_queue'
+        ['user_queue', 'paused'].includes((t as unknown as Record<string, unknown>).scheduler_state as string)
+    )
+    // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
+    const userQueueTasks = tasks.filter(
+      (t) =>
+        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
+        ['user_queue', 'paused'].includes((t as unknown as Record<string, unknown>).scheduler_state as string) &&
+        !t.completed
+    )
+    const minQueueRank = userQueueTasks.reduce(
+      (min, t) => Math.min(min, ((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity),
+      Infinity
+    )
+    const thisRank = ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+    // When queue_rank is null for multiple tasks, fall back to created_at ordering (oldest = first)
+    const isFirstInQueue = (() => {
+      if (thisRank !== Infinity) return thisRank <= minQueueRank
+      if (minQueueRank !== Infinity) return false // Other tasks have explicit ranks; null-rank tasks are last
+      // All null-ranked: earliest created_at is first in queue
+      const minCreatedAt = userQueueTasks.reduce(
+        (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
+        ''
+      )
+      return !!task.created_at && task.created_at <= minCreatedAt
+    })()
+    // Whether the current user has any active hall task right now
+    const hasActiveHallTask = tasks.some(
+      (t) =>
+        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
+        (t as unknown as Record<string, unknown>).scheduler_state === 'active' &&
+        !t.completed
     )
     return {
     task,
@@ -838,6 +895,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     currentUserTeamMemberDeptKeys,
     enableQueueAssign,
     hasOtherQueuedTasks,
+    isFirstInQueue,
+    hasActiveHallTask,
     onEdit: (t: Todo) => setEditTask(t),
     onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
     onShare: (t: Todo) => setShareTask(t),
@@ -1039,6 +1098,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
                 <span className="hidden min-w-fit text-[11px] font-medium text-slate-400 sm:inline">{filteredTasks.length} tasks</span>
 
+                {canAddTask && (
                 <button
                   onClick={() => {
                     setAddTaskPending(true)
@@ -1053,6 +1113,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                   <span className="hidden sm:inline">{addTaskPending ? 'Opening...' : 'Add Task'}</span>
                   <span className="sm:hidden">Add</span>
                 </button>
+                )}
 
                 <button
                   onClick={exportCSV}

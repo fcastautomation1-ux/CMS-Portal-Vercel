@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Strip X-Powered-By header
+  poweredByHeader: false,
+  // No source maps in production builds (smaller output, no code exposure)
+  productionBrowserSourceMaps: false,
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [

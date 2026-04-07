@@ -48,6 +48,8 @@ export type HallSchedulerState =
 export const HALL_SCHEDULER_ACTIVE_STATES: HallSchedulerState[] = ['active']
 export const HALL_SCHEDULER_CANDIDATE_STATES: HallSchedulerState[] = ['user_queue', 'paused']
 export const HALL_SCHEDULER_BLOCKED_STATES: HallSchedulerState[] = ['blocked']
+// waiting_review = submitted for approval; timer frozen, holds queue position, excluded from auto-activation
+export const HALL_SCHEDULER_REVIEW_STATES: HallSchedulerState[] = ['waiting_review']
 
 // ─── Internal time helpers ────────────────────────────────────────────────────
 

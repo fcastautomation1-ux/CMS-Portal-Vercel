@@ -5,13 +5,13 @@ import {
   Settings2,
   Layers,
   Play,
-  PauseCircle,
   Users,
   Eye,
   AlertTriangle,
   Check,
   RefreshCw,
   Info,
+  Ban,
 } from 'lucide-react'
 import { getClusterSettingsAction, saveClusterSettingsAction } from '@/app/dashboard/tasks/actions'
 import type { ClusterSettings } from '@/types'
@@ -127,14 +127,14 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
     allow_normal_users_see_queue: true,
     single_active_task_per_user: false,
     auto_start_next_task: true,
-    require_pause_reason: false,
+    users_cannot_create_tasks: false,
   }
 
   const [allowDeptSeeQueue, setAllowDeptSeeQueue] = useState(defaults.allow_dept_users_see_queue)
   const [allowNormalUsersSeeQueue, setAllowNormalUsersSeeQueue] = useState(defaults.allow_normal_users_see_queue ?? true)
   const [singleActive, setSingleActive] = useState(defaults.single_active_task_per_user)
   const [autoStart, setAutoStart] = useState(defaults.auto_start_next_task)
-  const [requirePauseReason, setRequirePauseReason] = useState(defaults.require_pause_reason)
+  const [usersCannotCreateTasks, setUsersCannotCreateTasks] = useState(defaults.users_cannot_create_tasks ?? false)
 
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
@@ -146,7 +146,7 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
     allowNormalUsersSeeQueue !== (defaults.allow_normal_users_see_queue ?? true) ||
     singleActive !== defaults.single_active_task_per_user ||
     autoStart !== defaults.auto_start_next_task ||
-    requirePauseReason !== defaults.require_pause_reason
+    usersCannotCreateTasks !== (defaults.users_cannot_create_tasks ?? false)
 
   function handleSingleActiveChange(v: boolean) {
     setSingleActive(v)
@@ -163,7 +163,7 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
         allow_normal_users_see_queue: allowNormalUsersSeeQueue,
         single_active_task_per_user: singleActive,
         auto_start_next_task: autoStart,
-        require_pause_reason: requirePauseReason,
+        users_cannot_create_tasks: usersCannotCreateTasks,
       })
       if (result.success) {
         setSaved(true)
@@ -242,18 +242,18 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
           indent
         />
 
-        {/* ── Pause behaviour ─────────────────────────────────── */}
+        {/* ── Task Creation ───────────────────────────────────── */}
         <p className="px-1 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
-          Pause Behaviour
+          Task Creation
         </p>
 
         <SettingRow
-          id="require_pause_reason"
-          icon={<PauseCircle size={14} />}
-          label="Require pause reason"
-          description="Users must provide a written reason whenever they pause an active task. Useful for audit and accountability."
-          checked={requirePauseReason}
-          onChange={canEdit ? setRequirePauseReason : () => {}}
+          id="users_cannot_create_tasks"
+          icon={<Ban size={14} />}
+          label="Restrict task creation to managers"
+          description="When enabled, normal users (non-managers, non-supervisors) in this hall cannot create new tasks. They can only work on tasks assigned to them by others."
+          checked={usersCannotCreateTasks}
+          onChange={canEdit ? setUsersCannotCreateTasks : () => {}}
           disabled={!canEdit}
         />
       </div>

@@ -21,48 +21,41 @@ export interface UserFormOptions {
 export async function getUsers(): Promise<User[]> {
   const user = await getSession()
   if (!user) return []
-  const scopeKey = [
-    user.role,
-    user.username,
-    user.department ?? '',
-    user.moduleAccess?.users?.departmentRestricted ? 'dept' : 'all',
-    user.teamMembers.join(','),
-  ].join('|')
 
-  return unstable_cache(async () => {
-    const supabase = createServerClient()
-    const withResolvedAvatars = async (rows: User[]) =>
-      Promise.all(
-        rows.map(async (row) => ({
-          ...row,
-          avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
-        }))
-      )
+  const supabase = createServerClient()
+  const withResolvedAvatars = async (rows: User[]) =>
+    Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+      }))
+    )
 
-    if (user.role === 'Admin' || user.role === 'Super Manager') {
-      const { data } = await supabase.from('users').select('username, email, role, department, password_hash, password_salt, password, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, drive_access_level, module_access, manager_id, team_members, avatar_data, last_login, email_notifications_enabled, created_at, updated_at').order('username')
-      return withResolvedAvatars((data as unknown as User[]) ?? [])
+  if (user.role === 'Admin' || user.role === 'Super Manager') {
+    const { data, error } = await supabase.from('users').select('*').order('username')
+    if (error) { console.error('[getUsers] Admin query error:', error.message); return [] }
+    return withResolvedAvatars((data as unknown as User[]) ?? [])
+  }
+
+  if (user.role === 'Manager') {
+    const { data, error } = await supabase.from('users').select('*').order('username')
+    if (error) { console.error('[getUsers] Manager query error:', error.message); return [] }
+    if (!data) return []
+    const all = data as unknown as User[]
+
+    if (user.moduleAccess?.users?.departmentRestricted && user.department) {
+      return withResolvedAvatars(all.filter(u => u.department === user.department))
     }
 
-    if (user.role === 'Manager') {
-      const { data } = await supabase.from('users').select('username, email, role, department, password_hash, password_salt, password, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, drive_access_level, module_access, manager_id, team_members, avatar_data, last_login, email_notifications_enabled, created_at, updated_at').order('username')
-      if (!data) return []
-      const all = data as unknown as User[]
+    const teamList = user.teamMembers.map(t => t.toLowerCase())
+    return withResolvedAvatars(all.filter(u =>
+      u.username === user.username ||
+      u.manager_id === user.username ||
+      teamList.includes(u.username.toLowerCase())
+    ))
+  }
 
-      if (user.moduleAccess?.users?.departmentRestricted && user.department) {
-        return withResolvedAvatars(all.filter(u => u.department === user.department))
-      }
-
-      const teamList = user.teamMembers.map(t => t.toLowerCase())
-      return withResolvedAvatars(all.filter(u =>
-        u.username === user.username ||
-        u.manager_id === user.username ||
-        teamList.includes(u.username.toLowerCase())
-      ))
-    }
-
-    return []
-  }, ['users-page', scopeKey], { revalidate: 30, tags: [USERS_CACHE_TAG] })()
+  return []
 }
 
 export async function createUser(

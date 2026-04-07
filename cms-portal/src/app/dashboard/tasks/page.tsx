@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { getCachedTodos } from './actions'
+import { getCachedTodos, canUserCreateTasksAction } from './actions'
 import { TasksBoard } from '@/components/tasks/tasks-board'
 import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -18,6 +18,7 @@ export default async function TasksPage({
     getSession(),
     getCachedTodos().catch(() => []),
   ])
+  const canAddTask = user ? await canUserCreateTasksAction() : false
   if (!user) redirect('/login')
 
   const scope = searchParams?.scope
@@ -58,6 +59,7 @@ export default async function TasksPage({
             currentUserDept={user.department}
             currentUserTeamMembers={user.teamMembers}
             currentUserTeamMemberDeptKeys={user.teamMemberDeptKeys}
+            canAddTask={canAddTask}
             initialTasks={tasks}
             initialScope={initialScope}
             initialStatus={initialStatus}

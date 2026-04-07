@@ -42,11 +42,11 @@ export async function getPackages(): Promise<Package[]> {
   return unstable_cache(async () => {
     const supabase = createServerClient()
     const [{ data, error }, assignmentRows] = await Promise.all([
-      supabase.from('packages').select('id, name, app_name, department, playconsole_account, marketer, product_owner, monetization, admob, description, category, price, is_active, created_by, created_at, updated_at').order('name'),
+      supabase.from('packages').select('*').order('name'),
       getUserPackageRows(supabase),
     ])
 
-    if (error) { console.error('getPackages error:', error); return [] }
+    if (error) { console.error('[getPackages] query error:', error.message); return [] }
 
     const assignedCountByPackage: Record<string, number> = {}
     for (const row of assignmentRows) {

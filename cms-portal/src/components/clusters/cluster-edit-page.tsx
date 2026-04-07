@@ -7,7 +7,8 @@ import { TimeSelectPicker } from '@/components/ui/time-select-picker'
 import {
   ArrowLeft, Layers, Save, Building2, Users, UserPlus, Crown,
   ShieldCheck, User, Check, Trash2, Search, X, Plus, Settings2,
-  Clock, Palette, Info, Play, PauseCircle, CheckCircle, ChevronRight, Eye,
+  Clock, Palette, Info, Play, CheckCircle, ChevronRight, Eye,
+  Ban, PauseOctagon, TimerOff,
 } from 'lucide-react'
 import {
   saveClusterAction,
@@ -18,6 +19,8 @@ import {
 } from '@/app/dashboard/clusters/actions'
 import {
   saveClusterSettingsAction,
+  holdUserTasksAction,
+  getHallMembersWithStatusAction,
 } from '@/app/dashboard/tasks/actions'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { ClusterDetail, ClusterRole, ClusterSettings, Department, User as PortalUser } from '@/types'
@@ -60,7 +63,7 @@ function mapPortalRoleToClusterRole(role: string): ClusterRole {
   return 'member'
 }
 
-type Tab = 'basic' | 'hours' | 'queue' | 'departments' | 'members'
+type Tab = 'basic' | 'hours' | 'queue' | 'departments' | 'members' | 'hold'
 
 interface Props {
   cluster: ClusterDetail | null          // null = create new
@@ -164,12 +167,25 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
   const [allowNormalUsersSeeQueue, setAllowNormalUsersSeeQueue] = useState(settings?.allow_normal_users_see_queue ?? true)
   const [singleActive, setSingleActive] = useState(settings?.single_active_task_per_user ?? false)
   const [autoStart, setAutoStart] = useState(settings?.auto_start_next_task ?? true)
-  const [requirePauseReason, setRequirePauseReason] = useState(settings?.require_pause_reason ?? false)
+  const [usersCannotCreateTasks, setUsersCannotCreateTasks] = useState(settings?.users_cannot_create_tasks ?? false)
   const [queueSaving, startQueueTransition] = useTransition()
   const [queueSaved, setQueueSaved] = useState(false)
   const [queueError, setQueueError] = useState('')
   // Track if we have a cluster id to save settings against
   const [savedClusterId, setSavedClusterId] = useState(cluster?.id ?? '')
+
+  // ── Hold User state ───────────────────────────────────────────────────────
+  type HoldMember = {
+    username: string; cluster_role: string; is_on_hold: boolean;
+    held_by: string | null; held_at: string | null;
+    active_tasks: number; queued_tasks: number;
+    display_name: string | null; avatar_data: string | null;
+  }
+  const [holdMembers, setHoldMembers] = useState<HoldMember[]>([])
+  const [holdLoading, setHoldLoading] = useState(false)
+  const [holdBusy, setHoldBusy] = useState<string | null>(null)
+  const [holdError, setHoldError] = useState('')
+  const [holdPanelLoaded, setHoldPanelLoaded] = useState(false)
 
   // ── Departments state ─────────────────────────────────────────────────────
   const [selectedDepts, setSelectedDepts] = useState<Set<string>>(
@@ -262,7 +278,7 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
         allow_normal_users_see_queue: allowNormalUsersSeeQueue,
         single_active_task_per_user: singleActive,
         auto_start_next_task: autoStart,
-        require_pause_reason: requirePauseReason,
+        users_cannot_create_tasks: usersCannotCreateTasks,
       })
       if (result.success) {
         flashSaved(setQueueSaved)
@@ -411,6 +427,7 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
     { key: 'hours',       label: 'Office Hours',  icon: <Clock size={14} /> },
     { key: 'queue',       label: 'Queue Settings',icon: <Settings2 size={14} /> },
     { key: 'departments', label: 'Departments',   icon: <Building2 size={14} /> },
+    ...(!isNew ? [{ key: 'hold' as Tab, label: 'User Hold', icon: <TimerOff size={14} /> }] : []),
   ]
 
   function addLeader(username: string) {
@@ -422,6 +439,35 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
     ])
     setLeaderSearch('')
     setLeaderError('')
+  }
+
+  async function loadHoldPanel() {
+    if (!savedClusterId || holdPanelLoaded) return
+    setHoldLoading(true)
+    setHoldError('')
+    const res = await getHallMembersWithStatusAction(savedClusterId)
+    setHoldLoading(false)
+    if (res.success && res.members) {
+      setHoldMembers(res.members)
+      setHoldPanelLoaded(true)
+    } else {
+      setHoldError(res.error ?? 'Failed to load members')
+    }
+  }
+
+  async function toggleHold(username: string, currentHeld: boolean) {
+    if (!savedClusterId) return
+    setHoldBusy(username)
+    setHoldError('')
+    const res = await holdUserTasksAction(savedClusterId, username, !currentHeld)
+    setHoldBusy(null)
+    if (res.success) {
+      setHoldMembers((prev) => prev.map((m) =>
+        m.username === username ? { ...m, is_on_hold: !currentHeld, held_by: !currentHeld ? 'you' : null, held_at: !currentHeld ? new Date().toISOString() : null } : m
+      ))
+    } else {
+      setHoldError(res.error ?? 'Failed to update hold status')
+    }
   }
 
   async function finalizeCreateCluster() {
@@ -447,7 +493,7 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
       allow_dept_users_see_queue: allowDeptSeeQueue,
       single_active_task_per_user: singleActive,
       auto_start_next_task: autoStart,
-      require_pause_reason: requirePauseReason,
+      users_cannot_create_tasks: usersCannotCreateTasks,
     })
     if (!settingsResult.success) {
       setIsCreating(false)
@@ -573,7 +619,11 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
           return (
           <button
             key={key}
-            onClick={() => !isDisabled && setActiveTab(key)}
+            onClick={() => {
+              if (isDisabled) return
+              setActiveTab(key)
+              if (key === 'hold') loadHoldPanel()
+            }}
             disabled={isDisabled}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all"
             style={{
@@ -634,85 +684,6 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
               </div>
             </div>
 
-            {/* ── Manager picker (new) / manager info (edit) ── */}
-            {isNew ? null : (
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Cluster Manager <span className="text-red-400">*</span>
-                </label>
-                <p className="text-xs opacity-50 mb-2">Must be a Supervisor, Manager, or Super Manager.</p>
-                {managerUsername ? (
-                  <div
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                    style={{ background: '#2B7FFF15', border: '1px solid #2B7FFF40' }}
-                  >
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                      style={{ background: avatarColor(managerUsername) }}
-                    >
-                      {getInitials(managerUsername)}
-                    </div>
-                    <span className="flex-1 text-sm font-medium">{managerUsername}</span>
-                    <button onClick={() => setManagerUsername('')} className="opacity-50 hover:opacity-100 transition-opacity">
-                      <X size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
-                    <input
-                      className="w-full rounded-xl pl-8 pr-3 py-2.5 text-sm outline-none"
-                      style={{
-                        background: 'var(--color-input)',
-                        border: managerError ? '1px solid #EF4444' : '1px solid var(--color-border)',
-                      }}
-                      placeholder="Search by username…"
-                      value={managerSearch}
-                      onChange={(e) => { setManagerSearch(e.target.value); setShowManagerDropdown(true) }}
-                      onFocus={() => setShowManagerDropdown(true)}
-                      onBlur={() => setTimeout(() => setShowManagerDropdown(false), 150)}
-                    />
-                    {showManagerDropdown && (
-                      <div
-                        className="absolute top-full mt-1 left-0 right-0 rounded-xl shadow-2xl z-20 overflow-auto"
-                        style={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', maxHeight: 220 }}
-                      >
-                        {eligibleManagers.length === 0 ? (
-                          <p className="text-xs opacity-40 text-center py-4">No eligible users found</p>
-                        ) : eligibleManagers.slice(0, 20).map((u) => (
-                          <button
-                            key={u.username}
-                            onMouseDown={() => {
-                              setManagerUsername(u.username)
-                              setManagerSearch('')
-                              setShowManagerDropdown(false)
-                              setManagerError('')
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left transition-all hover:opacity-80"
-                            style={{ borderBottom: '1px solid var(--color-border)' }}
-                          >
-                            <div
-                              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                              style={{ background: avatarColor(u.username) }}
-                            >
-                              {getInitials(u.username)}
-                            </div>
-                            <span className="flex-1 font-medium">{u.username}</span>
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full"
-                              style={{ background: 'var(--color-input)' }}
-                            >
-                              {u.role}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {managerError && <p className="text-xs text-red-400 mt-1.5">{managerError}</p>}
-              </div>
-            )}
             {!isNew && (
               <div>
                 <label className="block text-xs font-medium mb-1.5 opacity-70">Cluster Managers</label>
@@ -930,12 +901,12 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
                 indent: true,
               },
               {
-                id: 'require_pause_reason',
-                icon: <PauseCircle size={14} />,
-                label: 'Require pause reason',
-                desc: 'Users must provide a written reason whenever they pause an active task.',
-                checked: requirePauseReason,
-                onChange: (v: boolean) => setRequirePauseReason(v),
+                id: 'users_cannot_create_tasks',
+                icon: <Ban size={14} />,
+                label: 'Restrict task creation to Top Managements',
+                desc: 'When enabled, normal users (non-managers, non-supervisors) in this hall cannot create new tasks. They can only work on tasks assigned to them.',
+                checked: usersCannotCreateTasks,
+                onChange: (v: boolean) => setUsersCannotCreateTasks(v),
               },
             ].map(({ id, icon, label, desc, checked, onChange, disabled, indent, warning }) => (
               <div
@@ -1101,6 +1072,90 @@ export function ClusterEditPage({ cluster, departments, users, settings }: Props
       )}
 
       {/* Members tab removed — all users from selected departments are auto-added as cluster members */}
+
+      {/* ── Tab: User Hold Management ─────────────────────────────────────────── */}
+      {activeTab === 'hold' && !isNew && (
+        <Section title="User Hold Management" icon={<TimerOff size={15} />}>
+          <div className="space-y-3">
+            {/* Info callout */}
+            <div className="flex items-start gap-2 rounded-xl px-4 py-3" style={{ background: 'var(--color-input)', border: '1px solid var(--color-border)' }}>
+              <Info size={13} className="mt-0.5 flex-shrink-0 opacity-40" />
+              <p className="text-xs opacity-50 leading-relaxed">
+                When a user is absent or busy, you can put all their task queue on hold. Their active task will be
+                paused and no time will accumulate until the hold is released. The queue resumes automatically on release.
+              </p>
+            </div>
+
+            {holdError && (
+              <p className="text-xs px-1" style={{ color: '#EF4444' }}>{holdError}</p>
+            )}
+
+            {holdLoading && (
+              <div className="flex items-center justify-center py-10 gap-3 opacity-50">
+                <div className="w-5 h-5 rounded-full border-2 border-[#2B7FFF]/40 border-t-[#2B7FFF] animate-spin" />
+                <p className="text-xs">Loading members…</p>
+              </div>
+            )}
+
+            {!holdLoading && holdMembers.length === 0 && holdPanelLoaded && (
+              <p className="text-xs opacity-40 text-center py-8">No members found for this hall.</p>
+            )}
+
+            {!holdLoading && holdMembers.map((m) => {
+              const isBusy = holdBusy === m.username
+              const roleLabel = m.cluster_role === 'owner' ? 'Owner' : m.cluster_role === 'manager' ? 'Manager' : m.cluster_role === 'supervisor' ? 'Supervisor' : 'Member'
+              return (
+                <div
+                  key={m.username}
+                  className="flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+                  style={{ background: 'var(--color-input)', border: `1px solid ${m.is_on_hold ? '#F59E0B40' : 'var(--color-border)'}` }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full flex-shrink-0 text-xs font-bold"
+                      style={{ background: m.is_on_hold ? '#F59E0B20' : 'var(--color-card)', color: m.is_on_hold ? '#F59E0B' : undefined }}>
+                      {(m.display_name ?? m.username).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{m.display_name ?? m.username}</p>
+                      <p className="text-[11px] opacity-40">{roleLabel} · {m.active_tasks} active · {m.queued_tasks} queued</p>
+                      {m.is_on_hold && m.held_by && (
+                        <p className="text-[11px]" style={{ color: '#F59E0B' }}>On hold by {m.held_by}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {m.is_on_hold && (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#F59E0B15', color: '#F59E0B', border: '1px solid #F59E0B30' }}>
+                        On Hold
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => toggleHold(m.username, m.is_on_hold)}
+                      className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all"
+                      style={{
+                        background: m.is_on_hold ? '#10B98115' : '#F59E0B15',
+                        color: m.is_on_hold ? '#10B981' : '#F59E0B',
+                        border: `1px solid ${m.is_on_hold ? '#10B98130' : '#F59E0B30'}`,
+                        opacity: isBusy ? 0.5 : 1,
+                      }}
+                    >
+                      {isBusy ? (
+                        <div className="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                      ) : m.is_on_hold ? (
+                        <><Play size={11} /> Release Hold</>
+                      ) : (
+                        <><PauseOctagon size={11} /> Hold Tasks</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
 
       {/* Creating overlay */}
       {isCreating && (
