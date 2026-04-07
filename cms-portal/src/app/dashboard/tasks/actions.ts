@@ -901,12 +901,18 @@ export async function getTodos(): Promise<Todo[]> {
       if (myEntry || approverEntry || isDelegated || inChain) {
         // Project per-user JSONB scheduler fields onto the task so cards render correctly
         if (myEntry) {
-          if (myEntry.hall_scheduler_state) r.scheduler_state = myEntry.hall_scheduler_state
+          const derivedMaState = myEntry.hall_scheduler_state
+            ?? (myEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+            ?? (myEntry.status === 'in_progress' ? 'active' : null)
+            ?? ((myEntry.status === 'completed' || myEntry.status === 'accepted') ? 'completed' : null)
+            ?? 'user_queue'
+          r.scheduler_state = derivedMaState
           if (myEntry.hall_queue_rank != null) r.queue_rank = myEntry.hall_queue_rank
           if (myEntry.hall_remaining_minutes != null) r.remaining_work_minutes = myEntry.hall_remaining_minutes
           if (myEntry.hall_active_started_at) r.active_started_at = myEntry.hall_active_started_at
           if (myEntry.hall_effective_due_at) r.effective_due_at = myEntry.hall_effective_due_at
           if (myEntry.ma_approval_status) r.approval_status = myEntry.ma_approval_status
+          else if (myEntry.status === 'completed') r.approval_status = 'pending_approval'
           if (myEntry.ma_pending_approver !== undefined) r.pending_approver = myEntry.ma_pending_approver
         }
         if (approverEntry) {
@@ -3243,12 +3249,18 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
     )
 
     if (myEntry) {
-      if (myEntry.hall_scheduler_state) task.scheduler_state = myEntry.hall_scheduler_state as Todo['scheduler_state']
+      const derivedMaState = myEntry.hall_scheduler_state
+        ?? (myEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+        ?? (myEntry.status === 'in_progress' ? 'active' : null)
+        ?? ((myEntry.status === 'completed' || myEntry.status === 'accepted') ? 'completed' : null)
+        ?? 'user_queue'
+      task.scheduler_state = derivedMaState as Todo['scheduler_state']
       if (myEntry.hall_queue_rank != null) task.queue_rank = myEntry.hall_queue_rank
       if (myEntry.hall_remaining_minutes != null) task.remaining_work_minutes = myEntry.hall_remaining_minutes
       if (myEntry.hall_active_started_at !== undefined) task.active_started_at = myEntry.hall_active_started_at
       if (myEntry.hall_effective_due_at !== undefined) task.effective_due_at = myEntry.hall_effective_due_at
       if (myEntry.ma_approval_status) task.approval_status = myEntry.ma_approval_status as Todo['approval_status']
+      else if (myEntry.status === 'completed') task.approval_status = 'pending_approval'
       if (myEntry.ma_pending_approver !== undefined) task.pending_approver = myEntry.ma_pending_approver
     }
 
@@ -3262,7 +3274,12 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   const detailMeta: Record<string, unknown> = {}
   if (task.cluster_id) {
     const targetUsername = currentMaEntry?.username || task.assigned_to || null
-    const currentState = currentMaEntry?.hall_scheduler_state || task.scheduler_state || null
+    const currentState = (currentMaEntry?.hall_scheduler_state
+      ?? (currentMaEntry?.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+      ?? (currentMaEntry?.status === 'in_progress' ? 'active' : null)
+      ?? ((currentMaEntry?.status === 'completed' || currentMaEntry?.status === 'accepted') ? 'completed' : null)
+      ?? task.scheduler_state
+      ?? null) as string | null
     const currentRank = currentMaEntry?.hall_queue_rank ?? task.queue_rank ?? null
     if (targetUsername && currentState && ['active', 'user_queue', 'paused', 'waiting_review', 'blocked'].includes(currentState)) {
       const [singleRowsRes, maRowsRes] = await Promise.all([
@@ -3298,7 +3315,11 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
         if (!ma?.enabled || !Array.isArray(ma.assignees)) return
         const entry = ma.assignees.find((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
         if (!entry) return
-        const state = entry.hall_scheduler_state ?? null
+        const state = entry.hall_scheduler_state
+          ?? (entry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+          ?? (entry.status === 'in_progress' ? 'active' : null)
+          ?? ((entry.status === 'completed' || entry.status === 'accepted') ? 'completed' : null)
+          ?? 'user_queue'
         const rank = entry.hall_queue_rank ?? null
         const isQueued = state === 'user_queue' || state === 'paused'
         if (!isQueued || rank == null) return

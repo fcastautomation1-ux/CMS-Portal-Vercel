@@ -877,7 +877,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const entry = t.multi_assignment.assignees.find(
         (a) => (a.username || '').toLowerCase() === usernameLow
       )
-      return entry?.hall_scheduler_state ?? null
+      if (!entry) return null
+      if (entry.hall_scheduler_state) return entry.hall_scheduler_state
+      // Legacy fallback for older MA rows created before hall per-user state existed
+      if (entry.ma_approval_status === 'pending_approval') return 'waiting_review'
+      if (entry.status === 'in_progress') return 'active'
+      if (entry.status === 'completed' || entry.status === 'accepted') return 'completed'
+      return 'user_queue'
     }
 
     const userQueueTasks = tasks.filter((t) => {
@@ -922,9 +928,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
   const cardProps = useCallback((task: Todo) => {
     const { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask } = hallQueueState
+    const usernameLow = currentUsername.toLowerCase()
     // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
     const hasOtherQueuedTasks = userQueueTasks.some((t) => t.id !== task.id)
-    const thisRank = ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+    const maEntry = task.multi_assignment?.enabled
+      ? task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+      : null
+    const thisRank = maEntry?.hall_queue_rank ?? ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
     // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
     const isFirstInQueue = (() => {
       if (thisRank !== Infinity) return thisRank <= minQueueRank

@@ -626,7 +626,15 @@ export function TaskCard({
   // Hall-scheduled tasks auto-start when assigned (scheduler_state = 'active'), so no Start Work button needed.
   // For user_queue state they wait for auto-start — also no manual start button.
   const hallSchedulerState = (task as unknown as Record<string, unknown>).scheduler_state as string | null
-  const maHallState = myMaEntry?.hall_scheduler_state ?? null
+  const maHallState = myMaEntry
+    ? (
+        myMaEntry.hall_scheduler_state ||
+        (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null) ||
+        (myMaEntry.status === 'in_progress' ? 'active' : null) ||
+        ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null) ||
+        'user_queue'
+      )
+    : null
   const effectiveHallState = (isAssignee ? hallSchedulerState : maHallState) as string | null
   // A task is hall-scheduled if it's assigned to me AND has a hall scheduler_state OR the cluster workflow_state.
   const isHallScheduledTaskForMe = !!task.cluster_id && !task.cluster_inbox && (
@@ -702,15 +710,26 @@ export function TaskCard({
   // For hall-scheduled MA tasks (cluster_id present), only allow Start when this user's entry is marked active.
   // For non-hall MA tasks, allow Start when status is pending (original behaviour).
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted &&
-    (task.cluster_id ? myMaEntry.hall_scheduler_state === 'active' : true)
-  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
+    (task.cluster_id ? maHallState === 'active' : true)
+  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted &&
+    (task.cluster_id ? maHallState === 'active' : true)
   const showMaDelegateBtn = false
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
   const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showHallCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showHallActivateBtn || showHallPauseBtn
-    || (isHallScheduledTaskForMe && hallSchedulerState === 'waiting_review' && !isCompleted)
+    || (isHallScheduledTaskForMe && effectiveHallState === 'waiting_review' && !isCompleted)
     || (!!myMaEntry && myMaEntry.status === 'completed' && !isCompleted)
+
+  const renderedStatus = isCompleted
+    ? 'done'
+    : (myMaEntry
+        ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
+            ? 'in_progress'
+            : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
+                ? 'done'
+                : 'backlog'))
+        : task.task_status)
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -1122,7 +1141,7 @@ export function TaskCard({
       >
         <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
         <div className="mb-2 flex items-start justify-between gap-2">
-          <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+          <StatusDot status={renderedStatus} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
         {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
@@ -1233,7 +1252,7 @@ export function TaskCard({
 
           {/* Row 2: Status dot + Priority badge only */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+            <StatusDot status={renderedStatus} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
 

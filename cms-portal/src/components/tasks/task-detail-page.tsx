@@ -1074,7 +1074,15 @@ export function TaskDetailPage({
   const hallSchedulerState = tAny.scheduler_state as string | null
   const isHallTask = !!t.cluster_id && !t.cluster_inbox
   const myMaEntry = t.multi_assignment?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
-  const maHallState = myMaEntry?.hall_scheduler_state ?? null
+  const maHallState = myMaEntry
+    ? (
+        myMaEntry.hall_scheduler_state ||
+        (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null) ||
+        (myMaEntry.status === 'in_progress' ? 'active' : null) ||
+        ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null) ||
+        'user_queue'
+      )
+    : null
   const effectiveHallState = (isAssignee ? hallSchedulerState : maHallState) as string | null
   const isHallScheduledForMe = !!t.cluster_id && !t.cluster_inbox && (
     (isAssignee && !!hallSchedulerState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(hallSchedulerState)) ||
@@ -1127,7 +1135,7 @@ export function TaskDetailPage({
   const showHallMgrReassignBtn = !!t.cluster_id && !t.cluster_inbox && !isCompleted && isLeaderRole && !isCreator
   
   const showCompleteBtn = !t.completed && !isPendingApproval && (
-    (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && hallSchedulerState === 'active'))) || 
+    (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && effectiveHallState === 'active'))) || 
     (isStepOwner && currentAssigneeApproved) ||
     (isAssignee && maEnabled && t.workflow_state === 'ma_all_accepted')
   )
@@ -1714,10 +1722,10 @@ export function TaskDetailPage({
                   <PrimaryBtn icon={<XCircle size={14} />} label="Decline" color="red" onClick={() => setShowDeclineInput(true)} loading={isPending} />
                 </>
               )}
-              {myMaEntry && !isCompleted && myMaEntry.status === 'pending' && (!t.cluster_id || myMaEntry.hall_scheduler_state === 'active') && (
+              {myMaEntry && !isCompleted && myMaEntry.status === 'pending' && (!t.cluster_id || maHallState === 'active') && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="MA Start" color="blue" onClick={() => doAction(() => updateMaAssigneeStatusAction(t.id, 'in_progress'))} loading={isPending} />
               )}
-              {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (!t.cluster_id || myMaEntry.hall_scheduler_state === 'active') && (
+              {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (!t.cluster_id || maHallState === 'active') && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
                   label="MA Submit"
@@ -1744,12 +1752,12 @@ export function TaskDetailPage({
               )}
 
               {/* Activate button — hall task stuck in user_queue with no active task */}
-              {isHallScheduledForMe && effectiveHallState === 'user_queue' && !isCompleted && hallIsFirstInQueue && (
+              {isHallScheduledForMe && (effectiveHallState === 'user_queue' || effectiveHallState === 'paused') && !isCompleted && hallIsFirstInQueue && (
                 <button
                   onClick={() => doAction(() => activateHallTaskAction(t.id))}
                   className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
                 >
-                  Start Task
+                  {effectiveHallState === 'paused' ? 'Resume Task' : 'Start Task'}
                 </button>
               )}
 
