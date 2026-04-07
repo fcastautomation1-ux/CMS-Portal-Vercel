@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { cn } from '@/lib/cn'
 
 function getUserInitials(username: string) {
@@ -42,8 +43,7 @@ export function UserAvatar({
       aria-label={username}
     >
       {avatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={avatarUrl} alt={username} className="h-full w-full object-cover" />
+        <Image src={avatarUrl} alt={username} width={44} height={44} className="h-full w-full object-cover" unoptimized />
       ) : (
         getUserInitials(username)
       )}

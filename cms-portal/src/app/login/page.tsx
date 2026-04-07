@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Image from 'next/image'
 import { useFormState, useFormStatus } from 'react-dom'
 import { loginAction } from './actions'
 import { Eye, EyeOff } from 'lucide-react'
@@ -140,13 +141,6 @@ export default function LoginPage() {
     usernameRef.current?.focus()
   }, [])
 
-  // Client-side fallback: if server action set success but redirect didn't navigate
-  useEffect(() => {
-    if (state && state.success) {
-      window.location.replace('/dashboard')
-    }
-  }, [state])
-
   useEffect(() => {
     let mounted = true
     fetch('/api/public-branding', { cache: 'no-store' })
@@ -178,7 +172,7 @@ export default function LoginPage() {
           <div className="flex items-center gap-2.5 mb-10">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#7C3AED' }}>
               {branding.logo_url ? (
-                <img src={branding.logo_url} alt={branding.portal_name} className="w-full h-full rounded-lg object-cover" />
+                <Image src={branding.logo_url} alt={branding.portal_name} width={32} height={32} className="w-full h-full rounded-lg object-cover" unoptimized />
               ) : (
                 <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
                   <rect x="2" y="2" width="5" height="5" rx="1.2"/>
@@ -275,7 +269,7 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <SubmitButton keepLoading={Boolean(state?.success)} />
+            <SubmitButton />
           </form>
         </div>
 

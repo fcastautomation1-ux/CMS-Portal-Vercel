@@ -58,13 +58,13 @@ export async function getLookerReports(): Promise<LookerReport[]> {
     const supabase = createServerClient()
     const bySortOrder = await supabase
       .from('looker_reports')
-      .select('*')
+      .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
       .order('sort_order', { ascending: true })
 
     const byUpdatedAt = bySortOrder.error
       ? await supabase
         .from('looker_reports')
-        .select('*')
+        .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
         .order('updated_at', { ascending: false })
       : bySortOrder
 
@@ -151,7 +151,7 @@ export async function saveLookerReport(
         allowed_users: normalizedAllowedUsers,
       })
       .eq('id', report.id)
-      .select('*')
+      .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
       .single()
 
     if (primary.error) {
@@ -163,7 +163,7 @@ export async function saveLookerReport(
           allowed_users: normalizedAllowedUsers,
         })
         .eq('id', report.id)
-        .select('*')
+        .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
         .single()
 
       if (fallback.error) return { success: false, error: fallback.error.message }
@@ -185,7 +185,7 @@ export async function saveLookerReport(
         allowed_users: normalizedAllowedUsers,
         created_by: user.username,
       })
-      .select('*')
+      .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
       .single()
 
     if (primary.error) {
@@ -198,7 +198,7 @@ export async function saveLookerReport(
           created_by: user.username,
           active: true,
         })
-        .select('*')
+        .select('id, title, name, report_url, url, allowed_users, created_by, sort_order, created_at, updated_at, active')
         .single()
 
       if (fallback.error) return { success: false, error: fallback.error.message }

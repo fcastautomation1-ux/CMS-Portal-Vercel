@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { AnalyticsPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening reports" description="Loading Looker report access and saved links." />
+  return <AnalyticsPageSkeleton />
 }

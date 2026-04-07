@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Menu, Sun, Moon } from 'lucide-react'
 import type { SessionUser } from '@/types'
@@ -85,8 +86,7 @@ export function Topbar({ user, title, onMenuClick, theme = 'light', onThemeToggl
             style={{ background: cfg.gradient }}
           >
             {user.avatarData ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={user.avatarData} alt={user.username} className="w-full h-full object-cover" />
+              <Image src={user.avatarData} alt={user.username} width={32} height={32} className="w-full h-full object-cover" unoptimized />
             ) : (
               user.username.charAt(0).toUpperCase()
             )}

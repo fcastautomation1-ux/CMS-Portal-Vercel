@@ -7,14 +7,22 @@
 --    allow_dept_users_see_queue:
 --      false (default) → only managers/supervisors/owners see dept queue
 --      true            → regular dept members can also see dept queue tasks
+--    allow_normal_users_see_queue:
+--      true  (default) → dept users see queue (when allow_dept_users_see_queue = true)
+--      false           → only Managers/Supervisors/Admins see queue even if above is true
 create table if not exists public.cluster_settings (
-  id                          uuid        primary key default gen_random_uuid(),
-  cluster_id                  uuid        not null references public.clusters(id) on delete cascade,
-  allow_dept_users_see_queue  boolean     not null default false,
-  created_at                  timestamptz not null default now(),
-  updated_at                  timestamptz not null default now(),
+  id                            uuid        primary key default gen_random_uuid(),
+  cluster_id                    uuid        not null references public.clusters(id) on delete cascade,
+  allow_dept_users_see_queue    boolean     not null default false,
+  allow_normal_users_see_queue  boolean     not null default true,
+  created_at                    timestamptz not null default now(),
+  updated_at                    timestamptz not null default now(),
   unique (cluster_id)
 );
+
+-- Migration: add allow_normal_users_see_queue column to existing tables
+alter table public.cluster_settings
+  add column if not exists allow_normal_users_see_queue boolean not null default true;
 
 -- 2. RLS
 alter table public.cluster_settings enable row level security;

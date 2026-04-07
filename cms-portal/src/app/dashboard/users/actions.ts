@@ -21,48 +21,41 @@ export interface UserFormOptions {
 export async function getUsers(): Promise<User[]> {
   const user = await getSession()
   if (!user) return []
-  const scopeKey = [
-    user.role,
-    user.username,
-    user.department ?? '',
-    user.moduleAccess?.users?.departmentRestricted ? 'dept' : 'all',
-    user.teamMembers.join(','),
-  ].join('|')
 
-  return unstable_cache(async () => {
-    const supabase = createServerClient()
-    const withResolvedAvatars = async (rows: User[]) =>
-      Promise.all(
-        rows.map(async (row) => ({
-          ...row,
-          avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
-        }))
-      )
+  const supabase = createServerClient()
+  const withResolvedAvatars = async (rows: User[]) =>
+    Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        avatar_data: await resolveStorageUrl(supabase, row.avatar_data),
+      }))
+    )
 
-    if (user.role === 'Admin' || user.role === 'Super Manager') {
-      const { data } = await supabase.from('users').select('*').order('username')
-      return withResolvedAvatars((data as unknown as User[]) ?? [])
+  if (user.role === 'Admin' || user.role === 'Super Manager') {
+    const { data, error } = await supabase.from('users').select('*').order('username')
+    if (error) { console.error('[getUsers] Admin query error:', error.message); return [] }
+    return withResolvedAvatars((data as unknown as User[]) ?? [])
+  }
+
+  if (user.role === 'Manager') {
+    const { data, error } = await supabase.from('users').select('*').order('username')
+    if (error) { console.error('[getUsers] Manager query error:', error.message); return [] }
+    if (!data) return []
+    const all = data as unknown as User[]
+
+    if (user.moduleAccess?.users?.departmentRestricted && user.department) {
+      return withResolvedAvatars(all.filter(u => u.department === user.department))
     }
 
-    if (user.role === 'Manager') {
-      const { data } = await supabase.from('users').select('*').order('username')
-      if (!data) return []
-      const all = data as unknown as User[]
+    const teamList = user.teamMembers.map(t => t.toLowerCase())
+    return withResolvedAvatars(all.filter(u =>
+      u.username === user.username ||
+      u.manager_id === user.username ||
+      teamList.includes(u.username.toLowerCase())
+    ))
+  }
 
-      if (user.moduleAccess?.users?.departmentRestricted && user.department) {
-        return withResolvedAvatars(all.filter(u => u.department === user.department))
-      }
-
-      const teamList = user.teamMembers.map(t => t.toLowerCase())
-      return withResolvedAvatars(all.filter(u =>
-        u.username === user.username ||
-        u.manager_id === user.username ||
-        teamList.includes(u.username.toLowerCase())
-      ))
-    }
-
-    return []
-  }, ['users-page', scopeKey], { revalidate: 30, tags: [USERS_CACHE_TAG] })()
+  return []
 }
 
 export async function createUser(
@@ -118,6 +111,7 @@ export async function createUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -176,6 +170,7 @@ export async function updateUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -197,6 +192,7 @@ export async function deleteUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -223,7 +219,7 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
     ])
 
     const accountsFallback = accountsPrimary.error
-      ? await supabase.from('accounts').select('*').order('customer_id')
+      ? await supabase.from('accounts').select('customer_id, account_name, account_title, account, drive_code_comments, name, id').order('customer_id')
       : null
 
     const lookerResByUpdatedAt = lookerPrimaryBySort.error
@@ -231,7 +227,7 @@ export async function getUserFormOptions(): Promise<UserFormOptions> {
       : lookerPrimaryBySort
 
     const lookerFallbackAny = lookerResByUpdatedAt.error
-      ? await supabase.from('looker_reports').select('*').order('id')
+      ? await supabase.from('looker_reports').select('id, title, name').order('id')
       : null
 
     const rawAccounts = ((accountsPrimary.data ?? accountsFallback?.data ?? []) as Array<{

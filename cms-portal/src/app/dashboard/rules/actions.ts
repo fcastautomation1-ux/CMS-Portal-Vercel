@@ -23,7 +23,7 @@ export async function getRules(): Promise<Rule[]> {
       const supabase = createServerClient()
       const { data, error } = await supabase
         .from('removal_condition_definitions')
-        .select('*')
+        .select('id, name, description')
         .order('name')
       if (error) { console.error('getRules error:', error); return [] }
       return (data as unknown as Rule[]) ?? []

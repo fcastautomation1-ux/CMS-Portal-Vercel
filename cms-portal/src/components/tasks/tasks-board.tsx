@@ -120,7 +120,7 @@ const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'in_progress', label: 'In Progress', dot: 'bg-blue-500' },
   { key: 'done', label: 'Done', dot: 'bg-green-500' },
 ]
-const TASKS_PER_PAGE = 20
+const PER_PAGE_OPTIONS = [5, 10, 15, 20, 25]
 
 interface TasksBoardProps {
   currentUsername: string
@@ -129,16 +129,19 @@ interface TasksBoardProps {
   currentUserTeamMembers?: string[]
   currentUserTeamMemberDeptKeys?: string[]
   enableQueueAssign?: boolean
+  canAddTask?: boolean
   initialTasks: Todo[]
   initialScope?: QuickFilter
   initialStatus?: StatusFilter
 }
 
-export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign = false, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
+export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign = false, canAddTask = true, initialTasks, initialScope = 'assigned_to_me', initialStatus = 'all' }: TasksBoardProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const isAdmin = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+  const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
+  const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
 
   const [, startTransition] = useTransition()
   const refreshTimerRef = useRef<number | null>(null)
@@ -167,6 +170,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       setShowCreate(true)
     }
   }, [searchParams, router])
+
+  // Clear checkbox selection when scope or status changes (no key-remount anymore)
+  useEffect(() => {
+    setSelected(new Set())
+  }, [quickFilter, statusFilter])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -219,16 +227,30 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
   const [pendingScopeSwitch, setPendingScopeSwitch] = useState<string | null>(null)
   const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
+  const [perPage, setPerPage] = useState(5)
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(currentUsername),
-    queryFn: () => getTodos().catch(() => [] as Todo[]),
+    queryFn: async () => {
+      const existing = queryClient.getQueryData<Todo[]>(queryKeys.tasks(currentUsername))
+      try {
+        const fresh = await getTodos()
+        // Guard: if server returned empty but we already have data in cache,
+        // keep existing data to prevent the "0 tasks" flash.  The server-side
+        // revalidation window right after a mutation can momentarily return [].
+        if (fresh.length === 0 && existing && existing.length > 0) return existing
+        return fresh
+      } catch {
+        // On network/server error, return existing cache data instead of crashing
+        return existing ?? ([] as Todo[])
+      }
+    },
     initialData: initialTasks,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    // Initial data can come from a prefetched server payload, so refresh on mount
-    // to avoid showing stale zero-state/task counts after completing a task.
-    refetchOnMount: 'always',
+    // Use initialData from server for first render; mutations call invalidateQueries
+    // to refresh on demand — avoid the double-fetch that 'always' causes.
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData, // keep existing data while fetching
   })
@@ -238,7 +260,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     queryFn: () => getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
   })
@@ -269,8 +291,6 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const tasks = rawTasks as Todo[]
   const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
-  const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
-  const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
 
   const isTaskAssignedToUser = useCallback((task: Todo, username: string) => {
     const userLower = username.toLowerCase()
@@ -316,6 +336,18 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const isGloballyDone = task.completed || task.task_status === 'done'
     const isMySubmission = (task.completed_by || '').toLowerCase() === userLow
     const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLow
+    const chain = task.assignment_chain ?? []
+    const hasForwardedSubmission = chain.some((entry) => {
+      const actor = (entry.user || '').toLowerCase()
+      const role = String(entry.role || '').toLowerCase()
+      const action = String(entry.action || '').toLowerCase()
+      return actor === userLow && (
+        role === 'submitted_for_approval' ||
+        action === 'submit' ||
+        action === 'complete' ||
+        action === 'complete_final'
+      )
+    })
 
     if (isGloballyDone) return true
 
@@ -325,18 +357,28 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // If I submitted it and it's now pending approval (even if still assigned to me), consider it done from my view.
     if (isMySubmission && task.approval_status === 'pending_approval') return true
 
+    // Intermediate approvers should also keep seeing their own submitted step.
+    if (hasForwardedSubmission && (task.approval_status === 'pending_approval' || !isCurrentlyAssignedToMe)) return true
+
     return false
   }, [])
 
   const rowTouchesCurrentUser = useCallback((row: Record<string, unknown> | null | undefined) => {
     if (!row) return false
     const current = currentUsername.toLowerCase()
-    return (
-      String(row.username || '').toLowerCase() === current ||
-      String(row.assigned_to || '').toLowerCase() === current ||
-      String(row.pending_approver || '').toLowerCase() === current ||
-      String(row.completed_by || '').toLowerCase() === current
-    )
+    if (String(row.username || '').toLowerCase() === current) return true
+    if (String(row.assigned_to || '').toLowerCase() === current) return true
+    if (String(row.pending_approver || '').toLowerCase() === current) return true
+    if (String(row.completed_by || '').toLowerCase() === current) return true
+    // Check multi-assignment assignees (realtime payload delivers JSONB as parsed object)
+    try {
+      const ma = row.multi_assignment as Record<string, unknown> | null | undefined
+      if (ma?.enabled) {
+        const assignees = Array.isArray(ma.assignees) ? ma.assignees as Record<string, unknown>[] : []
+        if (assignees.some((a) => String(a.username || '').toLowerCase() === current)) return true
+      }
+    } catch { /* ignore parse errors */ }
+    return false
   }, [currentUsername])
 
   // \u2500\u2500 Active KPI (computed from filter state \u2014 syncs all filters) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -389,6 +431,14 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // open session — at 50 concurrent users this becomes hundreds of server
     // calls per minute for a typical mutation burst.
     // Admins still subscribe broadly because they see all tasks.
+    // Build department queue subscriptions so dept members see newly-queued tasks in real-time
+    const deptQueueConfigs: Array<{ table: 'todos'; filter: string }> = !isAdmin && currentUserDept
+      ? splitDepartmentsCsv(currentUserDept).map((dept) => ({
+          table: 'todos' as const,
+          filter: buildRealtimeEqFilter('queue_department', dept.trim()),
+        }))
+      : []
+
     const todosConfigs = isAdmin
       ? [{ table: 'todos' as const }]
       : [
@@ -396,6 +446,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           { table: 'todos' as const, filter: buildRealtimeEqFilter('assigned_to', currentUsername) },
           { table: 'todos' as const, filter: buildRealtimeEqFilter('pending_approver', currentUsername) },
           { table: 'todos' as const, filter: buildRealtimeEqFilter('completed_by', currentUsername) },
+          ...deptQueueConfigs,
         ]
 
     const unsubscribe = subscribeToPostgresChanges(
@@ -403,10 +454,25 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       [
         ...todosConfigs,
         { table: 'todo_shares', filter: buildRealtimeEqFilter('shared_with', currentUsername) },
+        // Notifications channel: when a task_assigned notification arrives it means
+        // someone added this user to a multi-assignment (which has no dedicated realtime
+        // channel since Supabase can't filter by JSONB array content). Scheduling a
+        // refresh ensures multi-assigned tasks appear without manual reload.
+        { table: 'notifications', filter: buildRealtimeEqFilter('user_id', currentUsername) },
       ],
       (payload) => {
         if (payload.table === 'todo_shares') {
           scheduleRefresh()
+          return
+        }
+
+        if (payload.table === 'notifications') {
+          // A new task_assigned notification means this user was just added to a task
+          // (e.g. multi-assignment) that may not be in their cache yet. Refresh so it appears.
+          const notifType = String((payload.new as Record<string, unknown>)?.type || '')
+          if (payload.eventType === 'INSERT' && (notifType === 'task_assigned' || notifType === 'multi_assigned')) {
+            scheduleRefresh()
+          }
           return
         }
 
@@ -498,27 +564,30 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const matchesQueueVisibility = useCallback((task: Todo) => {
     if (task.queue_status !== 'queued') return false
     if (!task.queue_department) return false
+
+    // Only Admins and Super Managers see ALL queued tasks system-wide
+    if (currentUserRole === 'Admin' || currentUserRole === 'Super Manager') return true
+
+    // Task creator/router always sees their own queued tasks regardless of dept
     if ((task.username || '').toLowerCase() === currentUsername.toLowerCase()) return true
 
+    // All other roles (Manager, Supervisor, User) see only tasks for their own department
     const userDepts = splitDepartmentsCsv(currentUserDept || '')
     if (userDepts.length === 0) return false
     const taskDepts = splitDepartmentsCsv(task.queue_department)
     return taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))
-  }, [currentUserDept, currentUsername])
+  }, [currentUserDept, currentUsername, currentUserRole])
 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()
     if (task.archived) return false
 
-    // If task is globally done OR user submitted it (waiting approval/next step),
-    // it's "completed" for them and should not show in "Assigned to me"
-    const isGloballyDone = task.completed || task.task_status === 'done'
-    const isMySubmission = (task.completed_by || '').toLowerCase() === userLower
-    const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === userLower
-    const isCompletedForMe = isGloballyDone || (isMySubmission && !isCurrentlyAssignedToMe) || (isMySubmission && task.approval_status === 'pending_approval')
-
     if (scope === 'created_by_me') return task.username.toLowerCase() === userLower
-    if (scope === 'assigned_to_me') return (isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)) && !isCompletedForMe
+    // "Assigned to me" includes ALL tasks where this user was assigned (including completed).
+    // Completed tasks still appear in the Completed KPI and in the list when status=completed.
+    // Previously excluding completed tasks caused the Completed Task KPI to show 0 after
+    // a cross-hall approval chain completed (task globally done, completed_by overwritten).
+    if (scope === 'assigned_to_me') return isTaskAssignedByOthersToUser(task, username) || isQueuedTaskForDepartmentUser(task, username)
     return (
       task.username.toLowerCase() === userLower ||
       (task.completed_by || '').toLowerCase() === userLower ||
@@ -550,6 +619,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const pending = scopedTasksForKpis.filter((task) => {
       if (isTaskCompletedForUser(task, effectiveUser)) return false
       if (task.task_status === 'in_progress') return false // already in in_progress
+      if (task.queue_status === 'queued') return false // queued tasks belong in Queue KPI, not Pending
       // Exclude hall-scheduled tasks in active states assigned to someone else
       const hs = task.scheduler_state
       if (hs && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(hs) && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
@@ -559,8 +629,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return true
     }).length
 
-    // Queue KPI on personal tasks page = only tasks queued for THIS user's own dept
-    const queue = tasks.filter((task) => isQueuedTaskForDepartmentUser(task, effectiveUser)).length
+    // Queue KPI = count of tasks that would appear in the queue view (matches queue filter display)
+    const queue = tasks.filter((task) => !task.archived && matchesQueueVisibility(task)).length
 
     return {
       total: scopedTasksForKpis.length,
@@ -570,7 +640,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, isQueuedTaskForDepartmentUser, isTaskCompletedForUser, effectiveUser])
+  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -609,6 +679,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
         if ((t.completed_by || '').toLowerCase() === userLower) return true
         if (t.username.toLowerCase() === userLower) return true
         if ((t.cluster_routed_by || '').toLowerCase() === userLower) return true
+        if ((t.assignment_chain || []).some((entry) =>
+          (entry.user || '').toLowerCase() === userLower ||
+          (entry.next_user || '').toLowerCase() === userLower
+        )) return true
         return isQueuedTaskForDepartmentUser(t, effectiveUser)
       })
     } else if (quickFilter === 'assigned_by_me') {
@@ -660,7 +734,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress'
+        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress' && t.queue_status !== 'queued'
         if (statusFilter === 'in_progress') return !isTaskCompletedForUser(t, effectiveUser) && t.task_status === 'in_progress' && !t.archived
         if (statusFilter === 'completed') return isTaskCompletedForUser(t, effectiveUser)
         if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && !!t.due_date && new Date(t.due_date) < now
@@ -673,6 +747,32 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const aCompleted = a.completed ? 1 : 0
       const bCompleted = b.completed ? 1 : 0
       if (aCompleted !== bCompleted) return aCompleted - bCompleted
+
+      // Hall queue priority sort: active tasks first, then queue #1 (user_queue+paused), then rest
+      const userLowerInner = effectiveUser.toLowerCase()
+      const hallStateA = (a as unknown as Record<string, unknown>).scheduler_state as string | null
+      const hallStateB = (b as unknown as Record<string, unknown>).scheduler_state as string | null
+      const isAssigneeA = (a.assigned_to || '').toLowerCase() === userLowerInner
+      const isAssigneeB = (b.assigned_to || '').toLowerCase() === userLowerInner
+      const hallPriority = (t: Todo, state: string | null, isAssignee: boolean): number => {
+        if (!isAssignee || !state) return 3
+        if (state === 'active') return 0
+        if (state === 'user_queue' || state === 'paused') return 1
+        if (state === 'waiting_review') return 2
+        return 3
+      }
+      const hpA = hallPriority(a, hallStateA, isAssigneeA)
+      const hpB = hallPriority(b, hallStateB, isAssigneeB)
+      if (hpA !== hpB) return hpA - hpB
+
+      // Within the hall-queue tier (both user_queue or paused), sort by queue_rank ASC
+      // so the task the user must work on next always appears directly below the active task
+      if (hpA === 1) {
+        const rankA = ((a as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        const rankB = ((b as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        if (rankA !== rankB) return rankA < rankB ? -1 : 1
+      }
+
       let va: string | number = 0
       let vb: string | number = 0
       if (sortBy === 'position') {
@@ -699,14 +799,14 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return list
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
 
-  const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}`
+  const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}|${perPage}`
   const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE))
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visiblePage = Math.min(currentPage, totalPages)
   const paginatedTasks = useMemo(() => {
-    const start = (visiblePage - 1) * TASKS_PER_PAGE
-    return filteredTasks.slice(start, start + TASKS_PER_PAGE)
-  }, [filteredTasks, visiblePage])
+    const start = (visiblePage - 1) * perPage
+    return filteredTasks.slice(start, start + perPage)
+  }, [filteredTasks, visiblePage, perPage])
 
   const virtualizer = useVirtualizer({
     count: paginatedTasks.length,
@@ -767,29 +867,88 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     a.click()
   }
 
-  const cardProps = (task: Todo) => {
-    // Pause is only meaningful when user has other tasks waiting in their queue
-    const hasOtherQueuedTasks = tasks.some(
-      (t) =>
-        t.id !== task.id &&
-        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
-        t.scheduler_state === 'user_queue'
-    )
-    return {
-    task,
-    currentUsername,
-    currentUserRole,
-    currentUserDept,
-    currentUserTeamMembers,
-    currentUserTeamMemberDeptKeys,
-    enableQueueAssign,
-    hasOtherQueuedTasks,
-    onEdit: (t: Todo) => setEditTask(t),
-    onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
-    onShare: (t: Todo) => setShareTask(t),
-    onRefresh: refresh,
+  // Precompute hall queue state once per render — O(n) instead of O(n*n) per card
+  const hallQueueState = useMemo(() => {
+    const usernameLow = currentUsername.toLowerCase()
+
+    // Helper: check if a multi-assignment task has the given hall_scheduler_state(s) for the current user
+    const getMaUserState = (t: Todo): string | null => {
+      if (!t.multi_assignment?.enabled) return null
+      const entry = t.multi_assignment.assignees.find(
+        (a) => (a.username || '').toLowerCase() === usernameLow
+      )
+      return entry?.hall_scheduler_state ?? null
     }
-  }
+
+    const userQueueTasks = tasks.filter((t) => {
+      if (t.completed) return false
+      // Single-assignment: check top-level scheduler_state + assigned_to
+      const topState = (t as unknown as Record<string, unknown>).scheduler_state as string | null
+      if ((t.assigned_to || '').toLowerCase() === usernameLow && topState && ['user_queue', 'paused'].includes(topState)) {
+        return true
+      }
+      // Multi-assignment: check per-user hall_scheduler_state inside multi_assignment
+      const maState = getMaUserState(t)
+      if (maState && ['user_queue', 'paused'].includes(maState)) return true
+      return false
+    })
+    const minQueueRank = userQueueTasks.reduce(
+      (min, t) => {
+        // For multi-assignment, use per-user hall_queue_rank
+        const maEntry = t.multi_assignment?.enabled
+          ? t.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+          : null
+        const rank = maEntry?.hall_queue_rank ?? ((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        return Math.min(min, rank)
+      },
+      Infinity
+    )
+    const minCreatedAt = userQueueTasks.reduce(
+      (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
+      ''
+    )
+    const hasActiveHallTask = tasks.some((t) => {
+      if (t.completed) return false
+      // Single-assignment active
+      if ((t.assigned_to || '').toLowerCase() === usernameLow &&
+          (t as unknown as Record<string, unknown>).scheduler_state === 'active') return true
+      // Multi-assignment active
+      const maState = getMaUserState(t)
+      if (maState === 'active') return true
+      return false
+    })
+    return { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask }
+  }, [tasks, currentUsername])
+
+  const cardProps = useCallback((task: Todo) => {
+    const { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask } = hallQueueState
+    // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
+    const hasOtherQueuedTasks = userQueueTasks.some((t) => t.id !== task.id)
+    const thisRank = ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+    // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
+    const isFirstInQueue = (() => {
+      if (thisRank !== Infinity) return thisRank <= minQueueRank
+      if (minQueueRank !== Infinity) return false // Other tasks have explicit ranks; null-rank tasks are last
+      // All null-ranked: earliest created_at is first in queue
+      return !!task.created_at && task.created_at <= minCreatedAt
+    })()
+    return {
+      task,
+      currentUsername,
+      currentUserRole,
+      currentUserDept,
+      currentUserTeamMembers,
+      currentUserTeamMemberDeptKeys,
+      enableQueueAssign,
+      hasOtherQueuedTasks,
+      isFirstInQueue,
+      hasActiveHallTask,
+      onEdit: (t: Todo) => setEditTask(t),
+      onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
+      onShare: (t: Todo) => setShareTask(t),
+      onRefresh: refresh,
+    }
+  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, router])
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
@@ -860,8 +1019,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                               setPendingScopeSwitch(option.scope)
                               router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
                               setScopeDropdownOpen(false)
-                              // clear after short delay so spinner is visible
-                              setTimeout(() => setPendingScopeSwitch(null), 800)
+                              // clear after short delay so spinner is briefly visible
+                              setTimeout(() => setPendingScopeSwitch(null), 100)
                             }}
                             className={cn(
                               'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed',
@@ -985,6 +1144,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
                 <span className="hidden min-w-fit text-[11px] font-medium text-slate-400 sm:inline">{filteredTasks.length} tasks</span>
 
+                {canAddTask && (
                 <button
                   onClick={() => {
                     setAddTaskPending(true)
@@ -999,6 +1159,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                   <span className="hidden sm:inline">{addTaskPending ? 'Opening...' : 'Add Task'}</span>
                   <span className="sm:hidden">Add</span>
                 </button>
+                )}
 
                 <button
                   onClick={exportCSV}
@@ -1024,6 +1185,50 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
               <p className="mt-1 text-sm text-slate-400">
                 {search || quickFilter !== 'my_all' ? 'Try clearing filters.' : 'Create your first task to get started.'}
               </p>
+            </div>
+          )}
+
+          {!loading && filteredTasks.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                <div className="relative">
+                  <select
+                    value={perPage}
+                    onChange={(e) => setPerPage(Number(e.target.value))}
+                    className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <span className="text-xs text-slate-400">
+                  Showing {filteredTasks.length === 0 ? 0 : (visiblePage - 1) * perPage + 1}–{Math.min(visiblePage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                </span>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPaginationState({ signature: paginationSignature, page: Math.max(1, visiblePage - 1) })}
+                    disabled={visiblePage === 1}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    Page {visiblePage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPaginationState({ signature: paginationSignature, page: Math.min(totalPages, visiblePage + 1) })}
+                    disabled={visiblePage === totalPages}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1138,11 +1343,24 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             }} />
           )}
 
-          {!loading && filteredTasks.length > TASKS_PER_PAGE && (
+          {!loading && totalPages > 1 && (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-3">
-              <p className="text-sm text-slate-500">
-                Showing {(visiblePage - 1) * TASKS_PER_PAGE + 1}-{Math.min(visiblePage * TASKS_PER_PAGE, filteredTasks.length)} of {filteredTasks.length}
-              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                <div className="relative">
+                  <select
+                    value={perPage}
+                    onChange={(e) => setPerPage(Number(e.target.value))}
+                    className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <span className="text-sm text-slate-500">
+                  Showing {(visiblePage - 1) * perPage + 1}–{Math.min(visiblePage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import * as XLSX from 'xlsx'
 import {
   Bold,
   ChevronDown,
@@ -22,7 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { OfficeDateTimePicker } from '@/components/ui/office-datetime-picker'
-import { pakistanInputValue, pakistanOfficeMinInputValue, validatePakistanOfficeDueDate } from '@/lib/pakistan-time'
+import { pakistanInputValue, pakistanNowInputValue, validatePakistanOfficeDueDate } from '@/lib/pakistan-time'
 import type { HallOfficeHours } from '@/lib/pakistan-time'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { normalizeTaskDescription, sanitizeTaskDescriptionHtml } from '@/lib/task-description'
@@ -196,9 +195,6 @@ export function CreateTaskModal({
   const [taskMode, setTaskMode] = useState<'local' | 'crosshall'>('local')
   const [destClusterId, setDestClusterId] = useState('')
   const [clusters, setClusters] = useState<HallCluster[]>([])
-  // Cross-hall duration: days + hours (8 working hours = 1 day)
-  const [hallDays, setHallDays] = useState(0)
-  const [hallHours, setHallHours] = useState(0)
 
   // Hall-specific office hours for the currently selected destination cluster.
   const selectedHallHours: HallOfficeHours | undefined = (() => {
@@ -215,7 +211,7 @@ export function CreateTaskModal({
     }
   })()
 
-  const minDueDate = pakistanOfficeMinInputValue(selectedHallHours)
+  const minTaskDueDate = pakistanNowInputValue()
 
   useEffect(() => {
     if (initialPackages && initialPackages.length > 0) setPackages(initialPackages)
@@ -856,6 +852,7 @@ export function CreateTaskModal({
         updateImportProgress(`Uploading ${file.name}`, progress)
       )
       updateImportProgress(`Parsing ${file.name}`, 82)
+      const XLSX = await import('xlsx')
       const workbook = XLSX.read(buffer, { type: 'array' })
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(firstSheet, {
@@ -909,6 +906,7 @@ export function CreateTaskModal({
       }
 
       updateImportProgress('Parsing Google Sheet', 92)
+      const XLSX = await import('xlsx')
       const workbook = XLSX.read(result.csv, { type: 'string' })
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(firstSheet, {
@@ -939,7 +937,6 @@ export function CreateTaskModal({
       if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
       if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
       if (!destClusterId) return { message: 'Please select a destination Hall.', field: 'cluster' }
-      if (hallDays === 0 && hallHours === 0) return { message: 'Please set the estimated duration (days and/or hours).', field: 'dueDate' }
       return null
     }
     if (!kpiType) return { message: 'Please select a KPI type.', field: 'kpi' }
@@ -950,9 +947,12 @@ export function CreateTaskModal({
       return { message: 'Please set a due date for this task.', field: 'dueDate' }
     }
     if (dueDate) {
-      const officeError = validatePakistanOfficeDueDate(dueDate)
-      if (officeError) {
-        return { message: officeError, field: 'dueDate' }
+      const parsedDueDate = new Date(dueDate)
+      if (Number.isNaN(parsedDueDate.getTime())) {
+        return { message: 'Invalid due date.', field: 'dueDate' }
+      }
+      if (parsedDueDate.getTime() <= Date.now()) {
+        return { message: 'Due date must be in the future.', field: 'dueDate' }
       }
     }
     if (routing === 'department' && !deptRoutingDept) {
@@ -985,14 +985,6 @@ export function CreateTaskModal({
     return null
   }
 
-  // Compute ISO due-date string from hallDays+hallHours (8 working hours per day)
-  const computeHallDueDate = (): string => {
-    const totalHours = hallDays * 8 + hallHours
-    const now = new Date()
-    const ms = now.getTime() + totalHours * 60 * 60 * 1000
-    return new Date(ms).toISOString().slice(0, 16)
-  }
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     const nextError = validate()
@@ -1017,7 +1009,6 @@ export function CreateTaskModal({
           description: descriptionHtml || undefined,
           our_goal: ourGoalHtml,
           priority,
-          due_date: computeHallDueDate(),
           notes,
           routing: 'cluster',
           cluster_id: destClusterId,
@@ -1429,8 +1420,8 @@ export function CreateTaskModal({
             <section ref={routingSectionRef}>
             {taskMode === 'crosshall' ? (
               <SectionCard
-                title="Hall Destination & Timing"
-                description="Select the destination Hall and set the task deadline."
+                title="Hall Destination"
+                description="Select the destination Hall for this task."
               >
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Destination Hall *">
@@ -1465,42 +1456,6 @@ export function CreateTaskModal({
                     </select>
                   </Field>
                 </div>
-                <Field label="Due Date *">
-                  <>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1">
-                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Days</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={365}
-                          value={hallDays}
-                          onChange={(e) => setHallDays(Math.max(0, parseInt(e.target.value) || 0))}
-                          className={inputCls}
-                          placeholder="0"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Hours</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={23}
-                          value={hallHours}
-                          onChange={(e) => setHallHours(Math.max(0, parseInt(e.target.value) || 0))}
-                          className={inputCls}
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                    <p className="mt-1.5 text-[11px] text-slate-400">
-                      1 day = 8 office hours.{hallDays > 0 || hallHours > 0 ? ` Total: ${hallDays * 8 + hallHours} hours from now.` : ''}
-                    </p>
-                    {error && errorField === 'dueDate' && (
-                      <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
-                    )}
-                  </>
-                </Field>
               </SectionCard>
             ) : (
             <SectionCard
@@ -1527,7 +1482,7 @@ export function CreateTaskModal({
                       <OfficeDateTimePicker
                         value={dueDate}
                         onChange={setDueDate}
-                        min={minDueDate}
+                        min={minTaskDueDate}
                         className={inputCls}
                       />
                       {error && errorField === 'dueDate' && (
@@ -1693,7 +1648,7 @@ export function CreateTaskModal({
                               <OfficeDateTimePicker
                                 value={toInputDate(entry.actual_due_date)}
                                 onChange={(v) => setMultiAssigneeDueDate(entry.username, v)}
-                                min={minDueDate}
+                                min={minTaskDueDate}
                                 className={inputCls}
                               />
                             </div>
@@ -1778,6 +1733,19 @@ export function CreateTaskModal({
                       </button>
                     </div>
                   ))}
+                  {isPending && pendingAttachments.length > 0 && (
+                    <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Loader2 size={12} className="animate-spin shrink-0 text-blue-500" />
+                        <span className="text-xs font-medium text-blue-700">
+                          Uploading {pendingAttachments.length} file{pendingAttachments.length > 1 ? 's' : ''}…
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                        <div className="h-full w-full animate-pulse rounded-full bg-blue-500" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </SectionCard>

@@ -292,10 +292,19 @@ export function TaskHandoffDialog({
                 <div className="mb-4 space-y-3 rounded-[20px] border border-cyan-100 bg-cyan-50/50 p-4">
                   <div className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Selected Assignees</div>
                   {selectedUsers.map((username) => (
-                    <div key={username} className="grid grid-cols-1 gap-3 rounded-2xl border border-cyan-100 bg-white p-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-center">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-900">{username}</div>
-                        <div className="mt-1 text-xs text-slate-500">Set an individual due date for this assignee.</div>
+                    <div key={username} className="rounded-2xl border border-cyan-100 bg-white p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{username}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Set an individual due date.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleUser(username)}
+                          className="shrink-0 rounded-xl border border-red-100 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                        >
+                          ✕ Remove
+                        </button>
                       </div>
                       <OfficeDateTimePicker
                         value={userDueDates[username] || ''}
@@ -303,13 +312,6 @@ export function TaskHandoffDialog({
                         min={pakistanOfficeMinInputValue()}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
                       />
-                      <button
-                        type="button"
-                        onClick={() => toggleUser(username)}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-                      >
-                        Remove
-                      </button>
                     </div>
                   ))}
                 </div>

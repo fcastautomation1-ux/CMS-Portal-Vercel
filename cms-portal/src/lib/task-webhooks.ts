@@ -8,7 +8,6 @@ export type TaskWebhookEventName =
   | 'task.archived'
   | 'task.started'
   | 'task.completed'
-  | 'task.reopened'
   | 'task.approved'
   | 'task.declined'
   | 'task.comment.created'

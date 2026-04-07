@@ -33,17 +33,19 @@ export async function getCampaigns(): Promise<Campaign[]> {
   return unstable_cache(
     async () => {
       const supabase = createServerClient()
+      const results = await Promise.all(
+        CAMPAIGN_TABLES.map(table => {
+          let query = supabase.from(table).select('id, customer_id, campaign_name, removal_conditions, workflow, enabled')
+          if (allowedIds !== null) {
+            query = query.in('customer_id', allowedIds)
+          }
+          return query
+        })
+      )
       const all: Campaign[] = []
-
-      for (const table of CAMPAIGN_TABLES) {
-        let query = supabase.from(table).select('*')
-        if (allowedIds !== null) {
-          query = query.in('customer_id', allowedIds)
-        }
-        const { data } = await query
+      for (const { data } of results) {
         if (data) all.push(...(data as unknown as Campaign[]))
       }
-
       return all
     },
     ['campaigns-page', user.username, scopeKey],
@@ -60,13 +62,15 @@ export async function getCampaignsForAccount(customerId: string): Promise<Campai
   if (allowedIds !== null && !allowedIds.includes(customerId)) return []
 
   const supabase = createServerClient()
+  const results = await Promise.all(
+    CAMPAIGN_TABLES.map(table =>
+      supabase.from(table).select('id, customer_id, campaign_name, removal_conditions, workflow, enabled').eq('customer_id', customerId)
+    )
+  )
   const all: Campaign[] = []
-
-  for (const table of CAMPAIGN_TABLES) {
-    const { data } = await supabase.from(table).select('*').eq('customer_id', customerId)
+  for (const { data } of results) {
     if (data) all.push(...(data as unknown as Campaign[]))
   }
-
   return all
 }
 
@@ -169,10 +173,38 @@ export async function saveCampaignBatch(
     if (denied) return { success: false, error: 'Permission denied: no access to one or more accounts.' }
   }
 
-  for (const item of items) {
-    const res = await saveCampaign(item)
-    if (!res.success) return res
+  const tableMap: Record<string, string> = {
+    'workflow-0': 'campaign_conditions',
+    'workflow-1': 'workflow_1',
+    'workflow-2': 'workflow_2',
+    'workflow-3': 'workflow_3',
   }
+
+  // Group items by target table for single upsert per table
+  const grouped: Record<string, typeof items> = {}
+  for (const item of items) {
+    const table = tableMap[item.workflow] || 'campaign_conditions'
+    if (!grouped[table]) grouped[table] = []
+    grouped[table].push(item)
+  }
+
+  const supabase = createServerClient()
+  const results = await Promise.all(
+    Object.entries(grouped).map(([table, rows]) =>
+      supabase.from(table).upsert(
+        rows.map(r => ({
+          customer_id: r.customer_id,
+          campaign_name: r.campaign_name,
+          removal_conditions: r.removal_conditions,
+          workflow: r.workflow,
+          enabled: r.enabled,
+        })),
+        { onConflict: 'customer_id,campaign_name' }
+      )
+    )
+  )
+  const failed = results.find(r => r.error)
+  if (failed?.error) return { success: false, error: failed.error.message }
 
   revalidatePath('/dashboard/campaigns')
   revalidateTag(CAMPAIGNS_CACHE_TAG)

@@ -46,7 +46,7 @@ export async function getPackages(): Promise<Package[]> {
       getUserPackageRows(supabase),
     ])
 
-    if (error) { console.error('getPackages error:', error); return [] }
+    if (error) { console.error('[getPackages] query error:', error.message); return [] }
 
     const assignedCountByPackage: Record<string, number> = {}
     for (const row of assignmentRows) {
@@ -319,10 +319,11 @@ export async function bulkAssignPackagesToUsers(
   const supabase = createServerClient()
   const cleanIds = Array.from(new Set(packageIds.filter(Boolean)))
 
+  // Fetch all existing assignments once instead of per-user
+  const allExistingRows = await getUserPackageRows(supabase)
+
   for (const username of usernames) {
-    // Get existing assignments for this user
-    const existingRows = await getUserPackageRows(supabase)
-    const existing = existingRows
+    const existing = allExistingRows
       .filter(r => r.username === username)
       .map(r => r.package_id)
     const merged = Array.from(new Set([...existing, ...cleanIds]))

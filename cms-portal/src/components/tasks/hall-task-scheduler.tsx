@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useTransition } from 'react'
 import {
   Play, Pause, AlertOctagon, CheckCircle, Clock,
   ChevronDown, ChevronUp, RotateCcw, AlertTriangle,
@@ -152,12 +152,14 @@ function HallTaskCard({
   hallHours,
   onRefresh,
   isUserSelf,
+  setOptimistic,
 }: {
   task: Todo
   hallSettings: ClusterSettings
   hallHours: HallOfficeHours
   onRefresh: () => void
   isUserSelf: boolean
+  setOptimistic: (taskId: string, state: string | null) => void
 }) {
   const schedulerState = task.scheduler_state as string | null
 
@@ -173,6 +175,7 @@ function HallTaskCard({
     return () => clearInterval(interval)
   }, [schedulerState, task.remaining_work_minutes, task.active_started_at, hallHours])
 
+  const [, startTransition] = useTransition()
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const [showPauseDialog, setShowPauseDialog] = useState(false)
@@ -183,11 +186,29 @@ function HallTaskCard({
   const effectiveDue = task.effective_due_at
   const requestedDue = task.requested_due_at ?? task.due_date
 
-  async function runAction(fn: () => Promise<{ success: boolean; error?: string }>) {
-    setLoading(true); setError(null)
-    const res = await fn()
-    setLoading(false)
-    if (res.success) { onRefresh() } else { setError(res.error ?? 'Action failed.') }
+  /** Optimistic action: update parent state immediately, then call server in background */
+  function runAction(fn: () => Promise<{ success: boolean; error?: string }>, nextState?: string) {
+    setError(null)
+    const prevState = schedulerState
+    if (nextState) setOptimistic(task.id, nextState)
+    setLoading(true)
+    startTransition(async () => {
+      try {
+        const res = await fn()
+        setLoading(false)
+        if (res.success) {
+          onRefresh()
+        } else {
+          // Rollback on failure
+          if (nextState) setOptimistic(task.id, prevState)
+          setError(res.error ?? 'Action failed.')
+        }
+      } catch {
+        setLoading(false)
+        if (nextState) setOptimistic(task.id, prevState)
+        setError('Unexpected error.')
+      }
+    })
   }
 
   return (
@@ -310,10 +331,10 @@ function HallTaskCard({
           {showPauseDialog && (
             <PauseDialog
               task={task}
-              requireReason={hallSettings.require_pause_reason}
+              requireReason={!!hallSettings.require_pause_reason}
               onConfirm={(reason) => {
                 setShowPauseDialog(false)
-                runAction(() => pauseHallTaskAction(task.id, reason))
+                runAction(() => pauseHallTaskAction(task.id, reason), 'paused')
               }}
               onCancel={() => setShowPauseDialog(false)}
             />
@@ -323,7 +344,7 @@ function HallTaskCard({
               task={task}
               onConfirm={(reason) => {
                 setShowBlockDialog(false)
-                runAction(() => blockHallTaskAction(task.id, reason))
+                runAction(() => blockHallTaskAction(task.id, reason), 'blocked')
               }}
               onCancel={() => setShowBlockDialog(false)}
             />
@@ -335,7 +356,7 @@ function HallTaskCard({
               {/* Queued → Activate (manual, when auto_start is OFF) */}
               {(schedulerState === 'user_queue' || schedulerState === 'paused') && !hallSettings.auto_start_next_task && (
                 <button
-                  onClick={() => runAction(() => activateHallTaskAction(task.id))}
+                  onClick={() => runAction(() => activateHallTaskAction(task.id), 'active')}
                   disabled={loading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
                 >
@@ -371,7 +392,7 @@ function HallTaskCard({
               {/* Blocked → Unblock */}
               {schedulerState === 'blocked' && (
                 <button
-                  onClick={() => runAction(() => unblockHallTaskAction(task.id))}
+                  onClick={() => runAction(() => unblockHallTaskAction(task.id), 'user_queue')}
                   disabled={loading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-800 dark:bg-gray-200 dark:hover:bg-white dark:text-gray-900 disabled:opacity-60 text-white text-xs font-medium transition-colors"
                 >
@@ -383,7 +404,7 @@ function HallTaskCard({
               {/* Active/Queued/Paused → Complete */}
               {['active', 'user_queue', 'paused'].includes(schedulerState ?? '') && (
                 <button
-                  onClick={() => runAction(() => completeHallTaskAction(task.id))}
+                  onClick={() => runAction(() => completeHallTaskAction(task.id), 'completed')}
                   disabled={loading}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
                 >
@@ -408,9 +429,34 @@ export function HallTaskScheduler({
   currentUsername,
   onRefresh,
 }: HallTaskSchedulerProps) {
-  const activeTasks  = tasks.filter((t) => t.scheduler_state === 'active')
-  const queuedTasks  = tasks.filter((t) => (t.scheduler_state === 'user_queue' || t.scheduler_state === 'paused'))
-  const blockedTasks = tasks.filter((t) => t.scheduler_state === 'blocked')
+  // Optimistic overrides: taskId → temporary scheduler_state
+  const [optimisticOverrides, setOptimisticOverrides] = useState<Record<string, string>>({})
+
+  // Reset overrides when tasks prop changes (server data arrived)
+  useEffect(() => {
+    setOptimisticOverrides({})
+  }, [tasks])
+
+  const setOptimistic = useCallback((taskId: string, state: string | null) => {
+    setOptimisticOverrides((prev) => {
+      if (state === null) {
+        const { [taskId]: _, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [taskId]: state }
+    })
+  }, [])
+
+  // Apply optimistic overrides to tasks for section grouping
+  const effectiveTasks = tasks.map((t) => {
+    const override = optimisticOverrides[t.id]
+    if (override) return { ...t, scheduler_state: override as Todo['scheduler_state'] }
+    return t
+  })
+
+  const activeTasks  = effectiveTasks.filter((t) => t.scheduler_state === 'active')
+  const queuedTasks  = effectiveTasks.filter((t) => (t.scheduler_state === 'user_queue' || t.scheduler_state === 'paused'))
+  const blockedTasks = effectiveTasks.filter((t) => t.scheduler_state === 'blocked')
 
   const refresh = useCallback(() => onRefresh(), [onRefresh])
 
@@ -441,6 +487,7 @@ export function HallTaskScheduler({
                 hallHours={hallHours}
                 onRefresh={refresh}
                 isUserSelf={t.assigned_to === currentUsername}
+                setOptimistic={setOptimistic}
               />
             ))}
           </div>
@@ -462,6 +509,7 @@ export function HallTaskScheduler({
                 hallHours={hallHours}
                 onRefresh={refresh}
                 isUserSelf={t.assigned_to === currentUsername}
+                setOptimistic={setOptimistic}
               />
             ))}
           </div>
@@ -483,6 +531,7 @@ export function HallTaskScheduler({
                 hallHours={hallHours}
                 onRefresh={refresh}
                 isUserSelf={t.assigned_to === currentUsername}
+                setOptimistic={setOptimistic}
               />
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { TeamPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening team" description="Loading team members, task counts, and performance data." />
+  return <TeamPageSkeleton />
 }

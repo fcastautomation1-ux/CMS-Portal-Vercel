@@ -1,4 +1,8 @@
 {
+  "regions": ["sin1"],
+  "functions": {
+    "app/api/**/*.ts": { "regions": ["sin1"] }
+  },
   "crons": [
     {
       "path": "/api/tasks/reminders",

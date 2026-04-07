@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Building2, CheckCircle2, AlertCircle, Send } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { RouteClusterPageData } from '@/app/dashboard/tasks/actions'
-import { routeHallTaskToClusterAction } from '@/app/dashboard/tasks/actions'
+import { routeHallInboxToDeptQueueAction, sendTaskToDepartmentQueueAction } from '@/app/dashboard/tasks/actions'
 
 interface Props {
   data: RouteClusterPageData
@@ -13,7 +13,7 @@ interface Props {
 
 export function RouteClusterPage({ data }: Props) {
   const router = useRouter()
-  const [selectedCluster, setSelectedCluster] = useState<string>('')
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('')
   const [note, setNote] = useState('')
   const [loading, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -21,10 +21,15 @@ export function RouteClusterPage({ data }: Props) {
 
   const handleSubmit = () => {
     setError(null)
-    if (!selectedCluster) { setError('Please select a destination department.'); return }
+    if (!selectedDepartment) { setError('Please select a destination department.'); return }
 
     startTransition(async () => {
-      const res = await routeHallTaskToClusterAction(data.task.id, selectedCluster, note.trim() || undefined)
+      const res = data.task.cluster_inbox
+        ? await routeHallInboxToDeptQueueAction(data.task.id, selectedDepartment, note.trim() || undefined)
+        : data.task.due_date
+          ? await sendTaskToDepartmentQueueAction(data.task.id, selectedDepartment, data.task.due_date, note.trim() || undefined)
+          : { success: false, error: 'This task has no valid due date, so it cannot be moved to another department yet.' }
+
       if (res.success) {
         setSuccess(true)
         setTimeout(() => router.push('/dashboard/tasks'), 1200)
@@ -34,7 +39,7 @@ export function RouteClusterPage({ data }: Props) {
     })
   }
 
-  const selectedInfo = data.availableClusters.find((c) => c.id === selectedCluster)
+  const selectedInfo = data.availableDepartments.find((department) => department.name === selectedDepartment)
 
   if (success) {
     return (
@@ -90,22 +95,22 @@ export function RouteClusterPage({ data }: Props) {
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Select Destination Department</p>
           </div>
 
-          {data.availableClusters.length === 0 ? (
+          {data.availableDepartments.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
               <p className="text-sm text-slate-500">No other departments are available for routing.</p>
-              <p className="text-xs text-slate-400 mt-1">Ask an admin to link departments to this hall.</p>
+              <p className="text-xs text-slate-400 mt-1">Only departments linked to this hall are shown here.</p>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {data.availableClusters.map((c) => {
-                const isSelected = selectedCluster === c.id
-                const initials = c.name.slice(0, 2).toUpperCase()
+              {data.availableDepartments.map((department) => {
+                const isSelected = selectedDepartment === department.name
+                const initials = department.name.slice(0, 2).toUpperCase()
                 return (
                   <button
-                    key={c.id}
+                    key={department.name}
                     type="button"
-                    onClick={() => setSelectedCluster(c.id)}
+                    onClick={() => setSelectedDepartment(department.name)}
                     className={cn(
                       'w-full flex items-center gap-4 px-4 py-3.5 text-left transition-colors',
                       isSelected ? 'bg-violet-50' : 'bg-white hover:bg-slate-50'
@@ -113,12 +118,12 @@ export function RouteClusterPage({ data }: Props) {
                   >
                     <div
                       className="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center text-sm font-bold text-white shadow-sm"
-                      style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : (c.color ? `${c.color}` : '#64748b') }}
+                      style={{ background: isSelected ? 'linear-gradient(135deg,#7C3AED,#6D28D9)' : '#64748b' }}
                     >
                       {initials}
                     </div>
                     <span className={cn('text-sm font-semibold flex-1', isSelected ? 'text-violet-700' : 'text-slate-700')}>
-                      {c.name}
+                      {department.name}
                     </span>
                     <div className={cn(
                       'w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all',
@@ -173,10 +178,10 @@ export function RouteClusterPage({ data }: Props) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={loading || !selectedCluster}
+            disabled={loading || !selectedDepartment}
             className={cn(
               'flex-1 py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all',
-              selectedCluster && !loading
+              selectedDepartment && !loading
                 ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-sm'
                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
             )}

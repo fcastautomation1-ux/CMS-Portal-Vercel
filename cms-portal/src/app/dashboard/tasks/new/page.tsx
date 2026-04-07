@@ -1,16 +1,14 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { getSession } from '@/lib/auth'
+import { canUserCreateTasksAction } from '../actions'
+import NewTaskClient from './client'
 
-import { useRouter } from 'next/navigation'
-import { CreateTaskModal } from '@/components/tasks/create-task-modal'
+export default async function NewTaskPage() {
+  const user = await getSession()
+  if (!user) redirect('/login')
 
-export default function NewTaskPage() {
-  const router = useRouter()
+  const allowed = await canUserCreateTasksAction()
+  if (!allowed) redirect('/dashboard/tasks')
 
-  return (
-    <CreateTaskModal
-      asPage
-      onClose={() => router.push('/dashboard/tasks')}
-      onSaved={() => router.push('/dashboard/tasks')}
-    />
-  )
+  return <NewTaskClient />
 }

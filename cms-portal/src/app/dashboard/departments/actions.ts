@@ -40,7 +40,7 @@ export async function getDepartments(): Promise<Department[]> {
     const supabase = createServerClient()
     const { data, error } = await supabase
       .from('departments')
-      .select('*')
+      .select('id, name, description, created_at')
       .order('name')
 
     if (error) { console.error('getDepartments error:', error); return [] }
@@ -145,18 +145,22 @@ export async function assignUsersToDepartment(
 
   if (error) return { success: false, error: error.message }
 
-  for (const row of (users ?? []) as Array<{ username: string; department: string | null }>) {
-    const nextCsv = appendDepartmentToCsv(row.department, cleanDepartment)
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ department: nextCsv || null })
-      .eq('username', row.username)
-    if (updateError) return { success: false, error: updateError.message }
-  }
+  const updateResults = await Promise.all(
+    ((users ?? []) as Array<{ username: string; department: string | null }>).map(row => {
+      const nextCsv = appendDepartmentToCsv(row.department, cleanDepartment)
+      return supabase
+        .from('users')
+        .update({ department: nextCsv || null })
+        .eq('username', row.username)
+    })
+  )
+  const firstError = updateResults.find(r => r.error)
+  if (firstError?.error) return { success: false, error: firstError.error.message }
 
   revalidatePath('/dashboard/departments')
   revalidatePath('/dashboard/users')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -181,7 +185,7 @@ export async function saveDepartment(
       .from('departments')
       .update({ name: normalizedName, description: normalizedDescription })
       .eq('id', dept.id)
-      .select('*')
+      .select('id, name, description, created_at')
       .single()
 
     const fallback = primary.error
@@ -189,7 +193,7 @@ export async function saveDepartment(
         .from('departments')
         .update({ name: normalizedName })
         .eq('id', dept.id)
-        .select('*')
+        .select('id, name, description, created_at')
         .single()
       : null
 
@@ -211,12 +215,14 @@ export async function saveDepartment(
         })
         .filter((row) => row.next !== ((impactedUsers ?? []) as Array<{ username: string; department: string | null }>).find(x => x.username === row.username)?.department)
 
-      for (const row of updates) {
-        await supabase
-          .from('users')
-          .update({ department: row.next || null })
-          .eq('username', row.username)
-      }
+      await Promise.all(
+        updates.map(row =>
+          supabase
+            .from('users')
+            .update({ department: row.next || null })
+            .eq('username', row.username)
+        )
+      )
 
       const { data: queued } = await supabase
         .from('todos')
@@ -224,32 +230,37 @@ export async function saveDepartment(
         .not('queue_department', 'is', null)
 
       const oldKey = canonicalDepartmentKey(old.name)
-      for (const task of (queued ?? []) as Array<{ id: string; queue_department: string | null }>) {
-        const current = task.queue_department ?? ''
-        if (!current) continue
-        if (canonicalDepartmentKey(current) !== oldKey) continue
+      const matchingIds = ((queued ?? []) as Array<{ id: string; queue_department: string | null }>)
+        .filter(task => {
+          const current = task.queue_department ?? ''
+          return current && canonicalDepartmentKey(current) === oldKey
+        })
+        .map(task => task.id)
+
+      if (matchingIds.length > 0) {
         await supabase
           .from('todos')
           .update({ queue_department: normalizedName })
-          .eq('id', task.id)
+          .in('id', matchingIds)
       }
     }
 
     revalidatePath('/dashboard/departments')
     revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
     return { success: true, department: data as Department }
   } else {
     const primary = await supabase
       .from('departments')
       .insert({ name: normalizedName, description: normalizedDescription })
-      .select('*')
+      .select('id, name, description, created_at')
       .single()
 
     const fallback = primary.error
       ? await supabase
         .from('departments')
         .insert({ name: normalizedName })
-        .select('*')
+        .select('id, name, description, created_at')
         .single()
       : null
 
@@ -263,6 +274,7 @@ export async function saveDepartment(
 
     revalidatePath('/dashboard/departments')
     revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
     return { success: true, department: data as Department }
   }
 }
@@ -281,6 +293,7 @@ export async function deleteDepartment(
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/departments')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -322,26 +335,32 @@ export async function syncUserDepartmentNamesAction(): Promise<{
   let updated = 0
   let errors = 0
 
-  for (const row of users as Array<{ username: string; department: string | null }>) {
-    const original = row.department ?? ''
-    const fixed = mapDepartmentCsvToOfficial(original, keyToOfficial)
-    if (fixed === original) continue
+  const toUpdate = (users as Array<{ username: string; department: string | null }>)
+    .filter(row => {
+      const original = row.department ?? ''
+      const fixed = mapDepartmentCsvToOfficial(original, keyToOfficial)
+      return fixed !== original
+    })
 
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ department: fixed || null })
-      .eq('username', row.username)
+  const updateResults = await Promise.all(
+    toUpdate.map(row => {
+      const fixed = mapDepartmentCsvToOfficial(row.department ?? '', keyToOfficial)
+      return supabase
+        .from('users')
+        .update({ department: fixed || null })
+        .eq('username', row.username)
+    })
+  )
 
-    if (updateError) {
-      errors++
-    } else {
-      updated++
-    }
+  for (const r of updateResults) {
+    if (r.error) errors++
+    else updated++
   }
 
   revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/departments')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
 
   return { success: true, updated, errors }
 }

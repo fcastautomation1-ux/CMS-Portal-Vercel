@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { TasksPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening tasks" description="Loading tasks, filters, and live task updates." />
+  return <TasksPageSkeleton />
 }

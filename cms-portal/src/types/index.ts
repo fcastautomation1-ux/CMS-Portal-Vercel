@@ -137,6 +137,12 @@ export interface ClusterMember {
   username: string
   cluster_role: ClusterRole
   scoped_departments: string[] | null   // dept names this supervisor manages
+  /** When true, all scheduler tasks for this user in this hall are on hold (user is absent/busy). */
+  is_on_hold?: boolean
+  /** Username of the manager who put this user on hold, for display. */
+  held_by?: string | null
+  /** Timestamp when hold was applied. */
+  held_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -146,14 +152,20 @@ export interface ClusterSettings {
   id?: string
   cluster_id: string
   allow_dept_users_see_queue: boolean
+  /** When false, only Managers/Supervisors/Admins of this hall can see the dept queue.
+   *  Regular Users in the department are hidden from the queue regardless of allow_dept_users_see_queue.
+   *  Only evaluated when allow_dept_users_see_queue = true. Default: true (all dept users may see queue). */
+  allow_normal_users_see_queue: boolean
   // ── Hall Scheduler settings ──────────────────────────────────────────────
   /** When true, users in this hall may only have ONE active task at a time. */
   single_active_task_per_user: boolean
   /** When true (requires single_active_task_per_user), the next highest-queued
    *  task auto-activates when the current active task completes or is blocked.  */
   auto_start_next_task: boolean
-  /** When true, users must supply a pause reason when pausing a task. */
-  require_pause_reason: boolean
+  /** When true, normal (non-manager/supervisor) users in this hall cannot create new tasks. */
+  users_cannot_create_tasks: boolean
+  /** When true, users must provide a reason when pausing a hall task. */
+  require_pause_reason?: boolean
   created_at?: string
   updated_at?: string
 }
@@ -229,6 +241,7 @@ export type TaskWorkflowState =
   | 'in_progress'
   | 'split_to_multi'
   | 'multi_accepted'
+  | 'ma_all_accepted'
   | 'submitted_for_approval'
   | 'rework_required'
   | 'final_approved'
@@ -368,8 +381,16 @@ export interface MultiAssignmentEntry {
   accepted_by?: string
   rejection_reason?: string
   actual_due_date?: string
-  notes?: string               // feedback note
+  notes?: string               // feedback note when submitting
   delegated_to?: MultiAssignmentSubEntry[]
+  // Hall multi-assign extended fields (only present for hall inbox multi-assignments)
+  hall_estimated_hours?: number
+  // Per-user hall scheduler state — each assignee independently tracks their queue position
+  hall_scheduler_state?: string        // 'user_queue' | 'active' | 'paused' | 'completed'
+  hall_queue_rank?: number             // position in this user's personal hall queue
+  hall_remaining_minutes?: number | null
+  hall_active_started_at?: string | null
+  hall_effective_due_at?: string | null
 }
 
 export interface MultiAssignment {

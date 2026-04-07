@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
+import { unstable_cache, revalidateTag } from 'next/cache'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
 import type { SessionUser, UserRole, ModuleAccess, DriveAccessLevel } from '@/types'
 
@@ -37,60 +38,86 @@ function parseCSV(val: string | null) {
 }
 
 const hydrateSessionUser = cache(async (username: string): Promise<SessionUser | null> => {
-  const supabase = createServerClient()
-  const { data, error } = await supabase
-    .from('users')
-    .select('username, role, department, email, avatar_data, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, module_access, team_members, manager_id, drive_access_level, theme_preference')
-    .eq('username', username)
-    .single()
+  // unstable_cache persists across requests & cold starts (5 min TTL).
+  // React.cache() (outer wrapper) deduplicates within a single request.
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
+      const { data, error } = await supabase
+        .from('users')
+        .select('username, role, department, email, avatar_data, allowed_accounts, allowed_campaigns, allowed_drive_folders, allowed_looker_reports, module_access, team_members, manager_id, drive_access_level, theme_preference')
+        .eq('username', username)
+        .single()
 
-  if (error || !data) return null
+      if (error || !data) return null
 
-  const row = data as Record<string, unknown>
-  const explicitTeamMembers = parseCSV((row.team_members as string | null) ?? null)
+      const row = data as Record<string, unknown>
+      const explicitTeamMembers = parseCSV((row.team_members as string | null) ?? null)
 
-  // Also collect users who list this person as their manager_id
-  const managedUsername = (row.username as string).toLowerCase()
-  const { data: managedUsers } = await supabase
-    .from('users')
-    .select('username, department')
-    .ilike('manager_id', `%${managedUsername}%`)
-  const managedUsersTyped = ((managedUsers ?? []) as Array<{ username: string; department: string | null }>)
-    .filter((u) => u.username.toLowerCase() !== managedUsername)
-  const managedUsernames = managedUsersTyped.map((u) => u.username)
+      // Also collect users who list this person as their manager_id
+      const managedUsername = (row.username as string).toLowerCase()
+      const { data: managedUsers } = await supabase
+        .from('users')
+        .select('username, department')
+        .ilike('manager_id', `%${managedUsername}%`)
+      const managedUsersTyped = ((managedUsers ?? []) as Array<{ username: string; department: string | null }>)
+        .filter((u) => u.username.toLowerCase() !== managedUsername)
+      const managedUsernames = managedUsersTyped.map((u) => u.username)
 
-  const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
-  const teamMemberDeptKeys = Array.from(new Set(
-    managedUsersTyped.flatMap((u) =>
-      splitDepartmentsCsv(u.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
-    )
-  ))
+      const allTeamMembers = Array.from(new Set([...explicitTeamMembers, ...managedUsernames]))
+      const teamMemberDeptKeys = Array.from(new Set(
+        managedUsersTyped.flatMap((u) =>
+          splitDepartmentsCsv(u.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
+        )
+      ))
 
-  // Fetch which clusters this user belongs to
-  const { data: clusterMemberships } = await supabase
-    .from('cluster_members')
-    .select('cluster_id')
-    .eq('username', row.username as string)
-  const clusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+      // Fetch which clusters this user belongs to (explicit membership)
+      const { data: clusterMemberships } = await supabase
+        .from('cluster_members')
+        .select('cluster_id')
+        .eq('username', row.username as string)
+      const explicitClusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
 
-  return {
-    username: row.username as string,
-    role: normalizeRole(row.role),
-    department: (row.department as string | null) ?? null,
-    email: (row.email as string) ?? '',
-    avatarData: (row.avatar_data as string | null) ?? null,
-    allowedAccounts: parseCSV((row.allowed_accounts as string | null) ?? null),
-    allowedCampaigns: parseCSV((row.allowed_campaigns as string | null) ?? null),
-    allowedDriveFolders: parseCSV((row.allowed_drive_folders as string | null) ?? null),
-    allowedLookerReports: parseCSV((row.allowed_looker_reports as string | null) ?? null),
-    moduleAccess: (row.module_access as ModuleAccess) ?? null,
-    teamMembers: allTeamMembers,
-    teamMemberDeptKeys,
-    managerId: (row.manager_id as string | null) ?? null,
-    driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
-    themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
-    clusterIds,
-  }
+      // Dept-based cluster IDs: Manager/Supervisor/Super Manager/Admin also get access
+      // to halls whose cluster_departments link to their department(s)
+      let deptClusterIds: string[] = []
+      const normalizedSessionRole = normalizeRole(row.role)
+      if (['Manager', 'Supervisor', 'Super Manager', 'Admin'].includes(normalizedSessionRole)) {
+        const userDeptNames = splitDepartmentsCsv(row.department as string ?? '').filter(Boolean)
+        if (userDeptNames.length > 0) {
+          const { data: matchedDepts } = await supabase.from('departments').select('id').in('name', userDeptNames)
+          const deptIds = ((matchedDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+          if (deptIds.length > 0) {
+            const { data: hallDepts } = await supabase.from('cluster_departments').select('cluster_id').in('department_id', deptIds)
+            deptClusterIds = ((hallDepts ?? []) as Array<{ cluster_id: string }>).map((d) => d.cluster_id).filter(Boolean)
+          }
+        }
+      }
+
+      const clusterIds = [...new Set([...explicitClusterIds, ...deptClusterIds])]
+
+      return {
+        username: row.username as string,
+        role: normalizeRole(row.role),
+        department: (row.department as string | null) ?? null,
+        email: (row.email as string) ?? '',
+        avatarData: (row.avatar_data as string | null) ?? null,
+        allowedAccounts: parseCSV((row.allowed_accounts as string | null) ?? null),
+        allowedCampaigns: parseCSV((row.allowed_campaigns as string | null) ?? null),
+        allowedDriveFolders: parseCSV((row.allowed_drive_folders as string | null) ?? null),
+        allowedLookerReports: parseCSV((row.allowed_looker_reports as string | null) ?? null),
+        moduleAccess: (row.module_access as ModuleAccess) ?? null,
+        teamMembers: allTeamMembers,
+        teamMemberDeptKeys,
+        managerId: (row.manager_id as string | null) ?? null,
+        driveAccessLevel: ((row.drive_access_level as string | null) ?? 'none') as DriveAccessLevel,
+        themePreference: ((row.theme_preference as string | null) ?? null) as 'light' | 'dark' | null,
+        clusterIds,
+      }
+    },
+    ['session-user', username],
+    { revalidate: 300, tags: ['session-data', `session-${username}`] }
+  )()
 })
 
 export async function createSession(user: Pick<SessionUser, 'username'>): Promise<string> {
@@ -127,4 +154,13 @@ export const getSession = cache(async (): Promise<SessionUser | null> => {
 
 export function getCookieName() {
   return COOKIE_NAME
+}
+
+/** Bust the session cache for a specific user or all users. Call after user profile/role/team changes. */
+export function revalidateSessionCache(username?: string) {
+  if (username) {
+    revalidateTag(`session-${username}`)
+  } else {
+    revalidateTag('session-data')
+  }
 }

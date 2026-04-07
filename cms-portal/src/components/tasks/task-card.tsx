@@ -13,6 +13,8 @@ import { formatPakistanDate, formatPakistanTime, pakistanInputValue, pakistanOff
 import { splitTaskMeta } from '@/lib/task-metadata'
 import { taskDescriptionToPlainText } from '@/lib/task-description'
 import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-name'
+import { getRealTimeRemainingMinutes, formatRemainingWithUrgency } from '@/lib/hall-scheduler'
+import { DEFAULT_OFFICE_HOURS } from '@/lib/pakistan-time'
 import {
   Eye, Edit3, Trash2, Copy, ExternalLink,
   ChevronDown, ChevronUp, MessageCircle, CircleCheckBig,
@@ -34,6 +36,7 @@ import {
   assignHallInboxTaskWithSchedulerAction,
   activateHallTaskAction,
   pauseHallTaskAction,
+  submitHallTaskForReviewAction,
   sendTaskToDepartmentQueueAction,
   convertTaskToMultiAssignmentAction,
   updateSingleTaskDueDateAction,
@@ -43,7 +46,6 @@ import {
   updateMaAssigneeStatusAction,
   acceptMaAssigneeAction,
   rejectMaAssigneeAction,
-  reopenMaAssigneeAction,
   delegateMaAssigneeAction,
   updateMaSubAssigneeStatusAction,
   acceptMaSubAssigneeAction,
@@ -75,6 +77,10 @@ interface TaskCardProps {
   teamMemberTaskSummary?: Record<string, { active: number; queued: number }>
   enableQueueAssign?: boolean
   hasOtherQueuedTasks?: boolean
+  /** True when this task is at position #1 in the user's hall queue (lowest queue_rank). */
+  isFirstInQueue?: boolean
+  /** True when the user already has a hall task in 'active' state in this cluster. */
+  hasActiveHallTask?: boolean
   onEdit: (task: Todo) => void
   onViewDetail: (task: Todo) => void
   onShare: (task: Todo) => void
@@ -85,7 +91,7 @@ interface TaskCardProps {
 type TaskActionDialogState =
   | { type: 'ma-submit' }
   | { type: 'complete' }
-  | { type: 'creator-reopen' }
+  | { type: 'hall-complete' }
   | { type: 'approve' }
   | { type: 'decline-approval' }
   | { type: 'single-due-date' }
@@ -95,7 +101,6 @@ type TaskActionDialogState =
   | { type: 'delegate' }
   | { type: 'sub-submit'; delegatorUsername: string }
   | { type: 'reject-assignee'; assigneeUsername: string }
-  | { type: 'reopen-assignee'; assigneeUsername: string }
   | { type: 'reject-sub'; delegatorUsername: string; subUsername: string }
   | { type: 'remove-delegation'; delegatorUsername: string; subUsername: string }
   | null
@@ -154,8 +159,11 @@ function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | 
   const target = String(assigneeUsername || '').trim().toLowerCase()
   if (!target) return null
 
+  // Skip 'submitted_for_approval' entries — those are submission records, not assignments.
   for (let i = task.assignment_chain.length - 1; i >= 0; i -= 1) {
     const entry = task.assignment_chain[i]
+    const role = String(entry.role || '').trim().toLowerCase()
+    if (role === 'submitted_for_approval') continue
     if ((entry.next_user || '').trim().toLowerCase() === target && entry.user?.trim()) {
       return entry.user.trim()
     }
@@ -472,137 +480,49 @@ function flattenWorkflowTree(
 
 function WorkflowRail({ nodes, onNodeClick }: { nodes: WorkflowRailNode[]; onNodeClick: (node: WorkflowRailNode) => void }) {
   if (nodes.length === 0) return null
-  const rows = flattenWorkflowTree(nodes).slice(0, 9)
-  const INDENT = 24
+  // Flatten to a simple ordered list — no indentation, just top-to-bottom
+  const rows = flattenWorkflowTree(nodes).slice(0, 20)
 
-  function nodeCfg(tone: WorkflowRailNode['tone'], depth: number, subtitle?: string) {
-    const isOwner = subtitle?.toLowerCase().includes('owner')
-    if (isOwner || tone === 'active') return {
-      ring:    'border-blue-500',
-      glow:    '',
-      dot:     'bg-blue-500',
-      name:    'text-blue-600',
-      av:      'bg-blue-50 text-blue-600',
-    }
-    if (tone === 'department') return {
-      ring:    'border-emerald-400',
-      glow:    '',
-      dot:     'bg-emerald-400',
-      name:    'text-slate-700',
-      av:      'bg-emerald-50 text-emerald-600',
-    }
-    if (tone === 'multi') return {
-      ring:    'border-cyan-400',
-      glow:    '',
-      dot:     'bg-cyan-400',
-      name:    'text-slate-700',
-      av:      'bg-cyan-50 text-cyan-600',
-    }
-    if (depth === 0) return {
-      ring:    'border-slate-300',
-      glow:    '',
-      dot:     'bg-slate-400',
-      name:    'text-slate-700',
-      av:      'bg-slate-100 text-slate-600',
-    }
-    return {
-      ring:    'border-cyan-400',
-      glow:    '',
-      dot:     'bg-cyan-400',
-      name:    'text-slate-800',
-      av:      'bg-cyan-50 text-cyan-600',
-    }
+  function dotColor(tone: WorkflowRailNode['tone'], subtitle?: string) {
+    if (tone === 'active') return 'bg-blue-500 ring-blue-200'
+    if (tone === 'department') return 'bg-emerald-500 ring-emerald-100'
+    if (tone === 'multi') return 'bg-cyan-500 ring-cyan-100'
+    const sub = (subtitle ?? '').toLowerCase()
+    if (sub === 'completed' || sub === 'done') return 'bg-emerald-500 ring-emerald-100'
+    return 'bg-violet-500 ring-violet-100'
   }
 
   return (
-    <div className="w-full rounded-[24px] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
-      <div className="h-[2px] w-full rounded-full bg-blue-500" />
-      <div className="pt-3">
-        {rows.map(({ node, depth, pathHasNext, isLastSib }) => {
-          const cfg = nodeCfg(node.tone, depth, node.subtitle)
-          const indentPx = depth * INDENT
-
+    <div className="w-full rounded-[24px] border border-slate-200/90 bg-white px-4 pb-3 pt-3 shadow-[0_10px_26px_rgba(15,23,42,0.06)]">
+      <div className="h-[2px] w-full rounded-full bg-blue-500 mb-3" />
+      <div>
+        {rows.map(({ node }, index) => {
+          const isLast = index === rows.length - 1
+          const dc = dotColor(node.tone, node.subtitle)
           return (
-            <div key={node.key} className="relative group/n">
-              {/* 1. Ancestor vertical lines passing through */}
-              {depth > 0 && pathHasNext.slice(0, -1).map((hasNext, level) => hasNext ? (
-                 <div
-                    key={`line-${level}`}
-                    className="absolute top-0 bottom-0 w-px bg-slate-200 pointer-events-none"
-                    style={{ left: `${(level * INDENT) + 31}px` }} 
-                 />
-              ) : null)}
-
-              {/* 2. Parent-to-child L-shape connector */}
-              {depth > 0 && (
-                <>
-                  {/* Vertical stem from parent */}
-                  <div
-                    className="absolute top-0 w-px bg-slate-200 pointer-events-none"
-                    style={{ 
-                      left: `${((depth - 1) * INDENT) + 31}px`,
-                      bottom: isLastSib ? '24px' : '0' 
-                    }}
-                  />
-                  {/* Horizontal branch to child */}
-                  <div
-                    className="absolute top-1/2 h-px bg-slate-200 pointer-events-none flex items-center justify-end"
-                    style={{ 
-                      left: `${((depth - 1) * INDENT) + 31}px`,
-                      width: `${INDENT - 8}px`,
-                    }}
-                  >
-                    {/* Tiny arrow head */}
-                    <svg width="5" height="7" viewBox="0 0 5 7" fill="none" className="-mr-[1px]">
-                      <path d="M1 1L4 3.5L1 6" stroke="#d7dee9" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                </>
-              )}
-
-              {/* ── Avatar row button ── */}
-              <button
-                type="button"
-                onClick={() => onNodeClick(node)}
-                title={node.title}
-                className="flex w-full items-center gap-3 rounded-[16px] px-2 py-2 text-left transition-all hover:bg-slate-50/80"
-                style={{ paddingLeft: `${indentPx + 10}px` }}
-              >
-                {/* Avatar circle */}
-                <div className={cn(
-                  'relative h-9 w-9 shrink-0 overflow-hidden rounded-full border-2 bg-white transition-transform duration-150 group-hover/n:scale-105',
-                  cfg.ring, cfg.glow
-                )}>
-                  <UserAvatar
-                    username={node.label}
-                    avatarUrl={node.avatarUrl}
-                    size="sm"
-                    className={cn('h-full w-full', cfg.av)}
-                  />
-                  {/* Status dot */}
-                  <span className={cn(
-                    'absolute -bottom-px -right-px h-2 w-2 rounded-full border-[1.5px] border-white',
-                    cfg.dot
-                  )} />
-                </div>
-
-                {/* Name + subtitle */}
-                <div className="min-w-0 flex-1">
-                  <p className={cn('truncate text-[12px] font-bold leading-tight', cfg.name)}>
-                    {node.label}
-                  </p>
-                  {node.subtitle && (
-                    <p className="truncate text-[11px] leading-tight text-slate-400">{node.subtitle}</p>
-                  )}
-                </div>
-              </button>
-
-              {/* Hover tooltip */}
-              <div className="pointer-events-none absolute left-full top-1/2 z-30 ml-2 hidden w-44 -translate-y-1/2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-[0_8px_28px_rgba(15,23,42,0.12)] group-hover/n:block">
-                <p className="text-[11px] font-semibold text-slate-800">{node.title}</p>
-                {node.subtitle && <p className="mt-0.5 text-[10px] text-slate-500">{node.subtitle}</p>}
+            <button
+              key={node.key}
+              type="button"
+              onClick={() => onNodeClick(node)}
+              title={node.title}
+              className="flex w-full items-start gap-3 text-left group/n hover:bg-slate-50 rounded-xl px-2 py-0.5 transition-colors"
+            >
+              {/* Dot + connecting line column */}
+              <div className="flex shrink-0 flex-col items-center" style={{ width: 14 }}>
+                <div className={cn('mt-[7px] h-[10px] w-[10px] shrink-0 rounded-full ring-2', dc)} />
+                {!isLast && <div className="w-px flex-1 bg-slate-200" style={{ minHeight: 18 }} />}
               </div>
-            </div>
+
+              {/* Name + subtitle */}
+              <div className={cn('min-w-0 flex-1', isLast ? 'pb-0' : 'pb-2.5')}>
+                <p className="text-[13px] font-semibold leading-tight text-slate-800 group-hover/n:text-blue-600 transition-colors">
+                  {node.label}
+                </p>
+                {node.subtitle && (
+                  <p className="mt-0.5 text-[11px] leading-tight text-slate-400">{node.subtitle}</p>
+                )}
+              </div>
+            </button>
           )
         })}
       </div>
@@ -620,6 +540,8 @@ export function TaskCard({
   teamMemberTaskSummary = {},
   enableQueueAssign = false,
   hasOtherQueuedTasks = false,
+  isFirstInQueue = true,
+  hasActiveHallTask = false,
   onEdit,
   onViewDetail,
   onRefresh,
@@ -651,8 +573,27 @@ export function TaskCard({
   const isGloballyDone = task.completed || task.task_status === 'done'
   const isMySubmission = (task.completed_by || '').toLowerCase() === currentUsername.toLowerCase()
   const isCurrentlyAssignedToMe = (task.assigned_to || '').toLowerCase() === currentUsername.toLowerCase()
+  const hasForwardedSubmission = (task.assignment_chain || []).some((entry) => {
+    const actor = (entry.user || '').toLowerCase()
+    const role = String(entry.role || '').toLowerCase()
+    const action = String(entry.action || '').toLowerCase()
+    return actor === currentUsername.toLowerCase() && (
+      role === 'submitted_for_approval' ||
+      action === 'submit' ||
+      action === 'complete' ||
+      action === 'complete_final'
+    )
+  })
   
-  const isCompleted = isGloballyDone || (isMySubmission && !isCurrentlyAssignedToMe)
+  // A chain participant has "completed their part" when:
+  // 1) The task is globally done, OR
+  // 2) They submitted completion (completed_by = me) and task moved on (not assigned to me, or pending approval), OR
+  // 3) They forwarded a submission and it moved on, OR
+  // 4) They approved a step and it was reassigned back to them with approval_status = 'approved'
+  //    AND they then submitted their own work upward (hasForwardedSubmission)
+  const isCompleted = isGloballyDone ||
+    (isMySubmission && (!isCurrentlyAssignedToMe || task.approval_status === 'pending_approval')) ||
+    (hasForwardedSubmission && (task.approval_status === 'pending_approval' || !isCurrentlyAssignedToMe))
   
   const isPendingApproval = task.approval_status === 'pending_approval'
   const pendingApprover = task.pending_approver || task.username
@@ -685,8 +626,13 @@ export function TaskCard({
   // Hall-scheduled tasks auto-start when assigned (scheduler_state = 'active'), so no Start Work button needed.
   // For user_queue state they wait for auto-start — also no manual start button.
   const hallSchedulerState = (task as unknown as Record<string, unknown>).scheduler_state as string | null
-  const isHallScheduledTaskForMe = isAssignee && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
-  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted && !isHallScheduledTaskForMe
+  // A task is hall-scheduled if it's assigned to me AND has a hall scheduler_state OR the cluster workflow_state.
+  const isHallScheduledTaskForMe = isAssignee && (
+    (!!task.cluster_id && task.workflow_state === 'claimed_by_department') ||
+    (!!hallSchedulerState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(hallSchedulerState))
+  )
+  // Never show generic Start Task if task is under the hall scheduler (has any scheduler_state)
+  const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted && !isHallScheduledTaskForMe && !hallSchedulerState
   const canCreatorControlSingleFlow = isCreator && (!maEnabled || maAllAccepted)
   
   // A user can "Complete" if they are the assignee AND it's not MA
@@ -695,43 +641,50 @@ export function TaskCard({
   const isStepOwner = (stepOwner || '').toLowerCase() === currentUsername.toLowerCase()
   const currentAssigneeApproved = (task.approval_status === 'approved' || !task.approval_status) && !!task.completed_by
   
-  // Hall queue task that is waiting — user can manually activate if queued
-  const showHallActivateBtn = isHallScheduledTaskForMe && hallSchedulerState === 'user_queue' && !isCompleted
+  // Hall queue task that is waiting or paused — user can activate only if at queue position #1
+  // Clicking always auto-pauses any currently active task first (swap behaviour)
+  const showHallActivateBtn = isHallScheduledTaskForMe && (hallSchedulerState === 'user_queue' || hallSchedulerState === 'paused') && !isCompleted && isFirstInQueue
   // Hall active task — user can pause it only when they have other tasks waiting in the queue
   const showHallPauseBtn = isHallScheduledTaskForMe && hallSchedulerState === 'active' && !isCompleted && hasOtherQueuedTasks
 
+  // Hall active task submits for approval instead of directly completing
+  const showHallCompleteBtn = isHallScheduledTaskForMe && hallSchedulerState === 'active' && !isCompleted
   const showCompleteBtn = !task.completed && !isPendingApproval && (
-    ((isAssignee && !maEnabled) && (task.task_status === 'in_progress' || (isHallScheduledTaskForMe && hallSchedulerState === 'active'))) || 
+    ((isAssignee && !maEnabled) && task.task_status === 'in_progress' && !showHallCompleteBtn) || 
     (isStepOwner && currentAssigneeApproved)
   )
 
-  const showReopenBtn = isCreator && isCompleted
   const showApproveBtn = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
   const queueDeptKey = canonicalDepartmentKey(task.queue_department || '')
   const userDeptKeys = splitDepartmentsCsv(currentUserDept).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
   const isLeaderRole = currentUserRole === 'Manager' || currentUserRole === 'Supervisor' || currentUserRole === 'Super Manager' || currentUserRole === 'Admin'
-  // Leaders (Manager/Supervisor/Super Manager/Admin) can claim any queued task regardless of dept
-  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+  // Leaders (Manager/Supervisor/Super Manager/Admin) can claim any queued task regardless of dept,
+  // including tasks they created — management override lets them forcefully pick dept-queue tasks.
+  // Regular users who created the task cannot pick it back (they sent it away).
+  const showClaimBtn = task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone && (!isCreator || isLeaderRole) &&
     (isLeaderRole || !queueDeptKey || userDeptKeys.length === 0 || userDeptKeys.includes(queueDeptKey))
   const queueAssignableTeamMembers = currentUserTeamMembers.filter((member) => member && member.toLowerCase() !== currentUsername.toLowerCase())
   const teamMemberDeptKeySet = new Set(currentUserTeamMemberDeptKeys)
-  // Leaders can assign any queued task to their team (no dept restriction)
-  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone &&
+  // Leaders can assign any queued task to their team (no dept restriction),
+  // including tasks they created — management override for forceful assignment.
+  const showQueueAssignBtn = enableQueueAssign && task.queue_status === 'queued' && !task.assigned_to && !isGloballyDone && (!isCreator || isLeaderRole) &&
     queueAssignableTeamMembers.length > 0 &&
     (isLeaderRole || (queueDeptKey !== '' && (userDeptKeys.includes(queueDeptKey) || teamMemberDeptKeySet.has(queueDeptKey))))
-  // Hall Queue (cluster_inbox) actions — only for leader roles in the receiving cluster
+  // Hall Queue (cluster_inbox) actions — only for leader roles in the RECEIVING cluster, not the sender
   const isHallQueueTask = task.cluster_inbox === true && !isGloballyDone
   // Task that has already been assigned out of hall inbox into the scheduler flow
   const isHallScheduledTask = !task.cluster_inbox && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
-  const showHallClaimBtn = isHallQueueTask && isLeaderRole
-  const showHallAssignBtn = isHallQueueTask && isLeaderRole && queueAssignableTeamMembers.length > 0
+  const showHallClaimBtn = isHallQueueTask && isLeaderRole && !isCreator
+  const showHallAssignBtn = isHallQueueTask && isLeaderRole && !isCreator && queueAssignableTeamMembers.length > 0
 
   // ANY user in the chain can "Assign/Reassign" if they are the current assignee
   // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
   // BUT not for hall-scheduled tasks — cross-hall tasks are done by the assignee only
   const showReassignBtn = !isGloballyDone && !isPendingApproval && (isAssignee || isCreator) && !!task.assigned_to && !maEnabled && !task.cluster_id
-  // Hall manager re-assignment buttons (for any hall task with cluster_id)
-  const showHallMgrReassignBtn = !!task.cluster_id && !task.cluster_inbox && !isGloballyDone && isLeaderRole && !isCreator
+  // Hall manager re-assignment buttons (for any hall task with cluster_id).
+  // Do NOT show for the direct assignee (they were assigned this task to work on, not to re-route)
+  // and do NOT show for MA assignees (they are one of the workers, not the manager).
+  const showHallMgrReassignBtn = !!task.cluster_id && !task.cluster_inbox && !isGloballyDone && isLeaderRole && !isCreator && !isAssignee && !myMaEntry
 
   const singleStepOwner = !maEnabled && task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
   const hasSingleStepChain = !maEnabled && !!task.assigned_to && (task.assignment_chain || []).some((entry) => (entry.next_user || '').toLowerCase() === task.assigned_to!.toLowerCase())
@@ -744,13 +697,18 @@ export function TaskCard({
     (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase() &&
     (singleStepOwner || '').toLowerCase() !== task.assigned_to.toLowerCase()
   const showSingleDueDateBtn = canEditSingleDueDate
-  const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted
+  // For hall-scheduled MA tasks (cluster_id present), only allow Start when this user's entry is marked active.
+  // For non-hall MA tasks, allow Start when status is pending (original behaviour).
+  const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted &&
+    (task.cluster_id ? myMaEntry.hall_scheduler_state === 'active' : true)
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
-  const showMaDelegateBtn = !!myMaEntry && !isCompleted
+  const showMaDelegateBtn = false
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
-  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showReopenBtn || showHallActivateBtn || showHallPauseBtn
+  const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showHallCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showHallActivateBtn || showHallPauseBtn
+    || (isHallScheduledTaskForMe && hallSchedulerState === 'waiting_review' && !isCompleted)
+    || (!!myMaEntry && myMaEntry.status === 'completed' && !isCompleted)
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -792,6 +750,26 @@ export function TaskCard({
   })
   const queryClient = useQueryClient()
 
+  // ── Live countdown for active hall tasks ──────────────────────────────────
+  const taskRaw = task as unknown as Record<string, unknown>
+  const hallRemainingStored = (taskRaw.remaining_work_minutes as number | null) ?? null
+  const hallActiveStartedAt = (taskRaw.active_started_at as string | null) ?? null
+  const hallQueueRank = (taskRaw.queue_rank as number | null) ?? null
+
+  const [liveRemaining, setLiveRemaining] = useState<number>(
+    getRealTimeRemainingMinutes(hallRemainingStored, hallActiveStartedAt, DEFAULT_OFFICE_HOURS)
+  )
+
+  useEffect(() => {
+    if (hallSchedulerState !== 'active' || !isHallScheduledTaskForMe) return
+    // Tick every 30 seconds — office-minute resolution is 1 min, 30s is smooth enough
+    const id = setInterval(() => {
+      setLiveRemaining(getRealTimeRemainingMinutes(hallRemainingStored, hallActiveStartedAt, DEFAULT_OFFICE_HOURS))
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [hallSchedulerState, isHallScheduledTaskForMe, hallRemainingStored, hallActiveStartedAt])
+  // ─────────────────────────────────────────────────────────────────────────
+
   const prefetchTaskDetail = useCallback(() => {
     queryClient.prefetchQuery({
       queryKey: queryKeys.taskDetail(task.id),
@@ -802,18 +780,22 @@ export function TaskCard({
 
   const doAction = (
     fn: () => Promise<{ success: boolean; error?: string }>,
-    optimisticData?: Partial<Todo>
+    optimisticData?: Partial<Todo>,
+    optimisticRemove?: boolean
   ) => {
     setActionError('')
-    
-    // Optimistic Update
-    if (optimisticData) {
-      const queryKey = queryKeys.tasks(currentUsername)
-      const previousTasks = queryClient.getQueryData<Todo[]>(queryKey)
-      
+
+    const queryKey = queryKeys.tasks(currentUsername)
+    let previousTasks: Todo[] | undefined
+    const hasOptimistic = !!optimisticData || optimisticRemove
+
+    // Apply optimistic update immediately — user sees result BEFORE server responds
+    if (hasOptimistic) {
+      previousTasks = queryClient.getQueryData<Todo[]>(queryKey)
       if (previousTasks) {
         queryClient.setQueryData<Todo[]>(queryKey, (old) => {
           if (!old) return old
+          if (optimisticRemove) return old.filter(t => t.id !== task.id)
           return old.map(t => t.id === task.id ? { ...t, ...optimisticData } : t)
         })
       }
@@ -823,13 +805,24 @@ export function TaskCard({
       try {
         const result = await fn()
         if (result.success) {
-          onRefresh()
+          if (hasOptimistic) {
+            // Optimistic update already shown — delay refetch to let server cache settle
+            // after revalidateTasksData() (unstable_cache + module cache need time to propagate)
+            setTimeout(() => {
+              void queryClient.invalidateQueries({ queryKey })
+            }, 1500)
+          } else {
+            onRefresh()
+          }
         } else {
-          // Rollback on error handled by onRefresh or manual logic if needed
+          // Rollback optimistic update on server error
+          if (previousTasks) queryClient.setQueryData<Todo[]>(queryKey, previousTasks)
           setActionError(result.error ?? 'Action failed. Please try again.')
-          onRefresh() // Ensure state is synced with server
+          onRefresh()
         }
       } catch (error) {
+        // Rollback on exception
+        if (previousTasks) queryClient.setQueryData<Todo[]>(queryKey, previousTasks)
         setActionError(error instanceof Error ? error.message : 'Unexpected action error')
         onRefresh()
       }
@@ -922,21 +915,69 @@ export function TaskCard({
         }
         const files = dialogFiles.slice()
         closeTaskDialog()
+        // Optimistic: mark completed immediately so card looks done before server responds
+        const completeQueryKey = queryKeys.tasks(currentUsername)
+        const prevTasksForComplete = queryClient.getQueryData<Todo[]>(completeQueryKey)
+        queryClient.setQueryData<Todo[]>(completeQueryKey, (old) =>
+          old?.map(t => t.id === task.id ? { ...t, completed: true, task_status: 'done' } : t)
+        )
         startTransition(async () => {
           setActionError('')
           if (files.length) {
             const supabase = createBrowserClient()
             for (const file of files) {
               const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
-              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
               const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
-              if (upload.error) { setActionError(upload.error.message); return }
+              if (upload.error) { setActionError(upload.error.message); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
               const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
-              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
             }
           }
           const result = await toggleTodoCompleteAction(task.id, true, note)
-          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+          if (result.success) {
+            void queryClient.invalidateQueries({ queryKey: completeQueryKey })
+          } else {
+            if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete)
+            setActionError(result.error ?? 'Action failed')
+          }
+        })
+        return
+      }
+      case 'hall-complete': {
+        const note = dialogValue.trim()
+        if (!note) {
+          setActionError('Please add a note about the completed work.')
+          return
+        }
+        const files = dialogFiles.slice()
+        closeTaskDialog()
+        // Optimistic: mark as waiting_review immediately
+        const hallCompleteQueryKey = queryKeys.tasks(currentUsername)
+        const prevTasksForHallComplete = queryClient.getQueryData<Todo[]>(hallCompleteQueryKey)
+        queryClient.setQueryData<Todo[]>(hallCompleteQueryKey, (old) =>
+          old?.map(t => t.id === task.id ? { ...t, scheduler_state: 'waiting_review' } : t)
+        )
+        startTransition(async () => {
+          setActionError('')
+          if (files.length) {
+            const supabase = createBrowserClient()
+            for (const file of files) {
+              const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
+              const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
+              if (upload.error) { setActionError(upload.error.message); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
+              const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
+            }
+          }
+          const result = await submitHallTaskForReviewAction(task.id, note)
+          if (result.success) {
+            void queryClient.invalidateQueries({ queryKey: hallCompleteQueryKey })
+          } else {
+            if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete)
+            setActionError(result.error ?? 'Action failed')
+          }
         })
         return
       }
@@ -945,7 +986,10 @@ export function TaskCard({
           setActionError('Please provide a reason for declining.')
           return
         }
-        doAction(() => declineTodoAction(task.id, dialogValue.trim()))
+        doAction(
+          () => declineTodoAction(task.id, dialogValue.trim()),
+          { approval_status: 'declined' }
+        )
         closeTaskDialog()
         return
       case 'approve':
@@ -953,12 +997,15 @@ export function TaskCard({
           setActionError('Please provide approval feedback.')
           return
         }
-        doAction(() => approveTodoAction(task.id, dialogValue.trim()))
+        doAction(
+          () => approveTodoAction(task.id, dialogValue.trim()),
+          { approval_status: 'approved', task_status: 'done', completed: true }
+        )
         closeTaskDialog()
         return
       case 'single-due-date':
         if (!dialogValue.trim()) return
-        doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()))
+        doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()), { due_date: dialogValue.trim() })
         closeTaskDialog()
         return
       case 'step-edit':
@@ -989,33 +1036,22 @@ export function TaskCard({
         return
       case 'queue-assign':
         if (!dialogValue.trim()) return
-        doAction(() => assignQueuedTaskToTeamMemberAction(task.id, dialogValue.trim()))
+        doAction(() => assignQueuedTaskToTeamMemberAction(task.id, dialogValue.trim()), { assigned_to: dialogValue.trim(), queue_status: 'claimed', task_status: 'todo' })
         closeTaskDialog()
         return
       case 'hall-assign': {
         if (!dialogValue.trim()) return
         const totalEstimatedHours = (parseFloat(hallAssignDays) || 0) * 8 + (parseFloat(hallAssignHours) || 0)
         if (totalEstimatedHours <= 0) { setActionError('Please enter estimated hours required.'); return }
-        doAction(() => assignHallInboxTaskWithSchedulerAction(task.id, dialogValue.trim(), hallAssignPriority, totalEstimatedHours))
+        doAction(() => assignHallInboxTaskWithSchedulerAction(task.id, dialogValue.trim(), hallAssignPriority, totalEstimatedHours), { assigned_to: dialogValue.trim(), cluster_inbox: false, task_status: 'todo' })
         closeTaskDialog()
         return
       }
       case 'delegate':
         if (!dialogValue.trim()) return
-        doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined), { task_status: 'in_progress' })
         closeTaskDialog()
         return
-      case 'creator-reopen':
-        {
-        const reopenReason = dialogValue.trim()
-        if (!reopenReason) {
-          setActionError('Reopen reason is required.')
-          return
-        }
-        doAction(() => toggleTodoCompleteAction(task.id, false, reopenReason))
-        closeTaskDialog()
-        return
-        }
       case 'sub-submit': {
         const note = dialogValue.trim()
         if (!note) {
@@ -1045,22 +1081,16 @@ export function TaskCard({
       }
       case 'reject-assignee':
         if (!dialogValue.trim()) return
-        doAction(() => rejectMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()))
-        closeTaskDialog()
-        return
-      case 'reopen-assignee':
-        if (!dialogValue.trim()) return
-        if (!dialogExtraValue.trim()) return
-        doAction(() => reopenMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim(), dialogExtraValue.trim()))
+        doAction(() => rejectMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       case 'reject-sub':
         if (!dialogValue.trim()) return
-        doAction(() => rejectMaSubAssigneeAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername, dialogValue.trim()))
+        doAction(() => rejectMaSubAssigneeAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername, dialogValue.trim()), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       case 'remove-delegation':
-        doAction(() => removeMaDelegationAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername))
+        doAction(() => removeMaDelegationAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       default:
@@ -1090,7 +1120,7 @@ export function TaskCard({
       >
         <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
         <div className="mb-2 flex items-start justify-between gap-2">
-          <StatusDot status={isCompleted ? 'done' : task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+          <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
         {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
@@ -1201,9 +1231,79 @@ export function TaskCard({
 
           {/* Row 2: Status dot + Priority badge only */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={isCompleted ? 'done' : task.task_status} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+            <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
+
+          {/* Hall queue: position badge + live countdown */}
+          {isHallScheduledTaskForMe && !isCompleted && (() => {
+            const urgency = hallSchedulerState === 'active'
+              ? formatRemainingWithUrgency(liveRemaining)
+              : null
+            return (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {/* Queue position badge */}
+                {hallQueueRank !== null && (
+                  hallSchedulerState === 'active' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-bold text-green-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                      Active — Queue #1
+                    </span>
+                  ) : hallSchedulerState === 'paused' ? (
+                    isFirstInQueue ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                        ⏸ Paused — Queue #1 (Resume Ready)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                        ⏸ Paused — Queue #{hallQueueRank}
+                      </span>
+                    )
+                  ) : hallSchedulerState === 'user_queue' ? (
+                    isFirstInQueue ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
+                        #1 Ready to Start
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                        Queue #{hallQueueRank} — waiting
+                      </span>
+                    )
+                  ) : hallSchedulerState === 'waiting_review' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                      ⏳ Submitted — Queue #{hallQueueRank}
+                    </span>
+                  ) : null
+                )}
+                {/* Live countdown when active */}
+                {urgency && (
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                    liveRemaining <= 0 ? 'border-red-200 bg-red-50 text-red-600' :
+                    liveRemaining <= 30 ? 'border-red-200 bg-red-50 text-red-600' :
+                    liveRemaining <= 120 ? 'border-amber-200 bg-amber-50 text-amber-600' :
+                    'border-green-200 bg-green-50 text-green-700'
+                  }`}>
+                    <Clock size={10} />
+                    {urgency.text}
+                  </span>
+                )}
+                {/* Queued task: show estimated time */}
+                {hallSchedulerState === 'user_queue' && hallRemainingStored !== null && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-500">
+                    <Clock size={10} />
+                    {Math.round(hallRemainingStored / 60)}h est.
+                  </span>
+                )}
+                {/* Show paused remaining */}
+                {hallSchedulerState === 'paused' && hallRemainingStored !== null && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-600">
+                    <Clock size={10} />
+                    {Math.round(hallRemainingStored / 60)}h remaining (paused)
+                  </span>
+                )}
+              </div>
+            )
+          })()}
 
           {summaryText && (
             <p className="mt-2.5 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-500">
@@ -1222,12 +1322,35 @@ export function TaskCard({
             <div className="mt-4 flex flex-wrap gap-2">
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id), { task_status: 'in_progress' })} color="blue" disabled={isPending}>Start Work</ActBtn>}
-              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>Start Task</ActBtn>}
+              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>{hallSchedulerState === 'paused' ? 'Resume Task' : 'Start Task'}</ActBtn>}
+              {/* Queue lock message — shown when task is waiting/paused but NOT at position #1 */}
+              {isHallScheduledTaskForMe && hallSchedulerState === 'user_queue' && !isCompleted && !isFirstInQueue && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-500">
+                  🔒 Queue #{hallQueueRank} — Complete the task ahead first
+                </span>
+              )}
+              {isHallScheduledTaskForMe && hallSchedulerState === 'paused' && !isCompleted && !isFirstInQueue && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-600">
+                  ⏸ Queue #{hallQueueRank} — paused, waiting for tasks ahead
+                </span>
+              )}
               {showHallPauseBtn && <ActBtn onClick={() => doAction(() => pauseHallTaskAction(task.id), { scheduler_state: 'paused' })} color="amber" disabled={isPending}>Pause</ActBtn>}
+              {showHallCompleteBtn && <ActBtn onClick={() => openTaskDialog({ type: 'hall-complete' })} color="green" disabled={isPending}>Complete Task</ActBtn>}
+              {/* Waiting review lock message */}
+              {isHallScheduledTaskForMe && hallSchedulerState === 'waiting_review' && !isCompleted && !showCompleteBtn && !showApproveBtn && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700">
+                  ⏳ Awaiting approval — Queue #{hallQueueRank}
+                </span>
+              )}
+              {!!myMaEntry && myMaEntry.status === 'completed' && !isCompleted && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700">
+                  ⏳ Waiting for Approval
+                </span>
+              )}
               {showClaimBtn && <ActBtn onClick={() => doAction(() => claimQueuedTaskAction(task.id), { assigned_to: currentUsername, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
               {showHallClaimBtn && <ActBtn onClick={() => doAction(() => claimClusterInboxTaskAction(task.id), { assigned_to: currentUsername, cluster_inbox: false, queue_status: 'claimed', task_status: 'todo' })} color="violet" disabled={isPending}>Pick Task</ActBtn>}
               {showHallAssignBtn && (
-                <ActBtn onClick={() => router.push(`/dashboard/tasks/hall-assign/${task.id}`)} color="indigo" disabled={isPending}>Assign to Team</ActBtn>
+                <ActBtn onClick={() => router.push(`/dashboard/tasks/hall-multi-assign/${task.id}`)} color="indigo" disabled={isPending}>Assign to Team</ActBtn>
               )}
               {showReassignBtn && (
                 <ActBtn
@@ -1278,7 +1401,7 @@ export function TaskCard({
                   Assign to Team
                 </ActBtn>
               )}
-              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo" disabled={isPending}>MA: Start</ActBtn>}
+              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'), { task_status: 'in_progress' })} color="indigo" disabled={isPending}>Start Task</ActBtn>}
               {showMaSubmitBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1287,7 +1410,7 @@ export function TaskCard({
                   color="teal"
                   disabled={isPending}
                 >
-                  MA: Submit
+                  Complete Task
                 </ActBtn>
               )}
               {showMaDelegateBtn && (
@@ -1301,7 +1424,7 @@ export function TaskCard({
                   Delegate
                 </ActBtn>
               )}
-              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'))} color="indigo" disabled={isPending}>Sub: Start</ActBtn>}
+              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'), { task_status: 'in_progress' })} color="indigo" disabled={isPending}>Sub: Start</ActBtn>}
               {showDelegatedSubmitBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1326,15 +1449,6 @@ export function TaskCard({
                   disabled={isPending}
                 >
                   Complete
-                </ActBtn>
-              )}
-              {showReopenBtn && (
-                <ActBtn
-                  onClick={() => setShowCreatorReopenConfirm(true)}
-                  color="blue"
-                  disabled={isPending}
-                >
-                  Reopen Task
                 </ActBtn>
               )}
               {showApproveBtn && (
@@ -1453,7 +1567,7 @@ export function TaskCard({
                                     {sub.notes && <span className="text-[11px] text-amber-700">Note: {sub.notes}</span>}
                                     <div className="ml-auto flex flex-wrap gap-2">
                                       {isSubMe && subStatus === 'pending' && (
-                                        <button onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'in_progress'))} className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700">
+                                        <button onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'in_progress'), { task_status: 'in_progress' })} className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700">
                                           Start
                                         </button>
                                       )}
@@ -1469,7 +1583,7 @@ export function TaskCard({
                                       )}
                                       {isDelegator && subStatus === 'completed' && (
                                         <>
-                                          <button onClick={() => doAction(() => acceptMaSubAssigneeAction(task.id, assignee.username, sub.username))} className="rounded-full bg-green-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-green-700">
+                                          <button onClick={() => doAction(() => acceptMaSubAssigneeAction(task.id, assignee.username, sub.username), { task_status: 'in_progress' })} className="rounded-full bg-green-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-green-700">
                                             Accept
                                           </button>
                                           <button
@@ -1551,7 +1665,7 @@ export function TaskCard({
                     {displayDate && (
                       <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
                         {isCompleted && task.completed_at ? (
-                          getCompletionStatusText(task.due_date, task.completed_at)
+                          getCompletionStatusText(displayDate, task.completed_at)
                         ) : (
                           fmtTime(displayDate)
                         )}
@@ -1600,16 +1714,6 @@ export function TaskCard({
                 Assign to Team
               </button>
             )}
-            {showReopenBtn && (
-              <button
-                onClick={() => {
-                  openTaskDialog({ type: 'creator-reopen' })
-                }}
-                className="inline-flex items-center justify-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700"
-              >
-                Reopen Task
-              </button>
-            )}
           </div>
         </div>
 
@@ -1640,12 +1744,12 @@ export function TaskCard({
             <Copy size={13} />
           </button>
           {isCreator && !isCompleted && (
-            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
+            <button onClick={() => doAction(() => deleteTodoAction(task.id), undefined, true)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
               <Trash2 size={13} />
             </button>
           )}
           {isCreator && !isCompleted && task.task_status === 'done' && (
-            <button onClick={() => doAction(() => archiveTodoAction(task.id))} className="rounded-xl p-2 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
+            <button onClick={() => doAction(() => archiveTodoAction(task.id), undefined, true)} className="rounded-xl p-2 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
               ↓
             </button>
           )}
@@ -1656,7 +1760,7 @@ export function TaskCard({
       <ActionDialog
           title={
             taskDialog.type === 'complete' ? 'Submit completion feedback' :
-            taskDialog.type === 'creator-reopen' ? 'Reopen task' :
+            taskDialog.type === 'hall-complete' ? 'Complete task' :
             taskDialog.type === 'decline-approval' ? 'Decline completion request' :
             taskDialog.type === 'approve' ? 'Approve completion request' :
             taskDialog.type === 'single-due-date' ? 'Set assignee due date' :
@@ -1665,13 +1769,12 @@ export function TaskCard({
             taskDialog.type === 'hall-assign' ? 'Assign Hall Queue task' :
           taskDialog.type === 'delegate' ? 'Delegate task work' :
           taskDialog.type === 'remove-delegation' ? 'Remove delegation' :
-          taskDialog.type === 'reopen-assignee' ? 'Reopen accepted work' :
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Send feedback' :
           'Add summary'
         }
           description={
             taskDialog.type === 'complete' ? 'Add a short summary before submitting this task as completed.' :
-            taskDialog.type === 'creator-reopen' ? 'Explain why this task is being reopened. It will go back only to the last submitter.' :
+            taskDialog.type === 'hall-complete' ? 'Add a note about completed work. File attachment is optional.' :
             taskDialog.type === 'decline-approval' ? 'Explain why this completion is declined so assignee can fix it.' :
           taskDialog.type === 'approve' ? 'Add a brief note about the approved work.' :
           taskDialog.type === 'single-due-date' ? 'Set the working due date for this single-assignee task.' :
@@ -1680,27 +1783,19 @@ export function TaskCard({
             taskDialog.type === 'hall-assign' ? 'Assign this Hall Queue task directly to one of your team members.' :
           taskDialog.type === 'delegate' ? 'Assign this work to another username with optional instructions.' :
           taskDialog.type === 'remove-delegation' ? 'This removes the delegated user from the task workflow.' :
-          taskDialog.type === 'reopen-assignee' ? 'Explain why this accepted work should be reopened.' :
           taskDialog.type === 'reject-assignee' || taskDialog.type === 'reject-sub' ? 'Give clear feedback so the work can be corrected.' :
           'Add an optional summary for this submission.'
         }
-        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' || taskDialog.type === 'hall-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'creator-reopen' ? 'Reopen task' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'approve' ? 'Approve & Pass' : taskDialog.type === 'single-due-date' ? 'Save changes' : taskDialog.type === 'step-edit' ? (stepEditNewAssignee.trim() ? 'Reassign task' : 'Save changes') : 'Confirm'}
+        primaryLabel={taskDialog.type === 'remove-delegation' ? 'Remove delegation' : taskDialog.type === 'queue-assign' || taskDialog.type === 'hall-assign' ? 'Assign task' : taskDialog.type === 'complete' ? 'Submit completion' : taskDialog.type === 'hall-complete' ? 'Complete Task' : taskDialog.type === 'decline-approval' ? 'Decline request' : taskDialog.type === 'approve' ? 'Approve & Pass' : taskDialog.type === 'single-due-date' ? 'Save changes' : taskDialog.type === 'step-edit' ? (stepEditNewAssignee.trim() ? 'Reassign task' : 'Save changes') : 'Confirm'}
         onClose={closeTaskDialog}
         onConfirm={submitTaskDialog}
         error={actionError}
       >
-        {taskDialog.type === 'complete' ? (
+        {(taskDialog.type === 'complete' || taskDialog.type === 'hall-complete') ? (
           <div className="space-y-3">
-            <DialogTextarea label="Completion Feedback" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
+            <DialogTextarea label="Completion Note" value={dialogValue} onChange={setDialogValue} placeholder="What work was completed? Add summary or handoff notes." />
             <CompletionFileInput files={dialogFiles} onChange={setDialogFiles} />
           </div>
-        ) : taskDialog.type === 'creator-reopen' ? (
-          <DialogTextarea
-            label="Reopen Reason"
-            value={dialogValue}
-            onChange={setDialogValue}
-            placeholder="Explain what needs to be corrected before this task can be accepted again."
-          />
         ) : taskDialog.type === 'decline-approval' ? (
           <DialogTextarea label="Decline Reason" value={dialogValue} onChange={setDialogValue} placeholder="Tell assignee what to fix before re-submitting." />
         ) : taskDialog.type === 'single-due-date' ? (
@@ -1977,11 +2072,6 @@ export function TaskCard({
           </div>
         ) : taskDialog.type === 'remove-delegation' ? (
           <p className="text-sm text-slate-600">Remove delegated access for <span className="font-semibold text-slate-900">{taskDialog.subUsername}</span>?</p>
-        ) : taskDialog.type === 'reopen-assignee' ? (
-          <div className="space-y-3">
-            <DialogTextarea label="Feedback" value={dialogValue} onChange={setDialogValue} placeholder="Explain why this work is reopened" />
-            <DialogInput label="New Due Date" value={dialogExtraValue} onChange={setDialogExtraValue} type="datetime-local" min={pakistanOfficeMinInputValue()} />
-          </div>
         ) : (
           <div className="space-y-3">
             <DialogTextarea
@@ -2013,11 +2103,11 @@ export function TaskCard({
         onClose={() => setShowHandoffDialog(false)}
         onAssignDepartment={(department, dueDate, note) => {
           setShowHandoffDialog(false)
-          doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note))
+          doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note), { task_status: 'in_progress' })
         }}
         onAssignMulti={(assignees, note) => {
           setShowHandoffDialog(false)
-          doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note))
+          doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note), { task_status: 'in_progress' })
         }}
       />
     )}

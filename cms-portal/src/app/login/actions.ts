@@ -1,6 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSession, getCookieName } from '@/lib/auth'
 import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
@@ -18,7 +19,6 @@ function normalizeRole(role: unknown): UserRole {
 }
 
 type LoginResult =
-  | { success: true }
   | { success: false; error: string }
 
 export async function loginAction(
@@ -95,12 +95,30 @@ export async function loginAction(
     )
   ))
 
-  // Fetch cluster memberships for this user
+  // Fetch cluster memberships for this user (explicit membership)
   const { data: clusterMemberships } = await supabase
     .from('cluster_members')
     .select('cluster_id')
     .eq('username', user.username as string)
-  const clusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+  const explicitLoginClusterIds = ((clusterMemberships ?? []) as Array<{ cluster_id: string }>).map((m) => m.cluster_id).filter(Boolean)
+
+  // Dept-based cluster IDs: Manager/Supervisor/Super Manager/Admin also get access
+  // to halls whose cluster_departments link to their department(s)
+  let loginDeptClusterIds: string[] = []
+  const loginRole = normalizeRole(user.role)
+  if (['Manager', 'Supervisor', 'Super Manager', 'Admin'].includes(loginRole)) {
+    const loginDeptNames = splitDepartmentsCsv((user.department as string | null) ?? '').filter(Boolean)
+    if (loginDeptNames.length > 0) {
+      const { data: matchedLoginDepts } = await supabase.from('departments').select('id').in('name', loginDeptNames)
+      const loginDeptIds = ((matchedLoginDepts ?? []) as Array<{ id: string }>).map((d) => d.id)
+      if (loginDeptIds.length > 0) {
+        const { data: loginHallDepts } = await supabase.from('cluster_departments').select('cluster_id').in('department_id', loginDeptIds)
+        loginDeptClusterIds = ((loginHallDepts ?? []) as Array<{ cluster_id: string }>).map((d) => d.cluster_id).filter(Boolean)
+      }
+    }
+  }
+
+  const clusterIds = [...new Set([...explicitLoginClusterIds, ...loginDeptClusterIds])]
 
   const sessionUser: SessionUser = {
     username: user.username as string,
@@ -132,7 +150,7 @@ export async function loginAction(
     path: '/',
   })
 
-  return { success: true }
+  redirect('/dashboard')
 }
 
 export async function logoutAction() {

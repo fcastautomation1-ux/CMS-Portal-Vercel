@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,6 +33,8 @@ import {
   Mail,
   Layers,
   Inbox,
+  ListOrdered,
+  Loader2,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -62,6 +65,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
       { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
       { label: 'Hall Queue', href: '/dashboard/team?scope=tasks_queue', icon: <Inbox size={17} />, color: '#7e5daa' },
+      { label: 'Task Priority', href: '/dashboard/tasks/queue-priority', icon: <ListOrdered size={17} />, color: '#7C3AED' },
     ],
   },
   {
@@ -140,6 +144,10 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       if (user.clusterIds.length === 0) return false
       return isAdminOrSM || isManager || role === 'Supervisor'
 
+    case '/dashboard/tasks/queue-priority':
+      // Show to any user who belongs to at least one hall cluster
+      return user.clusterIds.length > 0
+
     case '/dashboard/analytics':
       return isAdminOrSM
 
@@ -183,11 +191,29 @@ export function Sidebar({
   const [tasksOpen, setTasksOpen] = useState(true)
   const [teamOpen, setTeamOpen] = useState(true)
   const [teamTaskOpen, setTeamTaskOpen] = useState(true)
-  const [branding, setBranding] = useState<PublicBranding>({
-    portal_name: 'CMS Portal',
-    portal_tagline: 'Operations Hub',
-    logo_url: null,
+  // Tracks the href of a nav item immediately after click, before navigation resolves.
+  // Cleared automatically when pathname/searchParams update (navigation complete).
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+
+  useEffect(() => {
+    setPendingHref(null)
+  }, [pathname, searchParams])
+
+  const brandingQuery = useQuery({
+    queryKey: ['public-branding'],
+    queryFn: () =>
+      fetch('/api/public-branding')
+        .then((r) => r.json())
+        .then((d): PublicBranding => ({
+          portal_name: d?.portal_name || 'CMS Portal',
+          portal_tagline: d?.portal_tagline || 'Operations Hub',
+          logo_url: d?.logo_url || null,
+        }))
+        .catch((): PublicBranding => ({ portal_name: 'CMS Portal', portal_tagline: 'Operations Hub', logo_url: null })),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   })
+  const branding = brandingQuery.data ?? { portal_name: 'CMS Portal', portal_tagline: 'Operations Hub', logo_url: null }
 
   const taskCountsQuery = useQuery({
     queryKey: queryKeys.taskSidebarCounts(user.username),
@@ -269,35 +295,6 @@ export function Sidebar({
     if (tone === 'queue') return 'bg-violet-500/15 text-violet-700'
     return 'bg-blue-500/15 text-blue-700'
   }
-  const taskPrefetchUrls = useMemo(
-    () => [
-      '/dashboard/tasks?scope=my_all&status=all',
-      '/dashboard/tasks?scope=my_all&status=completed',
-      '/dashboard/tasks?scope=my_all&status=in_progress',
-      '/dashboard/tasks?scope=my_all&status=pending',
-      '/dashboard/tasks?scope=my_all&status=overdue',
-      '/dashboard/tasks?scope=my_all&status=queue',
-    ],
-    []
-  )
-  const teamPrefetchUrls = useMemo(
-    () => [
-      '/dashboard/team?scope=users',
-      '/dashboard/team?scope=tasks_all',
-      '/dashboard/team?scope=tasks_completed',
-      '/dashboard/team?scope=tasks_in_progress',
-      '/dashboard/team?scope=tasks_pending',
-      '/dashboard/team?scope=tasks_overdue',
-      '/dashboard/team?scope=tasks_queue',
-    ],
-    []
-  )
-
-  useEffect(() => {
-    taskPrefetchUrls.forEach((href) => {
-      router.prefetch(href)
-    })
-  }, [router, taskPrefetchUrls])
 
   useEffect(() => {
     // Debounce at 3 s — short enough to feel responsive, long enough to absorb burst
@@ -332,34 +329,14 @@ export function Sidebar({
   }, [queryClient, user.username])
 
   useEffect(() => {
-    teamPrefetchUrls.forEach((href) => {
-      router.prefetch(href)
-    })
-  }, [router, teamPrefetchUrls])
-
-  useEffect(() => {
-    let mounted = true
-    const loadBranding = () => {
-      fetch('/api/public-branding', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          if (!mounted) return
-          setBranding({
-            portal_name: data?.portal_name || 'CMS Portal',
-            portal_tagline: data?.portal_tagline || 'Operations Hub',
-            logo_url: data?.logo_url || null,
-          })
-        })
-        .catch(() => { })
+    const onBrandingUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ['public-branding'] })
     }
-
-    loadBranding()
-    window.addEventListener('portal-branding-updated', loadBranding)
+    window.addEventListener('portal-branding-updated', onBrandingUpdated)
     return () => {
-      mounted = false
-      window.removeEventListener('portal-branding-updated', loadBranding)
+      window.removeEventListener('portal-branding-updated', onBrandingUpdated)
     }
-  }, [])
+  }, [queryClient])
 
   return (
     <aside
@@ -380,7 +357,7 @@ export function Sidebar({
           style={{ background: 'linear-gradient(135deg, var(--blue-600), var(--violet-600))' }}
         >
           {branding.logo_url ? (
-            <img src={branding.logo_url} alt={branding.portal_name} className="w-full h-full object-cover" />
+            <Image src={branding.logo_url} alt={branding.portal_name} width={32} height={32} className="w-full h-full object-cover" unoptimized />
           ) : (
             <ShieldCheck size={15} className="text-white" />
           )}
@@ -403,27 +380,28 @@ export function Sidebar({
               const isActive = item.href === '/dashboard'
                 ? (pathname === '/dashboard' || pathname === '/dashboard/')
                 : (pathname === item.href || pathname.startsWith(item.href + '/'))
+              const isPendingNav = pendingHref === item.href
 
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    onClick={onClose}
+                    onClick={() => { setPendingHref(item.href); onClose?.() }}
                     title={item.label}
                     className={cn(
                       'group relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-sm font-medium transition-all duration-150',
-                      isActive && 'text-white'
+                      (isActive || isPendingNav) && 'text-white'
                     )}
-                    style={isActive ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
+                    style={(isActive || isPendingNav) ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
                   >
-                    {!isActive && (
+                    {!(isActive || isPendingNav) && (
                       <span
                         className="absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
                         style={{ background: `${item.color}12` }}
                       />
                     )}
-                    <span className="relative z-10" style={{ color: isActive ? 'white' : item.color }}>
-                      {item.icon}
+                    <span className="relative z-10" style={{ color: (isActive || isPendingNav) ? 'white' : item.color }}>
+                      {isPendingNav && !isActive ? <Loader2 size={17} className="animate-spin" /> : item.icon}
                     </span>
                   </Link>
                 </li>
@@ -465,7 +443,8 @@ export function Sidebar({
                             <li key={item.href} className="overflow-hidden rounded-lg">
                               <button
                                 type="button"
-                                onClick={() => {
+                              onClick={() => {
+                                  setPendingHref('/dashboard/team?scope=users')
                                   onClose?.()
                                   router.push('/dashboard/team?scope=users', { scroll: false })
                                 }}
@@ -504,22 +483,25 @@ export function Sidebar({
                                     {/* User link */}
                                     <Link
                                       href="/dashboard/team?scope=users"
-                                      onClick={onClose}
+                                      onClick={() => { setPendingHref('/dashboard/team?scope=users'); onClose?.() }}
                                       prefetch
                                       scroll={false}
                                       className={cn(
                                         'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
-                                        isTeamActive && activeTeamScope === 'users'
+                                        (isTeamActive && activeTeamScope === 'users') || pendingHref === '/dashboard/team?scope=users'
                                           ? 'bg-slate-100 text-slate-900'
                                           : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
                                       )}
                                     >
                                       <span>Users</span>
-                                      {teamStats && (
-                                        <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                                          {teamStats.users}
-                                        </span>
-                                      )}
+                                      {pendingHref === '/dashboard/team?scope=users' && !(isTeamActive && activeTeamScope === 'users')
+                                        ? <Loader2 size={11} className="animate-spin text-slate-500" />
+                                        : teamStats && (
+                                          <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                                            {teamStats.users}
+                                          </span>
+                                        )
+                                      }
                                     </Link>
 
                                     {/* Task collapsible */}
@@ -527,7 +509,7 @@ export function Sidebar({
                                       <div className="flex items-center rounded-lg transition hover:bg-slate-50">
                                         <Link
                                           href="/dashboard/team?scope=tasks_all"
-                                          onClick={onClose}
+                                          onClick={() => { setPendingHref('/dashboard/team?scope=tasks_all'); onClose?.() }}
                                           prefetch
                                           scroll={false}
                                           className="flex flex-1 items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate-700"
@@ -547,26 +529,30 @@ export function Sidebar({
                                         <ul className="mt-0.5 space-y-0.5 pl-2">
                                           {teamTaskLinks.map((link) => {
                                             const isSubActive = isTeamActive && activeTeamScope === link.scope
+                                            const isSubPending = pendingHref === `/dashboard/team?scope=${link.scope}`
                                             return (
                                               <li key={link.scope}>
                                                 <Link
                                                   href={`/dashboard/team?scope=${link.scope}`}
-                                                  onClick={onClose}
+                                                  onClick={() => { setPendingHref(`/dashboard/team?scope=${link.scope}`); onClose?.() }}
                                                   prefetch
                                                   scroll={false}
                                                   className={cn(
                                                     'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
-                                                    isSubActive
+                                                    (isSubActive || isSubPending)
                                                       ? 'bg-slate-100 text-slate-900'
                                                       : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
                                                   )}
                                                 >
                                                   <span>{link.label}</span>
-                                                  {teamStats && (
-                                                    <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', link.badge)}>
-                                                      {teamStats[link.scope as keyof typeof teamStats]}
-                                                    </span>
-                                                  )}
+                                                  {isSubPending && !isSubActive
+                                                    ? <Loader2 size={11} className="animate-spin text-slate-500" />
+                                                    : teamStats && (
+                                                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', link.badge)}>
+                                                        {teamStats[link.scope as keyof typeof teamStats]}
+                                                      </span>
+                                                    )
+                                                  }
                                                 </Link>
                                               </li>
                                             )
@@ -616,23 +602,28 @@ export function Sidebar({
                                     { label: 'Overdue', status: 'overdue', count: myAllCounts.overdue, tone: 'overdue' as const },
                                     ...(user.clusterIds.length === 0 ? [{ label: 'Queue', status: 'queue' as const, count: myAllCounts.queue, tone: 'queue' as const }] : []),
                                   ] as const).map((statusLink) => {
+                                    const thisHref = `/dashboard/tasks?scope=my_all&status=${statusLink.status}`
                                     const isSubActive = pathname === '/dashboard/tasks' && activeTaskStatus === statusLink.status
+                                    const isSubPending = pendingHref === thisHref
                                     return (
                                       <li key={statusLink.status}>
                                         <Link
-                                          href={`/dashboard/tasks?scope=my_all&status=${statusLink.status}`}
-                                          onClick={onClose}
+                                          href={thisHref}
+                                          onClick={() => { setPendingHref(thisHref); onClose?.() }}
                                           prefetch
                                           scroll={false}
                                           className={cn(
                                             'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
-                                            isSubActive ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                            (isSubActive || isSubPending) ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
                                           )}
                                         >
                                           <span>{statusLink.label}</span>
-                                          <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', statusBadgeClass(statusLink.tone, isSubActive))}>
-                                            {statusLink.count}
-                                          </span>
+                                          {isSubPending && !isSubActive
+                                            ? <Loader2 size={11} className="animate-spin text-slate-500" />
+                                            : <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', statusBadgeClass(statusLink.tone, isSubActive))}>
+                                                {statusLink.count}
+                                              </span>
+                                          }
                                         </Link>
                                       </li>
                                     )
@@ -647,31 +638,34 @@ export function Sidebar({
                           <li key={item.href}>
                             <Link
                               href={item.href}
-                              onClick={onClose}
+                              onClick={() => { setPendingHref(item.href); onClose?.() }}
                               className={cn(
                                 'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
-                                isActive && 'text-white'
+                                (isActive || pendingHref === item.href) && 'text-white'
                               )}
-                              style={isActive ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
+                              style={(isActive || pendingHref === item.href) ? { background: item.color, boxShadow: `0 2px 8px ${item.color}40` } : undefined}
                             >
-                              {!isActive && (
+                              {!(isActive || pendingHref === item.href) && (
                                 <span
                                   className="absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
                                   style={{ background: `${item.color}12` }}
                                 />
                               )}
-                              <span className="relative z-10 shrink-0" style={{ color: isActive ? 'white' : item.color }}>
+                              <span className="relative z-10 shrink-0" style={{ color: (isActive || pendingHref === item.href) ? 'white' : item.color }}>
                                 {item.icon}
                               </span>
-                              <span className="relative z-10 flex-1 truncate text-left" style={{ color: isActive ? 'white' : 'var(--color-text)' }}>
+                              <span className="relative z-10 flex-1 truncate text-left" style={{ color: (isActive || pendingHref === item.href) ? 'white' : 'var(--color-text)' }}>
                                 {item.label}
                               </span>
                               {item.href === '/dashboard/team?scope=tasks_queue' && teamStats && teamStats.tasks_queue > 0 && (
-                                <span className={cn('relative z-10 rounded-full px-2 py-0.5 text-[11px] font-semibold', isActive ? 'bg-white/20 text-white' : 'bg-orange-500/15 text-orange-600')}>
+                                <span className={cn('relative z-10 rounded-full px-2 py-0.5 text-[11px] font-semibold', (isActive || pendingHref === item.href) ? 'bg-white/20 text-white' : 'bg-orange-500/15 text-orange-600')}>
                                   {teamStats.tasks_queue}
                                 </span>
                               )}
-                              {isActive && item.href !== '/dashboard/team?scope=tasks_queue' && <ChevronRight size={12} className="relative z-10 shrink-0 opacity-60" />}
+                              {pendingHref === item.href && !isActive
+                                ? <Loader2 size={12} className="relative z-10 shrink-0 animate-spin opacity-80" />
+                                : isActive && item.href !== '/dashboard/team?scope=tasks_queue' && <ChevronRight size={12} className="relative z-10 shrink-0 opacity-60" />
+                              }
                             </Link>
                           </li>
                         )

@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { getCachedTodos } from './actions'
+import { getCachedTodos, canUserCreateTasksAction } from './actions'
 import { TasksBoard } from '@/components/tasks/tasks-board'
 import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -9,37 +9,16 @@ export const metadata = {
   title: 'Tasks | CMS Portal',
 }
 
-export default async function TasksPage({
-  searchParams,
-}: {
-  searchParams?: { scope?: string; status?: string }
-}) {
-  const [user, tasks] = await Promise.all([
+// No searchParams — TasksBoard reads scope/status from useSearchParams() on the
+// client, so sidebar filter clicks are instant client-side re-renders with no
+// server round-trip, no loading.tsx, and no full component remount.
+export default async function TasksPage() {
+  const [user, tasks, canAddTask] = await Promise.all([
     getSession(),
     getCachedTodos().catch(() => []),
+    canUserCreateTasksAction().catch(() => false),
   ])
   if (!user) redirect('/login')
-
-  const scope = searchParams?.scope
-  const status = searchParams?.status
-  const initialScope =
-    scope === 'my_all' ||
-    scope === 'created_by_me' ||
-    scope === 'assigned_to_me' ||
-    scope === 'my_pending' ||
-    scope === 'assigned_by_me' ||
-    scope === 'my_approval' ||
-    scope === 'other_approval'
-      ? scope
-      : 'my_all'
-  const initialStatus =
-    status === 'all' ||
-    status === 'pending' ||
-    status === 'completed' ||
-    status === 'overdue' ||
-    status === 'queue'
-      ? status
-      : 'all'
 
   return (
     <div className="flex flex-col h-full">
@@ -52,15 +31,14 @@ export default async function TasksPage({
           }
         >
           <TasksBoard
-            key={`${initialScope}:${initialStatus}`}
             currentUsername={user.username}
             currentUserRole={user.role}
             currentUserDept={user.department}
             currentUserTeamMembers={user.teamMembers}
             currentUserTeamMemberDeptKeys={user.teamMemberDeptKeys}
+            canAddTask={canAddTask}
             initialTasks={tasks}
-            initialScope={initialScope}
-            initialStatus={initialStatus}
+            initialScope="my_all"
           />
         </Suspense>
       </div>

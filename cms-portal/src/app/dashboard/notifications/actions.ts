@@ -21,12 +21,20 @@ export async function getNotifications(): Promise<Notification[]> {
 
   const userKeys = getNotificationUserKeys(user)
   const supabase = createServerClient()
-  const { data } = await supabase
+
+  // Use select('*') so the query never fails due to a missing 'read' or 'is_read'
+  // column variance across deployments. Both columns are normalised later via norm().
+  const { data, error } = await supabase
     .from('notifications')
     .select('*')
     .in('user_id', userKeys)
     .order('created_at', { ascending: false })
     .limit(200)
+
+  if (error) {
+    console.error('[getNotifications] query error:', error.message)
+    return []
+  }
 
   const notifications = (data as unknown as Notification[]) ?? []
   const senderNames = Array.from(
@@ -64,21 +72,28 @@ export async function getUnreadCount(): Promise<number> {
   const userKeys = getNotificationUserKeys(user)
   const supabase = createServerClient()
 
-  let { count } = await supabase
-    .from('notifications')
-    .select('id', { count: 'exact', head: true })
-    .in('user_id', userKeys)
-    .eq('read', false)
-
-  if (count === null) {
-    ;({ count } = await supabase
+  // Query both schemas simultaneously and take the max to handle tables with
+  // either `read` (legacy) or `is_read` (modern) or both columns.
+  const [res1, res2] = await Promise.all([
+    supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .in('user_id', userKeys)
-      .eq('is_read', false))
-  }
+      .eq('read', false),
+    supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .in('user_id', userKeys)
+      .eq('is_read', false),
+  ])
 
-  return count ?? 0
+  const count1 = res1.error ? null : (res1.count ?? 0)
+  const count2 = res2.error ? null : (res2.count ?? 0)
+
+  if (count1 !== null && count2 !== null) return Math.max(count1, count2)
+  if (count1 !== null) return count1
+  if (count2 !== null) return count2
+  return 0
 }
 
 export async function markNotificationRead(id: string): Promise<{ success: boolean }> {
@@ -175,15 +190,18 @@ export async function createNotification(data: {
   created_by?: string
 }): Promise<{ success: boolean }> {
   const supabase = createServerClient()
-  const { error } = await supabase.from('notifications').insert({
+  const payload = {
     user_id: data.user_id,
     title: data.title,
     message: data.body ?? null,
+    body: data.body ?? null,
     type: data.type ?? 'info',
     link: data.related_id ?? null,
+    related_id: data.related_id ?? null,
     read: false,
+    is_read: false,
     created_by: data.created_by ?? null,
-  })
-
+  }
+  const { error } = await supabase.from('notifications').insert(payload)
   return { success: !error }
 }
