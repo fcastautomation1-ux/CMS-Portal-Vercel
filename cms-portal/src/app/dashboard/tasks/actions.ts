@@ -3232,9 +3232,11 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
+  let currentMaEntry: MultiAssignmentEntry | undefined
   if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
     const uLower = user.username.toLowerCase()
     const myEntry = task.multi_assignment.assignees.find((entry) => (entry.username || '').toLowerCase() === uLower)
+    currentMaEntry = myEntry
     const approverEntry = task.multi_assignment.assignees.find((entry) =>
       entry.ma_approval_status === 'pending_approval' &&
       normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === uLower,
@@ -3254,6 +3256,63 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
       task.approval_status = 'pending_approval'
       task.pending_approver = user.username
       task.completed_by = approverEntry.username
+    }
+  }
+
+  const detailMeta: Record<string, unknown> = {}
+  if (task.cluster_id) {
+    const targetUsername = currentMaEntry?.username || task.assigned_to || null
+    const currentState = currentMaEntry?.hall_scheduler_state || task.scheduler_state || null
+    const currentRank = currentMaEntry?.hall_queue_rank ?? task.queue_rank ?? null
+    if (targetUsername && currentState && ['active', 'user_queue', 'paused', 'waiting_review', 'blocked'].includes(currentState)) {
+      const [singleRowsRes, maRowsRes] = await Promise.all([
+        supabase
+          .from('todos')
+          .select('id, scheduler_state, queue_rank')
+          .eq('cluster_id', task.cluster_id)
+          .eq('assigned_to', targetUsername)
+          .eq('completed', false)
+          .in('scheduler_state', ['active', 'user_queue', 'paused', 'waiting_review', 'blocked']),
+        supabase
+          .from('todos')
+          .select('id, multi_assignment')
+          .eq('cluster_id', task.cluster_id)
+          .eq('completed', false)
+          .eq('workflow_state', 'split_to_multi'),
+      ])
+
+      const queuedRanks: number[] = []
+      let hasOtherQueued = false
+
+      ; (singleRowsRes.data ?? []).forEach((row: Record<string, unknown>) => {
+        const state = row.scheduler_state as string | null
+        const rank = (row.queue_rank as number | null) ?? null
+        const isQueued = state === 'user_queue' || state === 'paused'
+        if (!isQueued || rank == null) return
+        queuedRanks.push(rank)
+        if ((row.id as string) !== task.id) hasOtherQueued = true
+      })
+
+      ; (maRowsRes.data ?? []).forEach((row: Record<string, unknown>) => {
+        const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+        if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+        const entry = ma.assignees.find((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+        if (!entry) return
+        const state = entry.hall_scheduler_state ?? null
+        const rank = entry.hall_queue_rank ?? null
+        const isQueued = state === 'user_queue' || state === 'paused'
+        if (!isQueued || rank == null) return
+        queuedRanks.push(rank)
+        if ((row.id as string) !== task.id) hasOtherQueued = true
+      })
+
+      const minRank = queuedRanks.length > 0 ? Math.min(...queuedRanks) : null
+      const isFirst = (currentState === 'user_queue' || currentState === 'paused') && currentRank != null && minRank != null
+        ? currentRank <= minRank
+        : false
+
+      detailMeta.hall_has_other_queued = hasOtherQueued
+      detailMeta.hall_is_first_in_queue = isFirst
     }
   }
   const participantUsernames = new Set<string>()
@@ -3327,6 +3386,7 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
 
   return {
     ...task,
+    ...detailMeta,
     shares: ((sharesRes.data || []) as import('@/types').TodoShare[]).map((share) => ({
       ...share,
       avatar_data: participantAvatars[share.shared_with] ?? null,
@@ -8452,28 +8512,75 @@ export async function reorderHallUserQueueAction(
     }
   }
 
-  // Verify all IDs belong to this user and cluster
-  const { data: queuedTasks } = await supabase
+  // Build queue map for this user across BOTH single-assign and MA entries.
+  const { data: clusterTasks } = await supabase
     .from('todos')
-    .select('id, scheduler_state, queue_rank')
-    .eq('assigned_to', targetUsername)
+    .select('id, assigned_to, scheduler_state, queue_rank, workflow_state, multi_assignment')
     .eq('cluster_id', clusterId)
-    .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
+    .eq('completed', false)
 
-  const ownedIds = new Set((queuedTasks ?? []).map((t: Record<string, unknown>) => t.id as string))
-  const invalid = orderedTodoIds.filter((id) => !ownedIds.has(id))
+  type QueueItem = {
+    kind: 'single' | 'ma'
+    state: string
+    row: Record<string, unknown>
+  }
+  const queueMap = new Map<string, QueueItem>()
+
+  ; (clusterTasks ?? []).forEach((row: Record<string, unknown>) => {
+    const id = row.id as string
+    if (!id) return
+
+    // Single-assignment queue item
+    if ((row.assigned_to as string | null) === targetUsername) {
+      const state = (row.scheduler_state as string | null) ?? ''
+      if (['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) {
+        queueMap.set(id, { kind: 'single', state, row })
+      }
+    }
+
+    // Multi-assignment queue item (per-user entry inside JSONB)
+    if ((row.workflow_state as string | null) === 'split_to_multi') {
+      const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+      const entry = ma.assignees.find((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+      if (!entry) return
+      const state = entry.hall_scheduler_state ?? ''
+      if (['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) {
+        queueMap.set(id, { kind: 'ma', state, row })
+      }
+    }
+  })
+
+  const invalid = orderedTodoIds.filter((id) => !queueMap.has(id))
   if (invalid.length > 0) {
     return { success: false, error: `Task IDs not found in this user's queue: ${invalid.join(', ')}` }
   }
 
-  // Apply new ranks; active task always stays at rank 1
-  const updates: Array<PromiseLike<unknown>> = []
+  // Apply new ranks; active task always stays rank 1.
+  const now = new Date().toISOString()
+  const updates: Array<Promise<unknown>> = []
   orderedTodoIds.forEach((id, index) => {
-    const task = (queuedTasks ?? []).find((t: Record<string, unknown>) => t.id === id) as Record<string, unknown> | undefined
-    // Active tasks cannot be reordered past rank 1
-    const newRank = task?.scheduler_state === 'active' ? 1 : index + 1
+    const item = queueMap.get(id)
+    if (!item) return
+    const newRank = item.state === 'active' ? 1 : index + 1
+
+    if (item.kind === 'single') {
+      updates.push(
+        supabase.from('todos').update({ queue_rank: newRank, updated_at: now }).eq('id', id) as unknown as Promise<unknown>
+      )
+      return
+    }
+
+    const ma = parseJson<MultiAssignment | null>(item.row.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+    const idx = ma.assignees.findIndex((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+    if (idx === -1) return
+    ma.assignees[idx] = {
+      ...ma.assignees[idx],
+      hall_queue_rank: newRank,
+    }
     updates.push(
-      supabase.from('todos').update({ queue_rank: newRank, updated_at: new Date().toISOString() }).eq('id', id) as unknown as PromiseLike<unknown>
+      supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), updated_at: now }).eq('id', id) as unknown as Promise<unknown>
     )
   })
 

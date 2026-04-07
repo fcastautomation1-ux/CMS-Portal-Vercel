@@ -1073,7 +1073,15 @@ export function TaskDetailPage({
   const tAny = t as unknown as Record<string, unknown>
   const hallSchedulerState = tAny.scheduler_state as string | null
   const isHallTask = !!t.cluster_id && !t.cluster_inbox
-  const isHallScheduledForMe = isAssignee && !!t.cluster_id && t.workflow_state === 'claimed_by_department'
+  const myMaEntry = t.multi_assignment?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
+  const maHallState = myMaEntry?.hall_scheduler_state ?? null
+  const effectiveHallState = (isAssignee ? hallSchedulerState : maHallState) as string | null
+  const isHallScheduledForMe = !!t.cluster_id && !t.cluster_inbox && (
+    (isAssignee && !!hallSchedulerState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(hallSchedulerState)) ||
+    (!!myMaEntry && !!maHallState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(maHallState))
+  )
+  const hallHasOtherQueuedTasks = Boolean(tAny.hall_has_other_queued)
+  const hallIsFirstInQueue = Boolean(tAny.hall_is_first_in_queue)
   const isPendingApproval = t.approval_status === 'pending_approval'
   const pendingApprover = t.pending_approver || t.username
   const canApproveCurrentStep = isPendingApproval && pendingApprover.toLowerCase() === currentUsername.toLowerCase()
@@ -1124,7 +1132,6 @@ export function TaskDetailPage({
     (isAssignee && maEnabled && t.workflow_state === 'ma_all_accepted')
   )
 
-  const myMaEntry = ma?.assignees?.find((entry) => (entry.username || '').toLowerCase() === currentUsername.toLowerCase())
   const delegatedOwner = ma?.assignees?.find((entry) => Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase()))
   const myDelegatedEntry = delegatedOwner?.delegated_to?.find((sub) => (sub.username || '').toLowerCase() === currentUsername.toLowerCase())
   const sm = STATUS_META[t.task_status] ?? STATUS_META.backlog
@@ -1707,10 +1714,10 @@ export function TaskDetailPage({
                   <PrimaryBtn icon={<XCircle size={14} />} label="Decline" color="red" onClick={() => setShowDeclineInput(true)} loading={isPending} />
                 </>
               )}
-              {myMaEntry && !isCompleted && myMaEntry.status === 'pending' && (
+              {myMaEntry && !isCompleted && myMaEntry.status === 'pending' && (!t.cluster_id || myMaEntry.hall_scheduler_state === 'active') && (
                 <PrimaryBtn icon={<PlayCircle size={14} />} label="MA Start" color="blue" onClick={() => doAction(() => updateMaAssigneeStatusAction(t.id, 'in_progress'))} loading={isPending} />
               )}
-              {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (
+              {myMaEntry && !isCompleted && myMaEntry.status === 'in_progress' && (!t.cluster_id || myMaEntry.hall_scheduler_state === 'active') && (
                 <PrimaryBtn
                   icon={<CheckCircle2 size={14} />}
                   label="MA Submit"
@@ -1737,7 +1744,7 @@ export function TaskDetailPage({
               )}
 
               {/* Activate button — hall task stuck in user_queue with no active task */}
-              {isHallScheduledForMe && hallSchedulerState === 'user_queue' && !isCompleted && (
+              {isHallScheduledForMe && effectiveHallState === 'user_queue' && !isCompleted && hallIsFirstInQueue && (
                 <button
                   onClick={() => doAction(() => activateHallTaskAction(t.id))}
                   className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
@@ -1747,7 +1754,7 @@ export function TaskDetailPage({
               )}
 
               {/* Pause button — only for hall-scheduled task that is active AND has other queued tasks */}
-              {isHallScheduledForMe && hallSchedulerState === 'active' && !isCompleted && (
+              {isHallScheduledForMe && effectiveHallState === 'active' && !isCompleted && hallHasOtherQueuedTasks && (
                 <button
                   onClick={() => doAction(() => pauseHallTaskAction(t.id))}
                   className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100"
