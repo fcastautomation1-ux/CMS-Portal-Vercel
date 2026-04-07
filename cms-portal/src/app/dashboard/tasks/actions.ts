@@ -761,9 +761,20 @@ export async function getTodos(): Promise<Todo[]> {
     ; ((pendingApproverRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_chain_member: true }))
   {
     const deptRows = (deptQueueRes as { data: Record<string, unknown>[] | null }).data || []
-    // For regular Users, check cluster_settings.allow_dept_users_see_queue for Hall-routed tasks
-    let blockedClusterIds = new Set<string>()
-    if (!canViewAllQueues && user.role === 'User') {
+    // ── Queue-visibility: hierarchical toggle check ─────────────────────────
+    // Parent toggle  (allow_dept_users_see_queue):
+    //   OFF → ONLY hall leaders (cluster_role owner/manager/supervisor) + system
+    //         Admin/Super-Manager may see queue tasks.  All others are blocked.
+    //   ON  → check the child toggle ↓
+    // Child toggle  (allow_normal_users_see_queue):
+    //   OFF → Managers/Supervisors (by session role) + hall leaders can see.
+    //         Regular User-role members are blocked.
+    //   ON  → everyone in the department can see.
+    // ────────────────────────────────────────────────────────────────────────
+    const blockedFull = new Set<string>()   // nobody except hall-leaders / admins
+    const blockedNormal = new Set<string>() // only User-role blocked
+
+    if (!canViewAllQueues) {
       const hallClusterIds = [...new Set(
         deptRows
           .map((r) => r.cluster_id as string | null)
@@ -775,20 +786,45 @@ export async function getTodos(): Promise<Todo[]> {
           .select('cluster_id,allow_dept_users_see_queue,allow_normal_users_see_queue')
           .in('cluster_id', hallClusterIds)
           ; (settingsRows || []).forEach((s: Record<string, unknown>) => {
-            // Block User-role if dept queue is hidden OR if normal-users toggle is off
-            if (!s.allow_dept_users_see_queue || s.allow_normal_users_see_queue === false) {
-              blockedClusterIds.add(s.cluster_id as string)
+            if (!s.allow_dept_users_see_queue) {
+              // Parent OFF → block everyone except hall leaders + admins
+              blockedFull.add(s.cluster_id as string)
+            } else if (s.allow_normal_users_see_queue === false) {
+              // Parent ON, child OFF → block only User-role
+              blockedNormal.add(s.cluster_id as string)
             }
           })
       }
     }
+
+    // Pre-load the caller's cluster_role for halls that are fully blocked so we
+    // can allow hall leaders through even when allow_dept_users_see_queue is OFF.
+    let leaderClusterIds = new Set<string>()
+    if (blockedFull.size > 0) {
+      const { data: memRows } = await supabase
+        .from('cluster_members')
+        .select('cluster_id, cluster_role')
+        .eq('username', user.username)
+        .in('cluster_id', [...blockedFull])
+        ; (memRows ?? []).forEach((m: Record<string, unknown>) => {
+          if (['owner', 'manager', 'supervisor'].includes(m.cluster_role as string)) {
+            leaderClusterIds.add(m.cluster_id as string)
+          }
+        })
+    }
+
     deptRows.forEach((r) => {
       if (canViewAllQueues) {
         addTask(r, { is_department_queue: true })
         return
       }
-      // Block User-role from viewing Hall dept queue tasks when setting disallows it
-      if (user.role === 'User' && r.cluster_id && blockedClusterIds.has(r.cluster_id as string)) {
+      const cid = r.cluster_id as string | null
+      // Parent toggle OFF → only hall leaders + admins pass
+      if (cid && blockedFull.has(cid) && !leaderClusterIds.has(cid)) {
+        return
+      }
+      // Child toggle OFF → block User-role (Manager/Supervisor pass)
+      if (cid && blockedNormal.has(cid) && user.role === 'User') {
         return
       }
       const queueDept = String(r.queue_department || '')
@@ -836,6 +872,8 @@ export async function getTodos(): Promise<Todo[]> {
   // instead of a jsonb object).  Fetch ALL incomplete split_to_multi tasks and filter
   // for the current user in JavaScript.  The addTask() dedup ensures no duplicates if
   // the JSONB queries above DID return results.
+  // Also project per-user hall scheduler state from JSONB so task cards display the
+  // correct state for the current user (the task-level scheduler_state is null for MA tasks).
   {
     const { data: allMaRows } = await supabase
       .from('todos')
@@ -845,15 +883,24 @@ export async function getTodos(): Promise<Todo[]> {
     const uLower = user.username.toLowerCase()
     ;((allMaRows || []) as unknown as Record<string, unknown>[]).forEach((r) => {
       const ma = parseJson<MultiAssignment | null>(r.multi_assignment, null)
-      const isAssignee = ma?.enabled && Array.isArray(ma.assignees) &&
-        ma.assignees.some((a) => a.username.toLowerCase() === uLower)
+      const myEntry = ma?.enabled && Array.isArray(ma.assignees)
+        ? ma.assignees.find((a) => a.username.toLowerCase() === uLower)
+        : undefined
       const isDelegated = ma?.enabled && Array.isArray(ma.assignees) &&
         ma.assignees.some((a) => Array.isArray(a.delegated_to) &&
           a.delegated_to.some((d) => d.username.toLowerCase() === uLower))
       const chain = parseJson<AssignmentChainEntry[]>(r.assignment_chain, [])
       const inChain = Array.isArray(chain) &&
         chain.some((e) => (e.next_user ?? '').toLowerCase() === uLower)
-      if (isAssignee || isDelegated || inChain) {
+      if (myEntry || isDelegated || inChain) {
+        // Project per-user JSONB scheduler fields onto the task so cards render correctly
+        if (myEntry) {
+          if (myEntry.hall_scheduler_state) r.scheduler_state = myEntry.hall_scheduler_state
+          if (myEntry.hall_queue_rank != null) r.queue_rank = myEntry.hall_queue_rank
+          if (myEntry.hall_remaining_minutes != null) r.remaining_work_minutes = myEntry.hall_remaining_minutes
+          if (myEntry.hall_active_started_at) r.active_started_at = myEntry.hall_active_started_at
+          if (myEntry.hall_effective_due_at) r.effective_due_at = myEntry.hall_effective_due_at
+        }
         addTask(r, { is_multi_assigned: true, ...(isDelegated ? { is_delegated_to_me: true } : {}) })
       }
     })
@@ -8528,28 +8575,69 @@ export async function getHallTeamQueueAction(clusterId: string): Promise<Array<{
 
   const supabase = createServerClient()
 
-  const { data: tasks } = await supabase
-    .from('todos')
-    .select('*')
-    .eq('cluster_id', clusterId)
-    .eq('completed', false)
-    .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
-    .order('queue_rank', { ascending: true })
+  // Fetch single-assign scheduled tasks AND all MA (split_to_multi) tasks in this hall
+  const [singleRes, maRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('*')
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'])
+      .order('queue_rank', { ascending: true }),
+    supabase
+      .from('todos')
+      .select('*')
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .eq('workflow_state', 'split_to_multi'),
+  ])
 
-  if (!tasks || tasks.length === 0) return []
-
-  // Group by assignee
+  // Group by assignee — single-assign tasks use assigned_to directly
   const byUser: Record<string, Todo[]> = {}
-  for (const t of tasks as Todo[]) {
+  for (const t of (singleRes.data ?? []) as Todo[]) {
     const u = t.assigned_to ?? 'unassigned'
     if (!byUser[u]) byUser[u] = []
     byUser[u].push(t)
   }
 
+  // For MA tasks, project each assignee's per-user JSONB scheduler state
+  // and add the projected task to that user's queue bucket
+  const singleIds = new Set((singleRes.data ?? []).map((t: Record<string, unknown>) => t.id as string))
+  for (const rawTask of (maRes.data ?? []) as Todo[]) {
+    if (singleIds.has(rawTask.id)) continue // already in single-assign results
+    const raw = rawTask as unknown as Record<string, unknown>
+    const ma = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) continue
+    for (const entry of ma.assignees) {
+      const state = entry.hall_scheduler_state ?? 'user_queue'
+      if (!['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) continue
+      const projected: Todo = {
+        ...rawTask,
+        scheduler_state: state,
+        queue_rank: entry.hall_queue_rank ?? 9999,
+        remaining_work_minutes: entry.hall_remaining_minutes ?? (
+          entry.hall_estimated_hours ? Math.round(entry.hall_estimated_hours * 60) : null
+        ),
+        active_started_at: entry.hall_active_started_at ?? null,
+        effective_due_at: entry.hall_effective_due_at ?? null,
+        assigned_to: entry.username, // virtual projection for display
+      } as Todo
+      if (!byUser[entry.username]) byUser[entry.username] = []
+      byUser[entry.username].push(projected)
+    }
+  }
+
+  if (Object.keys(byUser).length === 0) return []
+
+  // Sort each user's queue by rank
+  for (const u of Object.keys(byUser)) {
+    byUser[u].sort((a, b) => ((a.queue_rank as number | null) ?? 9999) - ((b.queue_rank as number | null) ?? 9999))
+  }
+
   // Fetch avatar data for each user
   const usernames = Object.keys(byUser).filter((u) => u !== 'unassigned')
   const { data: userRows } = await supabase
-    .from('users').select('username, avatar_data').in('username', usernames)
+    .from('users').select('username, avatar_data').in('username', usernames.length > 0 ? usernames : ['__none__'])
   const avatarMap: Record<string, string | null> = {}
   for (const row of (userRows ?? []) as Array<{ username: string; avatar_data: string | null }>) {
     avatarMap[row.username] = row.avatar_data
