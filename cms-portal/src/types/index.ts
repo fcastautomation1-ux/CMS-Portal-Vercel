@@ -164,6 +164,8 @@ export interface ClusterSettings {
   auto_start_next_task: boolean
   /** When true, normal (non-manager/supervisor) users in this hall cannot create new tasks. */
   users_cannot_create_tasks: boolean
+  /** When true, users must provide a reason when pausing a hall task. */
+  require_pause_reason?: boolean
   created_at?: string
   updated_at?: string
 }

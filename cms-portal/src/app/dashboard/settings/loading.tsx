@@ -1,12 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
-
+import { SettingsPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return (
-    <RouteLoadingScreen
-      title="Opening integrations"
-      description="Loading system settings and integration configuration."
-      rows={4}
-      cols={2}
-    />
-  )
+  return <SettingsPageSkeleton />
 }

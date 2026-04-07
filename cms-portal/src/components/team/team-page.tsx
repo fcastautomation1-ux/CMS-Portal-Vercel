@@ -1,10 +1,10 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useCallback, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X, PlayCircle } from 'lucide-react'
+import { Search, Users2, Building2, ListTodo, CircleCheckBig, Hourglass, AlertTriangle, RefreshCw, Inbox, X, PlayCircle, ChevronDown } from 'lucide-react'
 import type { SessionUser } from '@/types'
 import type { Todo } from '@/types'
 import type { TeamMember } from '@/app/dashboard/team/actions'
@@ -37,7 +37,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
 }
 
 type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_in_progress' | 'tasks_pending' | 'tasks_overdue' | 'tasks_queue'
-const TASKS_PER_PAGE = 20
+const PER_PAGE_OPTIONS = [5, 10, 15, 20, 25]
 
 function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
@@ -66,13 +66,19 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const [deptFilter, setDeptFilter] = useState('')
   const [memberFilter, setMemberFilter] = useState('')
   const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
+  const [perPage, setPerPage] = useState(5)
   const [showDeptQueueModal, setShowDeptQueueModal] = useState(false)
   const [modalDeptSearch, setModalDeptSearch] = useState('')
   const [selectedQueueDept, setSelectedQueueDept] = useState('')
   const [, startTransition] = useTransition()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const scope = (searchParams.get('scope') as TeamScope | null) ?? 'users'
+  // Read initial scope from URL; change scope via local state + window.history (no Next.js navigation)
+  const [scope, setScope] = useState<TeamScope>(() => (searchParams.get('scope') as TeamScope | null) ?? 'users')
+  const changeScope = useCallback((newScope: TeamScope) => {
+    setScope(newScope)
+    window.history.replaceState(null, '', `/dashboard/team?scope=${newScope}`)
+  }, [])
   const isTaskScope = scope !== 'users'
 
   const currentUsername = user?.username ?? ''
@@ -308,14 +314,14 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     return [...list].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }, [tasks, hallQueueTasks, search, deptFilter, memberFilter, scope, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
 
-  const taskPaginationSignature = `${scope}|${search}|${deptFilter}|${memberFilter}`
+  const taskPaginationSignature = `${scope}|${search}|${deptFilter}|${memberFilter}|${perPage}`
   const currentTaskPage = paginationState.signature === taskPaginationSignature ? paginationState.page : 1
-  const totalTaskPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE))
+  const totalTaskPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visibleTaskPage = Math.min(currentTaskPage, totalTaskPages)
   const paginatedTasks = useMemo(() => {
-    const start = (visibleTaskPage - 1) * TASKS_PER_PAGE
-    return filteredTasks.slice(start, start + TASKS_PER_PAGE)
-  }, [filteredTasks, visibleTaskPage])
+    const start = (visibleTaskPage - 1) * perPage
+    return filteredTasks.slice(start, start + perPage)
+  }, [filteredTasks, visibleTaskPage, perPage])
 
   const taskKpis = useMemo(() => {
     const today = new Date()
@@ -373,7 +379,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => router.replace(`/dashboard/team?scope=${item.key}`, { scroll: false })}
+                  onClick={() => changeScope(item.key as TeamScope)}
                   className={cn(
                     'rounded-[18px] border bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)]',
                     isActive && 'border-[#3559d8] bg-[#f8fbff] shadow-[inset_0_0_0_1px_rgba(53,89,216,0.24),0_12px_24px_rgba(15,23,42,0.08)]'
@@ -538,7 +544,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                   disabled={!selectedQueueDept}
                   onClick={() => {
                     setDeptFilter(selectedQueueDept)
-                    router.replace('/dashboard/team?scope=tasks_queue', { scroll: false })
+                    changeScope('tasks_queue')
                     setShowDeptQueueModal(false)
                   }}
                   className="rounded-xl bg-[#0EA5E9] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-[#0284c7] disabled:opacity-50"
@@ -572,6 +578,50 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                     <span className="min-w-fit text-[11px] font-medium text-slate-400">{filteredTasks.length} tasks</span>
                   </div>
 
+                  {filteredTasks.length > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                        <div className="relative">
+                          <select
+                            value={perPage}
+                            onChange={(e) => setPerPage(Number(e.target.value))}
+                            className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                          >
+                            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                          <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          Showing {filteredTasks.length === 0 ? 0 : (visibleTaskPage - 1) * perPage + 1}–{Math.min(visibleTaskPage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                        </span>
+                      </div>
+                      {totalTaskPages > 1 && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setPaginationState({ signature: taskPaginationSignature, page: Math.max(1, visibleTaskPage - 1) })}
+                            disabled={visibleTaskPage === 1}
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Previous
+                          </button>
+                          <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                            Page {visibleTaskPage} / {totalTaskPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPaginationState({ signature: taskPaginationSignature, page: Math.min(totalTaskPages, visibleTaskPage + 1) })}
+                            disabled={visibleTaskPage === totalTaskPages}
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {paginatedTasks.map((task) => (
                     <TaskCard
                       key={task.id}
@@ -596,11 +646,24 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                     />
                   ))}
 
-                  {filteredTasks.length > TASKS_PER_PAGE && (
+                  {totalTaskPages > 1 && (
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-3">
-                      <p className="text-sm text-slate-500">
-                        Showing {(visibleTaskPage - 1) * TASKS_PER_PAGE + 1}-{Math.min(visibleTaskPage * TASKS_PER_PAGE, filteredTasks.length)} of {filteredTasks.length}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                        <div className="relative">
+                          <select
+                            value={perPage}
+                            onChange={(e) => setPerPage(Number(e.target.value))}
+                            className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                          >
+                            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                          <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        </div>
+                        <span className="text-sm text-slate-500">
+                          Showing {(visibleTaskPage - 1) * perPage + 1}–{Math.min(visibleTaskPage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -648,7 +711,7 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                   key={member.username}
                   onClick={() => {
                     setMemberFilter(member.username)
-                    router.replace('/dashboard/team?scope=tasks_all', { scroll: false })
+                    changeScope('tasks_all')
                   }}
                   className="animate-fade-in cursor-pointer rounded-2xl p-6 text-center transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
                   style={{

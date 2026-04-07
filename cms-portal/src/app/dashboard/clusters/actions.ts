@@ -191,6 +191,7 @@ export async function saveClusterAction(formData: {
     .single()
   if (error) return { success: false, error: error.message }
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true, id: (data as { id: string }).id }
 }
@@ -204,6 +205,7 @@ export async function deleteClusterAction(clusterId: string): Promise<{ success:
   const { error } = await supabase.from('clusters').delete().eq('id', clusterId)
   if (error) return { success: false, error: error.message }
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true }
 }
@@ -227,6 +229,7 @@ export async function setClusterDepartmentsAction(
     if (error) return { success: false, error: error.message }
   }
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true }
 }
@@ -260,6 +263,7 @@ export async function setClusterMembersAction(
   }
 
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true }
 }
@@ -293,6 +297,7 @@ export async function upsertClusterMemberAction(
     }, { onConflict: 'cluster_id,username' })
   if (error) return { success: false, error: error.message }
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true }
 }
@@ -320,6 +325,7 @@ export async function removeClusterMemberAction(
     .eq('username', username)
   if (error) return { success: false, error: error.message }
   revalidateTag(CLUSTERS_CACHE_TAG)
+  revalidateTag('session-data')
   revalidatePath('/dashboard/clusters')
   return { success: true }
 }

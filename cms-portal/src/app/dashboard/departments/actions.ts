@@ -160,6 +160,7 @@ export async function assignUsersToDepartment(
   revalidatePath('/dashboard/departments')
   revalidatePath('/dashboard/users')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -246,6 +247,7 @@ export async function saveDepartment(
 
     revalidatePath('/dashboard/departments')
     revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
     return { success: true, department: data as Department }
   } else {
     const primary = await supabase
@@ -272,6 +274,7 @@ export async function saveDepartment(
 
     revalidatePath('/dashboard/departments')
     revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
     return { success: true, department: data as Department }
   }
 }
@@ -290,6 +293,7 @@ export async function deleteDepartment(
   if (error) return { success: false, error: error.message }
   revalidatePath('/dashboard/departments')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -356,6 +360,7 @@ export async function syncUserDepartmentNamesAction(): Promise<{
   revalidatePath('/dashboard/users')
   revalidatePath('/dashboard/departments')
   revalidateTag(DEPARTMENTS_CACHE_TAG)
+  revalidateTag('session-data')
 
   return { success: true, updated, errors }
 }

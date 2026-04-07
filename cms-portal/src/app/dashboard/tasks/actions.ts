@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath, revalidateTag } from 'next/cache'
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { validatePakistanOfficeDueDate, DEFAULT_OFFICE_HOURS } from '@/lib/pakistan-time'
@@ -1106,20 +1106,46 @@ export async function getSidebarTaskCounts(): Promise<SidebarTaskCounts> {
 
 // ── Cached wrappers for hot paths ────────────────────────────────────────────
 
-/** Use in server components (page.tsx) for initial load. Keep this uncached because
- * task visibility is user-specific and changes immediately during handoff/approval flows.
- */
+// Module-level in-memory TTL caches (30 s) — survive warm Lambda re-invocations.
+// These caches are cleared on every mutation via revalidateTasksData() so users
+// always see fresh data after their own actions.
+const _todosCache = new Map<string, { data: Todo[]; til: number }>()
+const _countsCache = new Map<string, { data: SidebarTaskCounts; til: number }>()
+const CACHE_TTL_MS = 120_000
+
+/** Task list with a 2 min in-memory TTL + unstable_cache for cross-cold-start persistence. Cleared on every mutation. */
 export async function getCachedTodos(): Promise<Todo[]> {
-  return getTodos()
+  const user = await getSession()
+  if (!user) return []
+  const key = user.username
+  const entry = _todosCache.get(key)
+  if (entry && entry.til > Date.now()) return entry.data
+  // unstable_cache persists across Vercel cold starts (filesystem/CDN cache)
+  const fetchFn = unstable_cache(
+    () => getTodos(),
+    ['todos', key, user.role ?? '', user.department ?? ''],
+    { revalidate: 120, tags: ['tasks-data', `tasks-user-${key}`] }
+  )
+  const data = await fetchFn()
+  _todosCache.set(key, { data, til: Date.now() + CACHE_TTL_MS })
+  return data
 }
 
-/** Direct wrapper — unstable_cache cannot be used here because getSidebarTaskCounts reads cookies() internally. React Query staleTime handles client-side caching. */
+/** Sidebar counts with a 30 s in-memory TTL. Cleared on every mutation. */
 export async function getCachedSidebarTaskCounts(): Promise<SidebarTaskCounts> {
-  return getSidebarTaskCounts()
+  const user = await getSession()
+  const key = user?.username ?? '__anon__'
+  const entry = _countsCache.get(key)
+  if (entry && entry.til > Date.now()) return entry.data
+  const data = await getSidebarTaskCounts()
+  _countsCache.set(key, { data, til: Date.now() + CACHE_TTL_MS })
+  return data
 }
 
 /** Bust the tasks server-side cache and revalidate the page. Call after any mutation. */
 function revalidateTasksData() {
+  _todosCache.clear()
+  _countsCache.clear()
   revalidateTag('tasks-data')
   revalidateTag('team-data')
 }
@@ -5900,33 +5926,39 @@ export async function canUserCreateTasksAction(): Promise<boolean> {
   const isNormalUser = normalRoles.includes((user.role ?? '').toLowerCase())
   if (!isNormalUser) return true
 
-  const supabase = createServerClient()
+  return unstable_cache(
+    async () => {
+      const supabase = createServerClient()
 
-  // Get all cluster IDs this user belongs to
-  const { data: memberships } = await supabase
-    .from('cluster_members')
-    .select('cluster_id')
-    .eq('username', user.username)
+      // Get all cluster IDs this user belongs to
+      const { data: memberships } = await supabase
+        .from('cluster_members')
+        .select('cluster_id')
+        .eq('username', user.username)
 
-  if (!memberships || memberships.length === 0) return true
+      if (!memberships || memberships.length === 0) return true
 
-  const clusterIds = (memberships as { cluster_id: string }[]).map((m) => m.cluster_id)
+      const clusterIds = (memberships as { cluster_id: string }[]).map((m) => m.cluster_id)
 
-  // Check settings for all those clusters
-  const { data: settings } = await supabase
-    .from('cluster_settings')
-    .select('cluster_id, users_cannot_create_tasks')
-    .in('cluster_id', clusterIds)
+      // Check settings for all those clusters
+      const { data: settings } = await supabase
+        .from('cluster_settings')
+        .select('cluster_id, users_cannot_create_tasks')
+        .in('cluster_id', clusterIds)
 
-  if (!settings || settings.length === 0) return true
+      if (!settings || settings.length === 0) return true
 
-  // If every cluster the user belongs to restricts creation → block
-  const allRestricted = clusterIds.every((cid) => {
-    const row = (settings as { cluster_id: string; users_cannot_create_tasks: boolean }[]).find((s) => s.cluster_id === cid)
-    return row?.users_cannot_create_tasks === true
-  })
+      // If every cluster the user belongs to restricts creation → block
+      const allRestricted = clusterIds.every((cid) => {
+        const row = (settings as { cluster_id: string; users_cannot_create_tasks: boolean }[]).find((s) => s.cluster_id === cid)
+        return row?.users_cannot_create_tasks === true
+      })
 
-  return !allRestricted
+      return !allRestricted
+    },
+    ['can-create-tasks', user.username],
+    { revalidate: 300, tags: ['session-data'] }
+  )()
 }
 
 // ── Hall Scheduler Actions ────────────────────────────────────────────────────
@@ -7106,6 +7138,7 @@ export async function pauseHallTaskAction(
   const settings = await getHallSettingsForTask(supabase, clusterId)
 
   // Check if there are other queued tasks — required for a simple pause
+  // 1. Single-assignment tasks with scheduler_state in [user_queue, paused]
   const { data: otherQueued } = await supabase
     .from('todos')
     .select('id')
@@ -7115,7 +7148,28 @@ export async function pauseHallTaskAction(
     .neq('id', todoId)
     .limit(1)
 
-  const hasOtherQueued = (otherQueued ?? []).length > 0
+  let hasOtherQueued = (otherQueued ?? []).length > 0
+
+  // 2. Multi-assignment tasks: check per-user hall_scheduler_state in JSONB
+  if (!hasOtherQueued) {
+    const { data: maTasks } = await supabase
+      .from('todos')
+      .select('id, multi_assignment')
+      .eq('cluster_id', clusterId)
+      .eq('workflow_state', 'split_to_multi')
+      .eq('completed', false)
+      .neq('id', todoId)
+    const assignedToLower = assignedTo.toLowerCase()
+    hasOtherQueued = ((maTasks ?? []) as Array<{ id: string; multi_assignment: unknown }>).some((row) => {
+      const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!ma?.enabled) return false
+      return ma.assignees.some(
+        (a) => a.username.toLowerCase() === assignedToLower &&
+          a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state)
+      )
+    })
+  }
+
   if (!hasOtherQueued) {
     return {
       success: false,

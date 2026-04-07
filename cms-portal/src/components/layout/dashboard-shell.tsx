@@ -21,7 +21,7 @@ function NavigationProgress() {
 
   useEffect(() => {
     setIsNavigating(true)
-    const t = setTimeout(() => setIsNavigating(false), 800)
+    const t = setTimeout(() => setIsNavigating(false), 300)
     return () => clearTimeout(t)
   }, [pathname, searchParams])
 

@@ -111,6 +111,7 @@ export async function createUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -169,6 +170,7 @@ export async function updateUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 
@@ -190,6 +192,7 @@ export async function deleteUser(
   revalidateTag(USERS_CACHE_TAG)
   revalidateTag(USER_FORM_OPTIONS_CACHE_TAG)
   revalidateTag(DEPARTMENTS_LIST_CACHE_TAG)
+  revalidateTag('session-data')
   return { success: true }
 }
 

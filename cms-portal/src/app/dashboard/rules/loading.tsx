@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { GenericPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening rules" description="Loading automation rules and validation settings." />
+  return <GenericPageSkeleton />
 }

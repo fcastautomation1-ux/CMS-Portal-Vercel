@@ -120,7 +120,7 @@ const KANBAN_COLUMNS: { key: TaskStatus; label: string; dot: string }[] = [
   { key: 'in_progress', label: 'In Progress', dot: 'bg-blue-500' },
   { key: 'done', label: 'Done', dot: 'bg-green-500' },
 ]
-const TASKS_PER_PAGE = 20
+const PER_PAGE_OPTIONS = [5, 10, 15, 20, 25]
 
 interface TasksBoardProps {
   currentUsername: string
@@ -140,6 +140,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const isAdmin = currentUserRole === 'Admin' || currentUserRole === 'Super Manager'
+  const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
+  const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
 
   const [, startTransition] = useTransition()
   const refreshTimerRef = useRef<number | null>(null)
@@ -168,6 +170,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       setShowCreate(true)
     }
   }, [searchParams, router])
+
+  // Clear checkbox selection when scope or status changes (no key-remount anymore)
+  useEffect(() => {
+    setSelected(new Set())
+  }, [quickFilter, statusFilter])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -220,16 +227,30 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const [scopeDropdownOpen, setScopeDropdownOpen] = useState(false)
   const [pendingScopeSwitch, setPendingScopeSwitch] = useState<string | null>(null)
   const [paginationState, setPaginationState] = useState({ signature: '', page: 1 })
+  const [perPage, setPerPage] = useState(5)
 
   const tasksQuery = useQuery({
     queryKey: queryKeys.tasks(currentUsername),
-    queryFn: () => getTodos().catch(() => [] as Todo[]),
+    queryFn: async () => {
+      const existing = queryClient.getQueryData<Todo[]>(queryKeys.tasks(currentUsername))
+      try {
+        const fresh = await getTodos()
+        // Guard: if server returned empty but we already have data in cache,
+        // keep existing data to prevent the "0 tasks" flash.  The server-side
+        // revalidation window right after a mutation can momentarily return [].
+        if (fresh.length === 0 && existing && existing.length > 0) return existing
+        return fresh
+      } catch {
+        // On network/server error, return existing cache data instead of crashing
+        return existing ?? ([] as Todo[])
+      }
+    },
     initialData: initialTasks,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    // Initial data can come from a prefetched server payload, so refresh on mount
-    // to avoid showing stale zero-state/task counts after completing a task.
-    refetchOnMount: 'always',
+    // Use initialData from server for first render; mutations call invalidateQueries
+    // to refresh on demand — avoid the double-fetch that 'always' causes.
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData, // keep existing data while fetching
   })
@@ -239,7 +260,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     queryFn: () => getMyOverdueApprovalsAction().catch(() => [] as Array<{ id: string; title: string; approval_sla_due_at: string | null }>),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
   })
@@ -270,8 +291,6 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   const tasks = rawTasks as Todo[]
   const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
-  const quickFilter = parseQuickFilter(searchParams.get('scope')) ?? initialScope
-  const statusFilter = parseStatusFilter(searchParams.get('status')) ?? initialStatus
 
   const isTaskAssignedToUser = useCallback((task: Todo, username: string) => {
     const userLower = username.toLowerCase()
@@ -780,14 +799,14 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     return list
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
 
-  const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}`
+  const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}|${perPage}`
   const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE))
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visiblePage = Math.min(currentPage, totalPages)
   const paginatedTasks = useMemo(() => {
-    const start = (visiblePage - 1) * TASKS_PER_PAGE
-    return filteredTasks.slice(start, start + TASKS_PER_PAGE)
-  }, [filteredTasks, visiblePage])
+    const start = (visiblePage - 1) * perPage
+    return filteredTasks.slice(start, start + perPage)
+  }, [filteredTasks, visiblePage, perPage])
 
   const virtualizer = useVirtualizer({
     count: paginatedTasks.length,
@@ -848,61 +867,88 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     a.click()
   }
 
-  const cardProps = (task: Todo) => {
-    // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
-    const hasOtherQueuedTasks = tasks.some(
-      (t) =>
-        t.id !== task.id &&
-        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
-        ['user_queue', 'paused'].includes((t as unknown as Record<string, unknown>).scheduler_state as string)
-    )
-    // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
-    const userQueueTasks = tasks.filter(
-      (t) =>
-        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
-        ['user_queue', 'paused'].includes((t as unknown as Record<string, unknown>).scheduler_state as string) &&
-        !t.completed
-    )
+  // Precompute hall queue state once per render — O(n) instead of O(n*n) per card
+  const hallQueueState = useMemo(() => {
+    const usernameLow = currentUsername.toLowerCase()
+
+    // Helper: check if a multi-assignment task has the given hall_scheduler_state(s) for the current user
+    const getMaUserState = (t: Todo): string | null => {
+      if (!t.multi_assignment?.enabled) return null
+      const entry = t.multi_assignment.assignees.find(
+        (a) => (a.username || '').toLowerCase() === usernameLow
+      )
+      return entry?.hall_scheduler_state ?? null
+    }
+
+    const userQueueTasks = tasks.filter((t) => {
+      if (t.completed) return false
+      // Single-assignment: check top-level scheduler_state + assigned_to
+      const topState = (t as unknown as Record<string, unknown>).scheduler_state as string | null
+      if ((t.assigned_to || '').toLowerCase() === usernameLow && topState && ['user_queue', 'paused'].includes(topState)) {
+        return true
+      }
+      // Multi-assignment: check per-user hall_scheduler_state inside multi_assignment
+      const maState = getMaUserState(t)
+      if (maState && ['user_queue', 'paused'].includes(maState)) return true
+      return false
+    })
     const minQueueRank = userQueueTasks.reduce(
-      (min, t) => Math.min(min, ((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity),
+      (min, t) => {
+        // For multi-assignment, use per-user hall_queue_rank
+        const maEntry = t.multi_assignment?.enabled
+          ? t.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+          : null
+        const rank = maEntry?.hall_queue_rank ?? ((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+        return Math.min(min, rank)
+      },
       Infinity
     )
+    const minCreatedAt = userQueueTasks.reduce(
+      (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
+      ''
+    )
+    const hasActiveHallTask = tasks.some((t) => {
+      if (t.completed) return false
+      // Single-assignment active
+      if ((t.assigned_to || '').toLowerCase() === usernameLow &&
+          (t as unknown as Record<string, unknown>).scheduler_state === 'active') return true
+      // Multi-assignment active
+      const maState = getMaUserState(t)
+      if (maState === 'active') return true
+      return false
+    })
+    return { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask }
+  }, [tasks, currentUsername])
+
+  const cardProps = useCallback((task: Todo) => {
+    const { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask } = hallQueueState
+    // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
+    const hasOtherQueuedTasks = userQueueTasks.some((t) => t.id !== task.id)
     const thisRank = ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
-    // When queue_rank is null for multiple tasks, fall back to created_at ordering (oldest = first)
+    // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
     const isFirstInQueue = (() => {
       if (thisRank !== Infinity) return thisRank <= minQueueRank
       if (minQueueRank !== Infinity) return false // Other tasks have explicit ranks; null-rank tasks are last
       // All null-ranked: earliest created_at is first in queue
-      const minCreatedAt = userQueueTasks.reduce(
-        (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
-        ''
-      )
       return !!task.created_at && task.created_at <= minCreatedAt
     })()
-    // Whether the current user has any active hall task right now
-    const hasActiveHallTask = tasks.some(
-      (t) =>
-        (t.assigned_to || '').toLowerCase() === currentUsername.toLowerCase() &&
-        (t as unknown as Record<string, unknown>).scheduler_state === 'active' &&
-        !t.completed
-    )
     return {
-    task,
-    currentUsername,
-    currentUserRole,
-    currentUserDept,
-    currentUserTeamMembers,
-    currentUserTeamMemberDeptKeys,
-    enableQueueAssign,
-    hasOtherQueuedTasks,
-    isFirstInQueue,
-    hasActiveHallTask,
-    onEdit: (t: Todo) => setEditTask(t),
-    onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
-    onShare: (t: Todo) => setShareTask(t),
-    onRefresh: refresh,
+      task,
+      currentUsername,
+      currentUserRole,
+      currentUserDept,
+      currentUserTeamMembers,
+      currentUserTeamMemberDeptKeys,
+      enableQueueAssign,
+      hasOtherQueuedTasks,
+      isFirstInQueue,
+      hasActiveHallTask,
+      onEdit: (t: Todo) => setEditTask(t),
+      onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
+      onShare: (t: Todo) => setShareTask(t),
+      onRefresh: refresh,
     }
-  }
+  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, router])
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
@@ -973,8 +1019,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                               setPendingScopeSwitch(option.scope)
                               router.replace(`/dashboard/tasks?scope=${option.scope}&status=${statusFilter}`, { scroll: false })
                               setScopeDropdownOpen(false)
-                              // clear after short delay so spinner is visible
-                              setTimeout(() => setPendingScopeSwitch(null), 800)
+                              // clear after short delay so spinner is briefly visible
+                              setTimeout(() => setPendingScopeSwitch(null), 100)
                             }}
                             className={cn(
                               'flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed',
@@ -1142,6 +1188,50 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             </div>
           )}
 
+          {!loading && filteredTasks.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                <div className="relative">
+                  <select
+                    value={perPage}
+                    onChange={(e) => setPerPage(Number(e.target.value))}
+                    className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <span className="text-xs text-slate-400">
+                  Showing {filteredTasks.length === 0 ? 0 : (visiblePage - 1) * perPage + 1}–{Math.min(visiblePage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                </span>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPaginationState({ signature: paginationSignature, page: Math.max(1, visiblePage - 1) })}
+                    disabled={visiblePage === 1}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    Page {visiblePage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPaginationState({ signature: paginationSignature, page: Math.min(totalPages, visiblePage + 1) })}
+                    disabled={visiblePage === totalPages}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
             <div
               style={{
@@ -1253,11 +1343,24 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             }} />
           )}
 
-          {!loading && filteredTasks.length > TASKS_PER_PAGE && (
+          {!loading && totalPages > 1 && (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#dfe5f1] bg-white px-4 py-3">
-              <p className="text-sm text-slate-500">
-                Showing {(visiblePage - 1) * TASKS_PER_PAGE + 1}-{Math.min(visiblePage * TASKS_PER_PAGE, filteredTasks.length)} of {filteredTasks.length}
-              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500">Rows per page:</span>
+                <div className="relative">
+                  <select
+                    value={perPage}
+                    onChange={(e) => setPerPage(Number(e.target.value))}
+                    className="appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-6 text-xs font-semibold text-slate-700 outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+                <span className="text-sm text-slate-500">
+                  Showing {(visiblePage - 1) * perPage + 1}–{Math.min(visiblePage * perPage, filteredTasks.length)} of {filteredTasks.length}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"

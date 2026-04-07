@@ -67,9 +67,9 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    // Key expires weekly — warmup is expensive (origin requests)
-    const week = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000))
-    const warmupKey = `cms-portal-warmup:${user.username}:w${week}`
+    // Key expires daily — warmup runs once per day per user
+    const day = Math.floor(Date.now() / (24 * 60 * 60 * 1000))
+    const warmupKey = `cms-portal-warmup:${user.username}:d${day}`
     if (sessionStorage.getItem(warmupKey) === 'done') return
 
     const reduceWarmupWork = shouldReduceWarmupWork()

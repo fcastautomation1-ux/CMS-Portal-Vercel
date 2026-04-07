@@ -780,18 +780,22 @@ export function TaskCard({
 
   const doAction = (
     fn: () => Promise<{ success: boolean; error?: string }>,
-    optimisticData?: Partial<Todo>
+    optimisticData?: Partial<Todo>,
+    optimisticRemove?: boolean
   ) => {
     setActionError('')
-    
-    // Optimistic Update
-    if (optimisticData) {
-      const queryKey = queryKeys.tasks(currentUsername)
-      const previousTasks = queryClient.getQueryData<Todo[]>(queryKey)
-      
+
+    const queryKey = queryKeys.tasks(currentUsername)
+    let previousTasks: Todo[] | undefined
+    const hasOptimistic = !!optimisticData || optimisticRemove
+
+    // Apply optimistic update immediately — user sees result BEFORE server responds
+    if (hasOptimistic) {
+      previousTasks = queryClient.getQueryData<Todo[]>(queryKey)
       if (previousTasks) {
         queryClient.setQueryData<Todo[]>(queryKey, (old) => {
           if (!old) return old
+          if (optimisticRemove) return old.filter(t => t.id !== task.id)
           return old.map(t => t.id === task.id ? { ...t, ...optimisticData } : t)
         })
       }
@@ -801,13 +805,24 @@ export function TaskCard({
       try {
         const result = await fn()
         if (result.success) {
-          onRefresh()
+          if (hasOptimistic) {
+            // Optimistic update already shown — delay refetch to let server cache settle
+            // after revalidateTasksData() (unstable_cache + module cache need time to propagate)
+            setTimeout(() => {
+              void queryClient.invalidateQueries({ queryKey })
+            }, 1500)
+          } else {
+            onRefresh()
+          }
         } else {
-          // Rollback on error handled by onRefresh or manual logic if needed
+          // Rollback optimistic update on server error
+          if (previousTasks) queryClient.setQueryData<Todo[]>(queryKey, previousTasks)
           setActionError(result.error ?? 'Action failed. Please try again.')
-          onRefresh() // Ensure state is synced with server
+          onRefresh()
         }
       } catch (error) {
+        // Rollback on exception
+        if (previousTasks) queryClient.setQueryData<Todo[]>(queryKey, previousTasks)
         setActionError(error instanceof Error ? error.message : 'Unexpected action error')
         onRefresh()
       }
@@ -900,21 +915,32 @@ export function TaskCard({
         }
         const files = dialogFiles.slice()
         closeTaskDialog()
+        // Optimistic: mark completed immediately so card looks done before server responds
+        const completeQueryKey = queryKeys.tasks(currentUsername)
+        const prevTasksForComplete = queryClient.getQueryData<Todo[]>(completeQueryKey)
+        queryClient.setQueryData<Todo[]>(completeQueryKey, (old) =>
+          old?.map(t => t.id === task.id ? { ...t, completed: true, task_status: 'done' } : t)
+        )
         startTransition(async () => {
           setActionError('')
           if (files.length) {
             const supabase = createBrowserClient()
             for (const file of files) {
               const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
-              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
               const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
-              if (upload.error) { setActionError(upload.error.message); return }
+              if (upload.error) { setActionError(upload.error.message); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
               const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
-              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete); return }
             }
           }
           const result = await toggleTodoCompleteAction(task.id, true, note)
-          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+          if (result.success) {
+            void queryClient.invalidateQueries({ queryKey: completeQueryKey })
+          } else {
+            if (prevTasksForComplete) queryClient.setQueryData(completeQueryKey, prevTasksForComplete)
+            setActionError(result.error ?? 'Action failed')
+          }
         })
         return
       }
@@ -926,21 +952,32 @@ export function TaskCard({
         }
         const files = dialogFiles.slice()
         closeTaskDialog()
+        // Optimistic: mark as waiting_review immediately
+        const hallCompleteQueryKey = queryKeys.tasks(currentUsername)
+        const prevTasksForHallComplete = queryClient.getQueryData<Todo[]>(hallCompleteQueryKey)
+        queryClient.setQueryData<Todo[]>(hallCompleteQueryKey, (old) =>
+          old?.map(t => t.id === task.id ? { ...t, scheduler_state: 'waiting_review' } : t)
+        )
         startTransition(async () => {
           setActionError('')
           if (files.length) {
             const supabase = createBrowserClient()
             for (const file of files) {
               const signed = await createTaskAttachmentUploadUrlAction({ todo_id: task.id, owner_username: task.username, file_name: file.name })
-              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); return }
+              if (!signed.success || !signed.path || !signed.token) { setActionError(signed.error ?? 'File upload failed'); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
               const upload = await supabase.storage.from(signed.bucket || CMS_STORAGE_BUCKET).uploadToSignedUrl(signed.path, signed.token, file)
-              if (upload.error) { setActionError(upload.error.message); return }
+              if (upload.error) { setActionError(upload.error.message); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
               const saved = await saveTodoAttachmentAction({ todo_id: task.id, file_name: file.name, file_size: file.size, mime_type: file.type || null, storage_path: signed.path })
-              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); return }
+              if (!saved.success) { setActionError(saved.error ?? `Failed to attach ${file.name}`); if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete); return }
             }
           }
           const result = await submitHallTaskForReviewAction(task.id, note)
-          if (result.success) onRefresh(); else setActionError(result.error ?? 'Action failed')
+          if (result.success) {
+            void queryClient.invalidateQueries({ queryKey: hallCompleteQueryKey })
+          } else {
+            if (prevTasksForHallComplete) queryClient.setQueryData(hallCompleteQueryKey, prevTasksForHallComplete)
+            setActionError(result.error ?? 'Action failed')
+          }
         })
         return
       }
@@ -949,7 +986,10 @@ export function TaskCard({
           setActionError('Please provide a reason for declining.')
           return
         }
-        doAction(() => declineTodoAction(task.id, dialogValue.trim()))
+        doAction(
+          () => declineTodoAction(task.id, dialogValue.trim()),
+          { approval_status: 'declined' }
+        )
         closeTaskDialog()
         return
       case 'approve':
@@ -957,12 +997,15 @@ export function TaskCard({
           setActionError('Please provide approval feedback.')
           return
         }
-        doAction(() => approveTodoAction(task.id, dialogValue.trim()))
+        doAction(
+          () => approveTodoAction(task.id, dialogValue.trim()),
+          { approval_status: 'approved', task_status: 'done', completed: true }
+        )
         closeTaskDialog()
         return
       case 'single-due-date':
         if (!dialogValue.trim()) return
-        doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()))
+        doAction(() => updateSingleTaskDueDateAction(task.id, dialogValue.trim()), { due_date: dialogValue.trim() })
         closeTaskDialog()
         return
       case 'step-edit':
@@ -993,20 +1036,20 @@ export function TaskCard({
         return
       case 'queue-assign':
         if (!dialogValue.trim()) return
-        doAction(() => assignQueuedTaskToTeamMemberAction(task.id, dialogValue.trim()))
+        doAction(() => assignQueuedTaskToTeamMemberAction(task.id, dialogValue.trim()), { assigned_to: dialogValue.trim(), queue_status: 'claimed', task_status: 'todo' })
         closeTaskDialog()
         return
       case 'hall-assign': {
         if (!dialogValue.trim()) return
         const totalEstimatedHours = (parseFloat(hallAssignDays) || 0) * 8 + (parseFloat(hallAssignHours) || 0)
         if (totalEstimatedHours <= 0) { setActionError('Please enter estimated hours required.'); return }
-        doAction(() => assignHallInboxTaskWithSchedulerAction(task.id, dialogValue.trim(), hallAssignPriority, totalEstimatedHours))
+        doAction(() => assignHallInboxTaskWithSchedulerAction(task.id, dialogValue.trim(), hallAssignPriority, totalEstimatedHours), { assigned_to: dialogValue.trim(), cluster_inbox: false, task_status: 'todo' })
         closeTaskDialog()
         return
       }
       case 'delegate':
         if (!dialogValue.trim()) return
-        doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined))
+        doAction(() => delegateMaAssigneeAction(task.id, dialogValue.trim(), dialogExtraValue.trim() || undefined), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       case 'sub-submit': {
@@ -1038,16 +1081,16 @@ export function TaskCard({
       }
       case 'reject-assignee':
         if (!dialogValue.trim()) return
-        doAction(() => rejectMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()))
+        doAction(() => rejectMaAssigneeAction(task.id, taskDialog.assigneeUsername, dialogValue.trim()), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       case 'reject-sub':
         if (!dialogValue.trim()) return
-        doAction(() => rejectMaSubAssigneeAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername, dialogValue.trim()))
+        doAction(() => rejectMaSubAssigneeAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername, dialogValue.trim()), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       case 'remove-delegation':
-        doAction(() => removeMaDelegationAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername))
+        doAction(() => removeMaDelegationAction(task.id, taskDialog.delegatorUsername, taskDialog.subUsername), { task_status: 'in_progress' })
         closeTaskDialog()
         return
       default:
@@ -1358,7 +1401,7 @@ export function TaskCard({
                   Assign to Team
                 </ActBtn>
               )}
-              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'))} color="indigo" disabled={isPending}>Start Task</ActBtn>}
+              {showMaStartBtn && <ActBtn onClick={() => doAction(() => updateMaAssigneeStatusAction(task.id, 'in_progress'), { task_status: 'in_progress' })} color="indigo" disabled={isPending}>Start Task</ActBtn>}
               {showMaSubmitBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1381,7 +1424,7 @@ export function TaskCard({
                   Delegate
                 </ActBtn>
               )}
-              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'))} color="indigo" disabled={isPending}>Sub: Start</ActBtn>}
+              {showDelegatedStartBtn && <ActBtn onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, delegatedEntry!.username, 'in_progress'), { task_status: 'in_progress' })} color="indigo" disabled={isPending}>Sub: Start</ActBtn>}
               {showDelegatedSubmitBtn && (
                 <ActBtn
                   onClick={() => {
@@ -1524,7 +1567,7 @@ export function TaskCard({
                                     {sub.notes && <span className="text-[11px] text-amber-700">Note: {sub.notes}</span>}
                                     <div className="ml-auto flex flex-wrap gap-2">
                                       {isSubMe && subStatus === 'pending' && (
-                                        <button onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'in_progress'))} className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700">
+                                        <button onClick={() => doAction(() => updateMaSubAssigneeStatusAction(task.id, assignee.username, 'in_progress'), { task_status: 'in_progress' })} className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700">
                                           Start
                                         </button>
                                       )}
@@ -1540,7 +1583,7 @@ export function TaskCard({
                                       )}
                                       {isDelegator && subStatus === 'completed' && (
                                         <>
-                                          <button onClick={() => doAction(() => acceptMaSubAssigneeAction(task.id, assignee.username, sub.username))} className="rounded-full bg-green-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-green-700">
+                                          <button onClick={() => doAction(() => acceptMaSubAssigneeAction(task.id, assignee.username, sub.username), { task_status: 'in_progress' })} className="rounded-full bg-green-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-green-700">
                                             Accept
                                           </button>
                                           <button
@@ -1701,12 +1744,12 @@ export function TaskCard({
             <Copy size={13} />
           </button>
           {isCreator && !isCompleted && (
-            <button onClick={() => doAction(() => deleteTodoAction(task.id))} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
+            <button onClick={() => doAction(() => deleteTodoAction(task.id), undefined, true)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600" title="Delete">
               <Trash2 size={13} />
             </button>
           )}
           {isCreator && !isCompleted && task.task_status === 'done' && (
-            <button onClick={() => doAction(() => archiveTodoAction(task.id))} className="rounded-xl p-2 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
+            <button onClick={() => doAction(() => archiveTodoAction(task.id), undefined, true)} className="rounded-xl p-2 text-[10px] font-medium text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="Archive">
               ↓
             </button>
           )}
@@ -2060,11 +2103,11 @@ export function TaskCard({
         onClose={() => setShowHandoffDialog(false)}
         onAssignDepartment={(department, dueDate, note) => {
           setShowHandoffDialog(false)
-          doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note))
+          doAction(() => sendTaskToDepartmentQueueAction(task.id, department, dueDate, note), { task_status: 'in_progress' })
         }}
         onAssignMulti={(assignees, note) => {
           setShowHandoffDialog(false)
-          doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note))
+          doAction(() => convertTaskToMultiAssignmentAction(task.id, assignees, note), { task_status: 'in_progress' })
         }}
       />
     )}

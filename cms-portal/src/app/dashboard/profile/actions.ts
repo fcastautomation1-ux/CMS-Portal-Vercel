@@ -1,6 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
+import { revalidateTag } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession, createSession, getCookieName } from '@/lib/auth'
 import { buildLegacyPasswordFields, verifyPasswordRecord } from '@/lib/password'
@@ -150,6 +151,7 @@ export async function updateProfile(data: {
     path: '/',
   })
 
+  revalidateTag('session-data')
   return { success: true }
 }
 

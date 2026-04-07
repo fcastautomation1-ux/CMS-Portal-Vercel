@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { AnalyticsPageSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening analytics" description="Crunching performance metrics and charts." />
+  return <AnalyticsPageSkeleton />
 }

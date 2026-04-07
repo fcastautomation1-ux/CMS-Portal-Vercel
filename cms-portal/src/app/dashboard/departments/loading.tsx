@@ -1,4 +1,4 @@
-import { RouteLoadingScreen } from '@/components/layout/route-loading-screen'
+import { UsersTableSkeleton } from '@/components/layout/shimmer-skeleton'
 export default function Loading() {
-  return <RouteLoadingScreen title="Opening departments" description="Fetching departments, members, and permissions." />
+  return <UsersTableSkeleton />
 }
