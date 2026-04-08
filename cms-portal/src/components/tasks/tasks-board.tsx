@@ -659,6 +659,43 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const userLower = effectiveUser.toLowerCase()
     const isQueueStatusActive = statusFilter === 'queue'
 
+    const getMyMaEntry = (t: Todo) => {
+      if (!t.multi_assignment?.enabled || !Array.isArray(t.multi_assignment.assignees)) return null
+      return t.multi_assignment.assignees.find((entry) => (entry.username || '').toLowerCase() === userLower) ?? null
+    }
+
+    const getEffectiveHallState = (t: Todo): string | null => {
+      const myMaEntry = getMyMaEntry(t)
+      if (myMaEntry) {
+        return myMaEntry.hall_scheduler_state
+          ?? (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+          ?? (myMaEntry.status === 'in_progress' ? 'active' : null)
+          ?? ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null)
+          ?? 'user_queue'
+      }
+
+      if ((t.assigned_to || '').toLowerCase() !== userLower) return null
+      return ((t as unknown as Record<string, unknown>).scheduler_state as string | null) ?? null
+    }
+
+    const getEffectiveHallRank = (t: Todo): number => {
+      const myMaEntry = getMyMaEntry(t)
+      if (myMaEntry?.hall_queue_rank != null) return myMaEntry.hall_queue_rank
+      return (((t as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity)
+    }
+
+    const hallQueuedCandidates = list.filter((t) => {
+      if (t.completed) return false
+      const state = getEffectiveHallState(t)
+      return state === 'user_queue' || state === 'paused'
+    })
+
+    const nextQueuedRank = hallQueuedCandidates.reduce((min, t) => Math.min(min, getEffectiveHallRank(t)), Infinity)
+    const nextQueuedCreatedAt = hallQueuedCandidates.reduce(
+      (min, t) => (!min || (t.created_at || '') < min ? t.created_at || '' : min),
+      '',
+    )
+
     if (isQueueStatusActive) {
       list = list.filter((t) => !t.archived && matchesQueueVisibility(t))
     } else if (quickFilter === 'created_by_me') {
@@ -748,28 +785,31 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const bCompleted = b.completed ? 1 : 0
       if (aCompleted !== bCompleted) return aCompleted - bCompleted
 
-      // Hall queue priority sort: active tasks first, then queue #1 (user_queue+paused), then rest
-      const userLowerInner = effectiveUser.toLowerCase()
-      const hallStateA = (a as unknown as Record<string, unknown>).scheduler_state as string | null
-      const hallStateB = (b as unknown as Record<string, unknown>).scheduler_state as string | null
-      const isAssigneeA = (a.assigned_to || '').toLowerCase() === userLowerInner
-      const isAssigneeB = (b.assigned_to || '').toLowerCase() === userLowerInner
-      const hallPriority = (t: Todo, state: string | null, isAssignee: boolean): number => {
-        if (!isAssignee || !state) return 3
+      // Main list priority rule:
+      // 1. My active hall task
+      // 2. My next queued/paused hall task
+      // 3. Everything else
+      const hallStateA = getEffectiveHallState(a)
+      const hallStateB = getEffectiveHallState(b)
+      const rankA = getEffectiveHallRank(a)
+      const rankB = getEffectiveHallRank(b)
+      const isNextQueuedA = (hallStateA === 'user_queue' || hallStateA === 'paused') && (
+        rankA === nextQueuedRank || (rankA === Infinity && nextQueuedRank === Infinity && !!a.created_at && a.created_at <= nextQueuedCreatedAt)
+      )
+      const isNextQueuedB = (hallStateB === 'user_queue' || hallStateB === 'paused') && (
+        rankB === nextQueuedRank || (rankB === Infinity && nextQueuedRank === Infinity && !!b.created_at && b.created_at <= nextQueuedCreatedAt)
+      )
+      const hallPriority = (state: string | null, isNextQueued: boolean): number => {
         if (state === 'active') return 0
-        if (state === 'user_queue' || state === 'paused') return 1
-        if (state === 'waiting_review') return 2
-        return 3
+        if (isNextQueued) return 1
+        return 2
       }
-      const hpA = hallPriority(a, hallStateA, isAssigneeA)
-      const hpB = hallPriority(b, hallStateB, isAssigneeB)
+      const hpA = hallPriority(hallStateA, isNextQueuedA)
+      const hpB = hallPriority(hallStateB, isNextQueuedB)
       if (hpA !== hpB) return hpA - hpB
 
-      // Within the hall-queue tier (both user_queue or paused), sort by queue_rank ASC
-      // so the task the user must work on next always appears directly below the active task
-      if (hpA === 1) {
-        const rankA = ((a as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
-        const rankB = ((b as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+      // Within the hall queue tier, keep lower queue_rank higher.
+      if (hallStateA && hallStateB && ['user_queue', 'paused'].includes(hallStateA) && ['user_queue', 'paused'].includes(hallStateB)) {
         if (rankA !== rankB) return rankA < rankB ? -1 : 1
       }
 
@@ -800,27 +840,17 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
 
   const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}|${perPage}`
-  const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
+  const urlPage = (() => {
+    const raw = Number(searchParams.get('page') || '1')
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1
+  })()
+  const currentPage = paginationState.signature === paginationSignature ? paginationState.page : urlPage
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visiblePage = Math.min(currentPage, totalPages)
   const paginatedTasks = useMemo(() => {
     const start = (visiblePage - 1) * perPage
     return filteredTasks.slice(start, start + perPage)
   }, [filteredTasks, visiblePage, perPage])
-
-  const virtualizer = useVirtualizer({
-    count: paginatedTasks.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 100,
-    overscan: 5,
-  })
-
-  useEffect(() => {
-    // Prefetch likely detail routes to reduce perceived navigation delay.
-    paginatedTasks.slice(0, 20).forEach((task) => {
-      router.prefetch(`/dashboard/tasks/${task.id}`)
-    })
-  }, [paginatedTasks, router])
 
   const bulkDelete = () => {
     startTransition(async () => {
@@ -848,10 +878,10 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }
 
   const toggleSelectAll = () => {
-    if (selected.size > 0 && paginatedTasks.every((task) => selected.has(task.id))) {
+    if (selected.size > 0 && displayTasks.every((task) => selected.has(task.id))) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(paginatedTasks.map((t: Todo) => t.id)))
+      setSelected(new Set(displayTasks.map((t: Todo) => t.id)))
     }
   }
 
@@ -877,7 +907,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       const entry = t.multi_assignment.assignees.find(
         (a) => (a.username || '').toLowerCase() === usernameLow
       )
-      return entry?.hall_scheduler_state ?? null
+      if (!entry) return null
+      if (entry.hall_scheduler_state) return entry.hall_scheduler_state
+      // Legacy fallback for older MA rows created before hall per-user state existed
+      if (entry.ma_approval_status === 'pending_approval') return 'waiting_review'
+      if (entry.status === 'in_progress') return 'active'
+      if (entry.status === 'completed' || entry.status === 'accepted') return 'completed'
+      return 'user_queue'
     }
 
     const userQueueTasks = tasks.filter((t) => {
@@ -922,9 +958,13 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
   const cardProps = useCallback((task: Todo) => {
     const { userQueueTasks, minQueueRank, minCreatedAt, hasActiveHallTask } = hallQueueState
+    const usernameLow = currentUsername.toLowerCase()
     // Pause is only meaningful when user has other tasks waiting in their queue (user_queue OR paused)
     const hasOtherQueuedTasks = userQueueTasks.some((t) => t.id !== task.id)
-    const thisRank = ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
+    const maEntry = task.multi_assignment?.enabled
+      ? task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+      : null
+    const thisRank = maEntry?.hall_queue_rank ?? ((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity
     // Determine if this task is at the front of the user's hall queue (lowest queue_rank among user_queue + paused tasks)
     const isFirstInQueue = (() => {
       if (thisRank !== Infinity) return thisRank <= minQueueRank
@@ -944,11 +984,83 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       isFirstInQueue,
       hasActiveHallTask,
       onEdit: (t: Todo) => setEditTask(t),
-      onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
+      onViewDetail: (t: Todo) => {
+        const backTo = `/dashboard/tasks?scope=${quickFilter}&status=${statusFilter}&page=${visiblePage}&focus=${t.id}`
+        const detailUrl = `/dashboard/tasks/${t.id}?from=${encodeURIComponent(backTo)}`
+        window.open(detailUrl, '_blank', 'noopener,noreferrer')
+      },
       onShare: (t: Todo) => setShareTask(t),
       onRefresh: refresh,
     }
-  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, router])
+  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, quickFilter, statusFilter, visiblePage])
+
+  const displayTasks = useMemo(() => {
+    const usernameLow = currentUsername.toLowerCase()
+    const { minQueueRank, minCreatedAt } = hallQueueState
+
+    const deriveMaState = (task: Todo) => {
+      if (!task.multi_assignment?.enabled) return null
+      const entry = task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+      if (!entry) return null
+      return entry.hall_scheduler_state
+        ?? (entry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+        ?? (entry.status === 'in_progress' ? 'active' : null)
+        ?? ((entry.status === 'completed' || entry.status === 'accepted') ? 'completed' : null)
+        ?? 'user_queue'
+    }
+
+    const getPriority = (task: Todo) => {
+      const topState = ((task as unknown as Record<string, unknown>).scheduler_state as string | null) ?? null
+      const maEntry = task.multi_assignment?.enabled
+        ? task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
+        : null
+      const maState = deriveMaState(task)
+      const effectiveState = ((task.assigned_to || '').toLowerCase() === usernameLow ? topState : maState) as string | null
+      const isHallMine = !!task.cluster_id && !task.cluster_inbox && (
+        (((task.assigned_to || '').toLowerCase() === usernameLow) && !!topState) ||
+        (!!maEntry && !!maState)
+      )
+
+      if (isHallMine && effectiveState === 'active') return 0
+
+      const thisRank = maEntry?.hall_queue_rank ?? (((task as unknown as Record<string, unknown>).queue_rank as number | null) ?? Infinity)
+      const isFirstInQueue = (() => {
+        if (thisRank !== Infinity) return thisRank <= minQueueRank
+        if (minQueueRank !== Infinity) return false
+        return !!task.created_at && task.created_at <= minCreatedAt
+      })()
+
+      const hasVisibleStart =
+        (isHallMine && (effectiveState === 'user_queue' || effectiveState === 'paused') && isFirstInQueue) ||
+        (!!maEntry && maEntry.status === 'pending' && !task.completed && (!task.cluster_id || maState === 'active'))
+
+      if (hasVisibleStart) return 1
+      if (isHallMine && (effectiveState === 'user_queue' || effectiveState === 'paused' || effectiveState === 'waiting_review')) return 2
+      return 3
+    }
+
+    return [...paginatedTasks].sort((a, b) => {
+      const pa = getPriority(a)
+      const pb = getPriority(b)
+      if (pa !== pb) return pa - pb
+      return 0
+    })
+  }, [paginatedTasks, currentUsername, hallQueueState])
+
+  useEffect(() => {
+    const focusTaskId = searchParams.get('focus')
+    if (!focusTaskId) return
+    const taskEl = document.querySelector(`[data-task-id="${focusTaskId}"]`) as HTMLElement | null
+    if (!taskEl) return
+    taskEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [searchParams, displayTasks])
+
+  const virtualizer = useVirtualizer({
+    count: displayTasks.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 100,
+    overscan: 5,
+  })
 
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
@@ -1091,7 +1203,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                   onClick={toggleSelectAll}
                   className="inline-flex items-center gap-1 rounded-xl border border-[#d9e2f0] bg-white px-3 py-2 font-semibold text-slate-600 shadow-[0_2px_8px_rgba(15,23,42,0.03)] transition hover:border-[#c4d3ef] hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"
                 >
-                  {paginatedTasks.length > 0 && paginatedTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
+                  {displayTasks.length > 0 && displayTasks.every((task) => selected.has(task.id)) ? <CheckSquare size={13} className="text-[#3559d8]" /> : <Square size={13} />}
                   <span className="hidden sm:inline">{selected.size > 0 ? `${selected.size} selected` : 'Select All'}</span>
                   {selected.size > 0 && <span className="sm:hidden">{selected.size}</span>}
                 </button>
@@ -1232,7 +1344,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
             </div>
           )}
 
-          {!loading && viewMode === 'list' && paginatedTasks.length > 0 && (
+          {!loading && viewMode === 'list' && displayTasks.length > 0 && (
             <div
               style={{
                 height: `${virtualizer.getTotalSize()}px`,
@@ -1241,7 +1353,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
               }}
             >
               {virtualizer.getVirtualItems().map((virtualItem) => {
-                const task = paginatedTasks[virtualItem.index]
+                  const task = displayTasks[virtualItem.index]
                 if (!task) return null
                 return (
                   <div
@@ -1268,7 +1380,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                           <Square size={15} />
                         )}
                       </button>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1" data-task-id={task.id}>
                         <TaskCard {...cardProps(task)} />
                       </div>
                     </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -54,6 +54,9 @@ function initials(name: string) {
 export function UsersPage({ users: initial, departments, currentUser, options }: Props) {
   const canEdit = ['Admin', 'Super Manager', 'Manager'].includes(currentUser.role)
   const queryClient = useQueryClient()
+
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => { setIsMounted(true) }, [])
 
   // Serve from React Query cache on revisit (PortalWarmup pre-populates this)
   const { data: users = initial } = useQuery({
@@ -168,7 +171,7 @@ export function UsersPage({ users: initial, departments, currentUser, options }:
                     <span className={cn('rounded-full px-2 py-1 text-xs font-medium', ROLE_COLORS[u.role] || 'bg-slate-100 text-slate-600')}>{u.role}</span>
                   </td>
                   <td className="px-5 py-3" style={{ color: 'var(--slate-600)' }}>{u.department || '-'}</td>
-                  <td className="px-5 py-3 text-xs" style={{ color: 'var(--slate-500)' }}>{u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
+                  <td className="px-5 py-3 text-xs" style={{ color: 'var(--slate-500)' }}>{u.last_login && isMounted ? new Date(u.last_login).toLocaleString() : (u.last_login ? 'Loading...' : 'Never')}</td>
                   <td className="px-5 py-3">
                     {canEdit && (
                       <div className="flex items-center gap-1">
@@ -249,6 +252,8 @@ function UserModal({
   onSaved: (u: User, isNew: boolean) => void
 }) {
   const isEdit = !!user
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => { setIsMounted(true) }, [])
   const [username, setUsername] = useState(user?.username || '')
   const [email, setEmail] = useState(user?.email || '')
   const [role, setRole] = useState<UserRole>((user?.role as UserRole) || 'User')
@@ -411,7 +416,7 @@ function UserModal({
             {isEdit && (
               <div className="rounded-2xl p-4" style={{ background: '#eff6ff', border: '1px solid #93c5fd' }}>
                 <p className="text-xs font-semibold uppercase" style={{ color: '#1d4ed8' }}>Last Login</p>
-                <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--slate-700)' }}>{user?.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</p>
+                <p className="mt-1 text-sm font-semibold" style={{ color: 'var(--slate-700)' }}>{user?.last_login && isMounted ? new Date(user.last_login).toLocaleString() : (user?.last_login ? 'Loading...' : 'Never')}</p>
               </div>
             )}
 

@@ -1,15 +1,10 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { getOverviewStats, getManagerOverview, getUserPersonalStats } from '@/app/dashboard/overview/actions'
 import {
-  getCachedTodos,
   getCachedSidebarTaskCounts,
-  getPackagesForTaskForm,
-  getUsersForAssignment,
-  getDepartmentsForTaskForm,
 } from '@/app/dashboard/tasks/actions'
 import { queryKeys } from '@/lib/query-keys'
 import type { SessionUser } from '@/types'
@@ -63,7 +58,6 @@ function shouldReduceWarmupWork() {
 
 
 export function PortalWarmup({ user }: PortalWarmupProps) {
-  const router = useRouter()
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -73,21 +67,17 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
     if (sessionStorage.getItem(warmupKey) === 'done') return
 
     const reduceWarmupWork = shouldReduceWarmupWork()
-    // Prefetch only the most-visited page (Tasks) to avoid per-route origin hits
-    router.prefetch('/dashboard/tasks')
-
     const isAdminOrSM = user.role === 'Admin' || user.role === 'Super Manager'
     const isManagerOrSupervisor = user.role === 'Manager' || user.role === 'Supervisor'
 
     // ── Critical-path only warmup ──────────────────────────────────────────
-    // We intentionally limit the warmup scope to the 6–7 items users hit
+    // We intentionally limit the warmup scope to only the most critical items
     // immediately after login.  Pre-warming every module (analytics, users,
     // packages, accounts, campaigns, rules, workflows, teamTodos…) multiplied
     // across 50 concurrent users adds 1 000+ serverless invocations in the
     // first minute and overwhelms Supabase connection pools.
     //
-    // Heavy modules (Users, Packages, Analytics, Accounts, Campaigns, Rules,
-    // Workflows, TeamTodos) are loaded on demand when the user navigates to
+    // Heavy modules are loaded on demand when the user navigates to
     // them.  React Query's staleTime handles client-side caching after the
     // first visit.
     const warmTasks: WarmTask[] = [
@@ -95,28 +85,6 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       {
         key: queryKeys.taskSidebarCounts(user.username),
         fn: () => getCachedSidebarTaskCounts(),
-        staleTime: 600_000,
-      },
-      // 2. Task list — the most-visited page
-      {
-        key: queryKeys.tasks(user.username),
-        fn: () => getCachedTodos(),
-        staleTime: 600_000,
-      },
-      // 3. Task form dropdowns — needed the moment the user clicks "New Task"
-      {
-        key: queryKeys.taskFormPackages(),
-        fn: () => getPackagesForTaskForm(),
-        staleTime: 600_000,
-      },
-      {
-        key: queryKeys.taskAssignmentUsers(user.username),
-        fn: () => getUsersForAssignment(),
-        staleTime: 600_000,
-      },
-      {
-        key: queryKeys.taskFormDepartments(),
-        fn: () => getDepartmentsForTaskForm(),
         staleTime: 600_000,
       },
     ]
@@ -162,7 +130,7 @@ export function PortalWarmup({ user }: PortalWarmupProps) {
       cleanups.forEach((cleanup) => cleanup())
       doneCleanup()
     }
-  }, [queryClient, router, user])
+  }, [queryClient, user])
 
   return null
 }

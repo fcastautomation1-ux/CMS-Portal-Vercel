@@ -22,6 +22,36 @@ function canManagePackages(role: string) {
   return ['Admin', 'Super Manager', 'Manager'].includes(role)
 }
 
+function normalizePackageName(value: string | null | undefined) {
+  return (value || '').trim().toLowerCase()
+}
+
+function isDuplicateKeyError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (!error) return false
+  return error.code === '23505' || /duplicate key|unique constraint/i.test(error.message || '')
+}
+
+async function findExistingPackageByName(
+  supabase: ReturnType<typeof createServerClient>,
+  packageName: string,
+): Promise<{ id: string; name: string } | null> {
+  const normalizedTarget = normalizePackageName(packageName)
+  if (!normalizedTarget) return null
+
+  const { data, error } = await supabase
+    .from('packages')
+    .select('id,name')
+    .order('name')
+
+  if (error) {
+    console.error('findExistingPackageByName error:', error)
+    return null
+  }
+
+  const rows = (data ?? []) as Array<{ id: string; name: string }>
+  return rows.find((row) => normalizePackageName(row.name) === normalizedTarget) ?? null
+}
+
 async function getUserPackageRows(supabase: ReturnType<typeof createServerClient>): Promise<Array<{ package_id: string; username: string }>> {
   const byUserId = await supabase.from('user_packages').select('package_id,user_id')
   if (!byUserId.error) {
@@ -153,16 +183,27 @@ export async function addPackagesBulk(
   }
 
   const supabase = createServerClient()
-  const { data: existing, error: existingError } = await supabase
+  const { data: exactExisting, error: existingError } = await supabase
     .from('packages')
-    .select('name')
+    .select('id,name')
     .in('name', normalized)
 
   if (existingError) return { success: false, error: existingError.message }
 
-  const existingSet = new Set(((existing ?? []) as Array<{ name: string }>).map(p => (p.name || '').toLowerCase()))
+  const { data: allExisting, error: allExistingError } = await supabase
+    .from('packages')
+    .select('id,name')
+    .order('name')
+
+  if (allExistingError) return { success: false, error: allExistingError.message }
+
+  const existingSet = new Set(
+    ([...((exactExisting ?? []) as Array<{ id: string; name: string }>), ...((allExisting ?? []) as Array<{ id: string; name: string }>)])
+      .map(p => normalizePackageName(p.name))
+      .filter(Boolean)
+  )
   const toInsert = normalized
-    .filter(name => !existingSet.has(name.toLowerCase()))
+    .filter(name => !existingSet.has(normalizePackageName(name)))
     .map(name => ({
       name,
       app_name: null,
@@ -211,6 +252,12 @@ export async function savePackage(
   if (!pkg.app_name?.trim()) return { success: false, error: 'APP/Games name is required.' }
 
   const supabase = createServerClient()
+  const normalizedPackageName = pkg.name.trim()
+
+  const existingPackage = await findExistingPackageByName(supabase, normalizedPackageName)
+  if (existingPackage && existingPackage.id !== pkg.id) {
+    return { success: false, error: `Package name already exists: ${existingPackage.name}` }
+  }
 
   if (pkg.id) {
     const { error } = await supabase
@@ -229,13 +276,16 @@ export async function savePackage(
 
     if (error) {
       console.error('savePackage update error:', error)
+      if (isDuplicateKeyError(error)) {
+        return { success: false, error: `Package name already exists: ${normalizedPackageName}` }
+      }
       return { success: false, error: error.message }
     }
   } else {
     const { error } = await supabase
       .from('packages')
       .insert({
-        name: pkg.name.trim(),
+        name: normalizedPackageName,
         app_name: pkg.app_name.trim(),
         description: (pkg.description || '').trim(),
         department: pkg.department || null,
@@ -249,6 +299,9 @@ export async function savePackage(
 
     if (error) {
       console.error('savePackage insert error:', error)
+      if (isDuplicateKeyError(error)) {
+        return { success: false, error: `Package name already exists: ${normalizedPackageName}` }
+      }
       return { success: false, error: error.message }
     }
   }

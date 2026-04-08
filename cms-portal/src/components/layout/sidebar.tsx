@@ -35,6 +35,7 @@ import {
   Inbox,
   ListOrdered,
   Loader2,
+  Table2,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -77,6 +78,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Clusters', href: '/dashboard/clusters', icon: <Layers size={17} />, color: '#2B7FFF' },
       { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
       { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
+      { label: 'App Overview', href: '/dashboard/app-overview', icon: <Table2 size={17} />, color: '#0EA5E9' },
       { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
     ],
   },
@@ -149,6 +151,7 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       return user.clusterIds.length > 0
 
     case '/dashboard/analytics':
+    case '/dashboard/app-overview':
       return isAdminOrSM
 
     case '/dashboard/settings':
@@ -220,9 +223,8 @@ export function Sidebar({
     queryFn: () => getCachedSidebarTaskCounts().catch(() => ({ all: 0, completed: 0, in_progress: 0, pending: 0, overdue: 0, queue: 0 } satisfies SidebarTaskCounts)),
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    // Sidebar often mounts from prefetched layout data, so force a fresh count load
-    // when returning from task actions like completion/approval.
-    refetchOnMount: 'always',
+    // Realtime invalidation already keeps this fresh without forcing a mount fetch.
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
   })
@@ -247,14 +249,6 @@ export function Sidebar({
       })).filter((section) => section.items.length > 0),
     [user]
   )
-
-  useEffect(() => {
-    visibleSections.forEach((section) => {
-      section.items.forEach((item) => {
-        router.prefetch(item.href)
-      })
-    })
-  }, [router, visibleSections])
 
   const toggleSection = (sectionId: string) => {
     setOpenSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))
@@ -388,6 +382,7 @@ export function Sidebar({
                     href={item.href}
                     onClick={() => { setPendingHref(item.href); onClose?.() }}
                     title={item.label}
+                    prefetch={false}
                     className={cn(
                       'group relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-sm font-medium transition-all duration-150',
                       (isActive || isPendingNav) && 'text-white'
@@ -484,7 +479,7 @@ export function Sidebar({
                                     <Link
                                       href="/dashboard/team?scope=users"
                                       onClick={() => { setPendingHref('/dashboard/team?scope=users'); onClose?.() }}
-                                      prefetch
+                                      prefetch={false}
                                       scroll={false}
                                       className={cn(
                                         'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
@@ -510,7 +505,7 @@ export function Sidebar({
                                         <Link
                                           href="/dashboard/team?scope=tasks_all"
                                           onClick={() => { setPendingHref('/dashboard/team?scope=tasks_all'); onClose?.() }}
-                                          prefetch
+                                          prefetch={false}
                                           scroll={false}
                                           className="flex flex-1 items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate-700"
                                         >
@@ -535,7 +530,7 @@ export function Sidebar({
                                                 <Link
                                                   href={`/dashboard/team?scope=${link.scope}`}
                                                   onClick={() => { setPendingHref(`/dashboard/team?scope=${link.scope}`); onClose?.() }}
-                                                  prefetch
+                                                  prefetch={false}
                                                   scroll={false}
                                                   className={cn(
                                                     'flex items-center justify-between rounded-lg px-3 py-1.5 text-xs font-medium transition',
@@ -610,7 +605,7 @@ export function Sidebar({
                                         <Link
                                           href={thisHref}
                                           onClick={() => { setPendingHref(thisHref); onClose?.() }}
-                                          prefetch
+                                          prefetch={false}
                                           scroll={false}
                                           className={cn(
                                             'flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition',
@@ -639,6 +634,7 @@ export function Sidebar({
                             <Link
                               href={item.href}
                               onClick={() => { setPendingHref(item.href); onClose?.() }}
+                              prefetch={false}
                               className={cn(
                                 'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
                                 (isActive || pendingHref === item.href) && 'text-white'

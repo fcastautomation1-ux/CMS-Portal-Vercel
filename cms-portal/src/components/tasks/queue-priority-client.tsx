@@ -232,9 +232,9 @@ export function QueuePriorityClient({ data }: Props) {
   }, [router])
 
   const handleViewTask = useCallback((taskId: string) => {
-    sessionStorage.setItem('task-detail-back', '/dashboard/tasks/queue-priority')
-    router.push(`/dashboard/tasks/${taskId}`)
-  }, [router])
+    const backTo = '/dashboard/tasks/queue-priority'
+    window.open(`/dashboard/tasks/${taskId}?from=${encodeURIComponent(backTo)}`, '_blank', 'noopener,noreferrer')
+  }, [])
 
   const showAll = data.isManager && selectedUser === 'all'
   const showMine = selectedUser === 'me'

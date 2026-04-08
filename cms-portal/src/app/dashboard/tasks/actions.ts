@@ -761,9 +761,20 @@ export async function getTodos(): Promise<Todo[]> {
     ; ((pendingApproverRes.data || []) as unknown as Record<string, unknown>[]).forEach((r) => addTask(r, { is_chain_member: true }))
   {
     const deptRows = (deptQueueRes as { data: Record<string, unknown>[] | null }).data || []
-    // For regular Users, check cluster_settings.allow_dept_users_see_queue for Hall-routed tasks
-    let blockedClusterIds = new Set<string>()
-    if (!canViewAllQueues && user.role === 'User') {
+    // ── Queue-visibility: hierarchical toggle check ─────────────────────────
+    // Parent toggle  (allow_dept_users_see_queue):
+    //   OFF → ONLY hall leaders (cluster_role owner/manager/supervisor) + system
+    //         Admin/Super-Manager may see queue tasks.  All others are blocked.
+    //   ON  → check the child toggle ↓
+    // Child toggle  (allow_normal_users_see_queue):
+    //   OFF → Managers/Supervisors (by session role) + hall leaders can see.
+    //         Regular User-role members are blocked.
+    //   ON  → everyone in the department can see.
+    // ────────────────────────────────────────────────────────────────────────
+    const blockedFull = new Set<string>()   // nobody except hall-leaders / admins
+    const blockedNormal = new Set<string>() // only User-role blocked
+
+    if (!canViewAllQueues) {
       const hallClusterIds = [...new Set(
         deptRows
           .map((r) => r.cluster_id as string | null)
@@ -775,20 +786,45 @@ export async function getTodos(): Promise<Todo[]> {
           .select('cluster_id,allow_dept_users_see_queue,allow_normal_users_see_queue')
           .in('cluster_id', hallClusterIds)
           ; (settingsRows || []).forEach((s: Record<string, unknown>) => {
-            // Block User-role if dept queue is hidden OR if normal-users toggle is off
-            if (!s.allow_dept_users_see_queue || s.allow_normal_users_see_queue === false) {
-              blockedClusterIds.add(s.cluster_id as string)
+            if (!s.allow_dept_users_see_queue) {
+              // Parent OFF → block everyone except hall leaders + admins
+              blockedFull.add(s.cluster_id as string)
+            } else if (s.allow_normal_users_see_queue === false) {
+              // Parent ON, child OFF → block only User-role
+              blockedNormal.add(s.cluster_id as string)
             }
           })
       }
     }
+
+    // Pre-load the caller's cluster_role for halls that are fully blocked so we
+    // can allow hall leaders through even when allow_dept_users_see_queue is OFF.
+    let leaderClusterIds = new Set<string>()
+    if (blockedFull.size > 0) {
+      const { data: memRows } = await supabase
+        .from('cluster_members')
+        .select('cluster_id, cluster_role')
+        .eq('username', user.username)
+        .in('cluster_id', [...blockedFull])
+        ; (memRows ?? []).forEach((m: Record<string, unknown>) => {
+          if (['owner', 'manager', 'supervisor'].includes(m.cluster_role as string)) {
+            leaderClusterIds.add(m.cluster_id as string)
+          }
+        })
+    }
+
     deptRows.forEach((r) => {
       if (canViewAllQueues) {
         addTask(r, { is_department_queue: true })
         return
       }
-      // Block User-role from viewing Hall dept queue tasks when setting disallows it
-      if (user.role === 'User' && r.cluster_id && blockedClusterIds.has(r.cluster_id as string)) {
+      const cid = r.cluster_id as string | null
+      // Parent toggle OFF → only hall leaders + admins pass
+      if (cid && blockedFull.has(cid) && !leaderClusterIds.has(cid)) {
+        return
+      }
+      // Child toggle OFF → block User-role (Manager/Supervisor pass)
+      if (cid && blockedNormal.has(cid) && user.role === 'User') {
         return
       }
       const queueDept = String(r.queue_department || '')
@@ -836,6 +872,8 @@ export async function getTodos(): Promise<Todo[]> {
   // instead of a jsonb object).  Fetch ALL incomplete split_to_multi tasks and filter
   // for the current user in JavaScript.  The addTask() dedup ensures no duplicates if
   // the JSONB queries above DID return results.
+  // Also project per-user hall scheduler state from JSONB so task cards display the
+  // correct state for the current user (the task-level scheduler_state is null for MA tasks).
   {
     const { data: allMaRows } = await supabase
       .from('todos')
@@ -845,15 +883,43 @@ export async function getTodos(): Promise<Todo[]> {
     const uLower = user.username.toLowerCase()
     ;((allMaRows || []) as unknown as Record<string, unknown>[]).forEach((r) => {
       const ma = parseJson<MultiAssignment | null>(r.multi_assignment, null)
-      const isAssignee = ma?.enabled && Array.isArray(ma.assignees) &&
-        ma.assignees.some((a) => a.username.toLowerCase() === uLower)
+      const myEntry = ma?.enabled && Array.isArray(ma.assignees)
+        ? ma.assignees.find((a) => a.username.toLowerCase() === uLower)
+        : undefined
+      const approverEntry = ma?.enabled && Array.isArray(ma.assignees)
+        ? ma.assignees.find((a) =>
+            (a.ma_approval_status === 'pending_approval') &&
+            normalizeChainUsername(a.ma_pending_approver).toLowerCase() === uLower,
+          )
+        : undefined
       const isDelegated = ma?.enabled && Array.isArray(ma.assignees) &&
         ma.assignees.some((a) => Array.isArray(a.delegated_to) &&
           a.delegated_to.some((d) => d.username.toLowerCase() === uLower))
       const chain = parseJson<AssignmentChainEntry[]>(r.assignment_chain, [])
       const inChain = Array.isArray(chain) &&
         chain.some((e) => (e.next_user ?? '').toLowerCase() === uLower)
-      if (isAssignee || isDelegated || inChain) {
+      if (myEntry || approverEntry || isDelegated || inChain) {
+        // Project per-user JSONB scheduler fields onto the task so cards render correctly
+        if (myEntry) {
+          const derivedMaState = myEntry.hall_scheduler_state
+            ?? (myEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+            ?? (myEntry.status === 'in_progress' ? 'active' : null)
+            ?? ((myEntry.status === 'completed' || myEntry.status === 'accepted') ? 'completed' : null)
+            ?? 'user_queue'
+          r.scheduler_state = derivedMaState
+          if (myEntry.hall_queue_rank != null) r.queue_rank = myEntry.hall_queue_rank
+          if (myEntry.hall_remaining_minutes != null) r.remaining_work_minutes = myEntry.hall_remaining_minutes
+          if (myEntry.hall_active_started_at) r.active_started_at = myEntry.hall_active_started_at
+          if (myEntry.hall_effective_due_at) r.effective_due_at = myEntry.hall_effective_due_at
+          if (myEntry.ma_approval_status) r.approval_status = myEntry.ma_approval_status
+          else if (myEntry.status === 'completed') r.approval_status = 'pending_approval'
+          if (myEntry.ma_pending_approver !== undefined) r.pending_approver = myEntry.ma_pending_approver
+        }
+        if (approverEntry) {
+          r.approval_status = 'pending_approval'
+          r.pending_approver = user.username
+          r.completed_by = approverEntry.username
+        }
         addTask(r, { is_multi_assigned: true, ...(isDelegated ? { is_delegated_to_me: true } : {}) })
       }
     })
@@ -2140,6 +2206,123 @@ export async function approveTodoAction(todoId: string, note?: string): Promise<
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
+  const multiAssignmentForMaApprove = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (multiAssignmentForMaApprove?.enabled && Array.isArray(multiAssignmentForMaApprove.assignees)) {
+    const now = new Date().toISOString()
+    const history = parseJson<HistoryEntry[]>(task.history, [])
+    const approverLower = user.username.toLowerCase()
+    const idx = multiAssignmentForMaApprove.assignees.findIndex((entry) =>
+      (entry.ma_approval_status === 'pending_approval') &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === approverLower,
+    )
+
+    if (idx !== -1) {
+      const target = multiAssignmentForMaApprove.assignees[idx]
+      const entryChain = Array.isArray(target.ma_approval_chain) ? target.ma_approval_chain : []
+      const currentStepIndex = entryChain.findIndex(
+        (entry) => normalizeApprovalUser(entry.user).toLowerCase() === approverLower && entry.status === 'pending',
+      )
+      if (currentStepIndex !== -1) {
+        entryChain[currentStepIndex] = {
+          ...entryChain[currentStepIndex],
+          status: 'approved',
+          acted_at: now,
+          acted_by: user.username,
+          comment: note?.trim() || undefined,
+        }
+      }
+      const nextPendingMa = entryChain.find((entry) => entry.status === 'pending')
+
+      multiAssignmentForMaApprove.assignees[idx] = {
+        ...target,
+        status: nextPendingMa ? 'completed' : 'accepted',
+        completed_at: target.completed_at ?? now,
+        accepted_at: nextPendingMa ? target.accepted_at : now,
+        accepted_by: nextPendingMa ? target.accepted_by : user.username,
+        hall_scheduler_state: nextPendingMa ? (target.hall_scheduler_state ?? 'waiting_review') : (target.hall_scheduler_state === 'waiting_review' ? 'completed' : (target.hall_scheduler_state ?? 'completed')),
+        hall_remaining_minutes: nextPendingMa ? target.hall_remaining_minutes : 0,
+        hall_active_started_at: null,
+        hall_effective_due_at: null,
+        ma_approval_status: nextPendingMa ? 'pending_approval' : 'approved',
+        ma_pending_approver: nextPendingMa ? nextPendingMa.user : null,
+        ma_approval_chain: entryChain,
+        ma_approval_requested_at: nextPendingMa ? now : null,
+        ma_approval_sla_due_at: nextPendingMa ? addHoursIso(now, 48) : null,
+        ma_approved_at: nextPendingMa ? target.ma_approved_at : now,
+        ma_approved_by: nextPendingMa ? target.ma_approved_by : user.username,
+        ma_declined_at: null,
+        ma_declined_by: null,
+        ma_decline_reason: null,
+      }
+
+      touchMultiAssignmentProgress(multiAssignmentForMaApprove)
+      const allAccepted = multiAssignmentForMaApprove.assignees.every((entry) => entry.status === 'accepted')
+
+      history.push({
+        type: 'approved',
+        user: user.username,
+        details: note?.trim() || (nextPendingMa
+          ? `${user.username} approved ${target.username}'s completion and forwarded it to ${nextPendingMa.user}`
+          : `${user.username} approved ${target.username}'s completion`),
+        timestamp: now,
+        icon: '✅',
+        title: nextPendingMa ? 'Approval Forwarded' : 'Completion Approved',
+      })
+
+      const updatePayload: Record<string, unknown> = {
+        multi_assignment: JSON.stringify(multiAssignmentForMaApprove),
+        history: JSON.stringify(history),
+        updated_at: now,
+      }
+
+      if (allAccepted) {
+        updatePayload.completed = true
+        updatePayload.completed_at = now
+        updatePayload.completed_by = user.username
+        updatePayload.task_status = 'done'
+        updatePayload.approval_status = 'approved'
+        updatePayload.pending_approver = null
+        updatePayload.approval_chain = JSON.stringify([])
+        updatePayload.approval_requested_at = null
+        updatePayload.approval_sla_due_at = null
+        updatePayload.approved_at = now
+        updatePayload.approved_by = user.username
+        updatePayload.workflow_state = 'final_approved'
+      }
+
+      await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+      if (nextPendingMa && normalizeChainUsername(nextPendingMa.user).toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: nextPendingMa.user,
+          type: 'task_assigned',
+          title: 'Approval Required',
+          body: `${user.username} forwarded ${target.username}'s completion of "${task.title as string}" to you for approval.`,
+          relatedId: todoId,
+        })
+      }
+
+      if (target.username.toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: target.username,
+          type: 'task_assigned',
+          title: nextPendingMa ? 'Task Approval Forwarded' : 'Task Approved!',
+          body: nextPendingMa
+            ? `${user.username} approved your completion and forwarded it to ${nextPendingMa.user}.`
+            : `${user.username} approved your completion of "${task.title as string}".`,
+          relatedId: todoId,
+        })
+      }
+
+      revalidateTasksData()
+      emitTaskWebhook('task.approved', todoId, user.username, {
+        nextApprover: nextPendingMa?.user ?? null,
+        multiAssignee: target.username,
+      })
+      return { success: true }
+    }
+  }
+
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
 
   const configuredPendingApprover = normalizeApprovalUser(task.pending_approver)
@@ -2360,6 +2543,82 @@ export async function declineTodoAction(todoId: string, reason: string): Promise
   if (!existing) return { success: false, error: 'Task not found.' }
 
   const task = existing as Record<string, unknown>
+  const multiAssignmentForMaDecline = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (multiAssignmentForMaDecline?.enabled && Array.isArray(multiAssignmentForMaDecline.assignees)) {
+    const now = new Date().toISOString()
+    const history = parseJson<HistoryEntry[]>(task.history, [])
+    const approverLower = user.username.toLowerCase()
+    const idx = multiAssignmentForMaDecline.assignees.findIndex((entry) =>
+      (entry.ma_approval_status === 'pending_approval') &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === approverLower,
+    )
+
+    if (idx !== -1) {
+      const target = multiAssignmentForMaDecline.assignees[idx]
+      const entryChain = (Array.isArray(target.ma_approval_chain) ? target.ma_approval_chain : []).map((entry) => {
+        if (entry.status !== 'pending') return entry
+        if (normalizeApprovalUser(entry.user).toLowerCase() !== approverLower) return entry
+        return {
+          ...entry,
+          status: 'declined' as const,
+          acted_at: now,
+          acted_by: user.username,
+          comment: reason || undefined,
+        }
+      })
+
+      multiAssignmentForMaDecline.assignees[idx] = {
+        ...target,
+        status: 'in_progress',
+        notes: reason || target.notes,
+        rejection_reason: reason || target.rejection_reason,
+        hall_scheduler_state: target.hall_scheduler_state === 'waiting_review' ? 'paused' : (target.hall_scheduler_state ?? 'paused'),
+        hall_active_started_at: null,
+        ma_approval_status: 'declined',
+        ma_pending_approver: null,
+        ma_approval_chain: entryChain,
+        ma_approval_requested_at: null,
+        ma_approval_sla_due_at: null,
+        ma_declined_at: now,
+        ma_declined_by: user.username,
+        ma_decline_reason: reason || null,
+      }
+      touchMultiAssignmentProgress(multiAssignmentForMaDecline)
+
+      history.push({
+        type: 'declined',
+        user: user.username,
+        details: `${user.username} declined ${target.username}'s completion${reason ? ': ' + reason : ''}`,
+        timestamp: now,
+        icon: '❌',
+        title: 'Completion Declined',
+      })
+
+      await supabase.from('todos').update({
+        multi_assignment: JSON.stringify(multiAssignmentForMaDecline),
+        history: JSON.stringify(history),
+        updated_at: now,
+      }).eq('id', todoId)
+
+      if (target.username.toLowerCase() !== approverLower) {
+        await createNotification(supabase, {
+          userId: target.username,
+          type: 'task_assigned',
+          title: 'Task Completion Declined',
+          body: `${user.username} declined your completion of "${task.title as string}".${reason ? ' Reason: ' + reason : ''}`,
+          relatedId: todoId,
+        })
+      }
+
+      revalidateTasksData()
+      emitTaskWebhook('task.declined', todoId, user.username, {
+        reason,
+        multiAssignee: target.username,
+      })
+      return { success: true }
+    }
+  }
+
   if ((task.approval_status as string) !== 'pending_approval') return { success: false, error: 'Task is not pending approval.' }
 
   const expectedApprover = normalizeApprovalUser(task.pending_approver) || normalizeApprovalUser(task.username)
@@ -2979,6 +3238,104 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
   if (!taskRes.data) return null
 
   const task = normalizeTodo(taskRes.data as Record<string, unknown>, user.username)
+  let currentMaEntry: MultiAssignmentEntry | undefined
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    const uLower = user.username.toLowerCase()
+    const myEntry = task.multi_assignment.assignees.find((entry) => (entry.username || '').toLowerCase() === uLower)
+    currentMaEntry = myEntry
+    const approverEntry = task.multi_assignment.assignees.find((entry) =>
+      entry.ma_approval_status === 'pending_approval' &&
+      normalizeChainUsername(entry.ma_pending_approver).toLowerCase() === uLower,
+    )
+
+    if (myEntry) {
+      const derivedMaState = myEntry.hall_scheduler_state
+        ?? (myEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+        ?? (myEntry.status === 'in_progress' ? 'active' : null)
+        ?? ((myEntry.status === 'completed' || myEntry.status === 'accepted') ? 'completed' : null)
+        ?? 'user_queue'
+      task.scheduler_state = derivedMaState as Todo['scheduler_state']
+      if (myEntry.hall_queue_rank != null) task.queue_rank = myEntry.hall_queue_rank
+      if (myEntry.hall_remaining_minutes != null) task.remaining_work_minutes = myEntry.hall_remaining_minutes
+      if (myEntry.hall_active_started_at !== undefined) task.active_started_at = myEntry.hall_active_started_at
+      if (myEntry.hall_effective_due_at !== undefined) task.effective_due_at = myEntry.hall_effective_due_at
+      if (myEntry.ma_approval_status) task.approval_status = myEntry.ma_approval_status as Todo['approval_status']
+      else if (myEntry.status === 'completed') task.approval_status = 'pending_approval'
+      if (myEntry.ma_pending_approver !== undefined) task.pending_approver = myEntry.ma_pending_approver
+    }
+
+    if (approverEntry) {
+      task.approval_status = 'pending_approval'
+      task.pending_approver = user.username
+      task.completed_by = approverEntry.username
+    }
+  }
+
+  const detailMeta: Record<string, unknown> = {}
+  if (task.cluster_id) {
+    const targetUsername = currentMaEntry?.username || task.assigned_to || null
+    const currentState = (currentMaEntry?.hall_scheduler_state
+      ?? (currentMaEntry?.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+      ?? (currentMaEntry?.status === 'in_progress' ? 'active' : null)
+      ?? ((currentMaEntry?.status === 'completed' || currentMaEntry?.status === 'accepted') ? 'completed' : null)
+      ?? task.scheduler_state
+      ?? null) as string | null
+    const currentRank = currentMaEntry?.hall_queue_rank ?? task.queue_rank ?? null
+    if (targetUsername && currentState && ['active', 'user_queue', 'paused', 'waiting_review', 'blocked'].includes(currentState)) {
+      const [singleRowsRes, maRowsRes] = await Promise.all([
+        supabase
+          .from('todos')
+          .select('id, scheduler_state, queue_rank')
+          .eq('cluster_id', task.cluster_id)
+          .eq('assigned_to', targetUsername)
+          .eq('completed', false)
+          .in('scheduler_state', ['active', 'user_queue', 'paused', 'waiting_review', 'blocked']),
+        supabase
+          .from('todos')
+          .select('id, multi_assignment')
+          .eq('cluster_id', task.cluster_id)
+          .eq('completed', false)
+          .eq('workflow_state', 'split_to_multi'),
+      ])
+
+      const queuedRanks: number[] = []
+      let hasOtherQueued = false
+
+      ; (singleRowsRes.data ?? []).forEach((row: Record<string, unknown>) => {
+        const state = row.scheduler_state as string | null
+        const rank = (row.queue_rank as number | null) ?? null
+        const isQueued = state === 'user_queue' || state === 'paused'
+        if (!isQueued || rank == null) return
+        queuedRanks.push(rank)
+        if ((row.id as string) !== task.id) hasOtherQueued = true
+      })
+
+      ; (maRowsRes.data ?? []).forEach((row: Record<string, unknown>) => {
+        const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+        if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+        const entry = ma.assignees.find((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+        if (!entry) return
+        const state = entry.hall_scheduler_state
+          ?? (entry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null)
+          ?? (entry.status === 'in_progress' ? 'active' : null)
+          ?? ((entry.status === 'completed' || entry.status === 'accepted') ? 'completed' : null)
+          ?? 'user_queue'
+        const rank = entry.hall_queue_rank ?? null
+        const isQueued = state === 'user_queue' || state === 'paused'
+        if (!isQueued || rank == null) return
+        queuedRanks.push(rank)
+        if ((row.id as string) !== task.id) hasOtherQueued = true
+      })
+
+      const minRank = queuedRanks.length > 0 ? Math.min(...queuedRanks) : null
+      const isFirst = (currentState === 'user_queue' || currentState === 'paused') && currentRank != null && minRank != null
+        ? currentRank <= minRank
+        : false
+
+      detailMeta.hall_has_other_queued = hasOtherQueued
+      detailMeta.hall_is_first_in_queue = isFirst
+    }
+  }
   const participantUsernames = new Set<string>()
   if (task.username) participantUsernames.add(task.username)
   if (task.assigned_to) participantUsernames.add(task.assigned_to)
@@ -3050,6 +3407,7 @@ export async function getTodoDetails(todoId: string): Promise<TodoDetails | null
 
   return {
     ...task,
+    ...detailMeta,
     shares: ((sharesRes.data || []) as import('@/types').TodoShare[]).map((share) => ({
       ...share,
       avatar_data: participantAvatars[share.shared_with] ?? null,
@@ -4432,16 +4790,52 @@ export async function updateMaAssigneeStatusAction(
       hallActiveStartedAt = null
     }
   } else if (newStatus === 'completed') {
-    newHallSchedulerState = 'completed'
+    // Keep MA hall task in review state until the assignee's completion is approved.
+    newHallSchedulerState = clusterId ? 'waiting_review' : undefined
     hallActiveStartedAt = null
   }
+
+  const pendingChain = newStatus === 'completed'
+    ? buildPendingApprovalChain(task, user.username, now)
+    : []
+  const nextApprover = newStatus === 'completed'
+    ? (pendingChain[0]?.user || normalizeChainUsername(task.username))
+    : ''
+  const hasAssigneeApproval = newStatus === 'completed' && !!nextApprover
 
   ma.assignees[assigneeIdx] = {
     ...ma.assignees[assigneeIdx],
     status: newStatus,
     ...(newHallSchedulerState !== undefined ? { hall_scheduler_state: newHallSchedulerState } : {}),
     ...(hallActiveStartedAt !== undefined ? { hall_active_started_at: hallActiveStartedAt } : {}),
-    ...(newStatus === 'completed' ? { completed_at: now, notes: notes || undefined } : { completed_at: undefined }),
+    ...(newStatus === 'completed'
+      ? {
+          completed_at: now,
+          notes: notes || undefined,
+          ma_approval_status: hasAssigneeApproval ? 'pending_approval' as const : 'approved' as const,
+          ma_pending_approver: hasAssigneeApproval ? nextApprover : null,
+          ma_approval_chain: hasAssigneeApproval ? pendingChain : [],
+          ma_approval_requested_at: hasAssigneeApproval ? now : null,
+          ma_approval_sla_due_at: hasAssigneeApproval ? addHoursIso(now, 48) : null,
+          ma_approved_at: hasAssigneeApproval ? null : now,
+          ma_approved_by: hasAssigneeApproval ? null : user.username,
+          ma_declined_at: null,
+          ma_declined_by: null,
+          ma_decline_reason: null,
+        }
+      : {
+          completed_at: undefined,
+          ma_approval_status: undefined,
+          ma_pending_approver: null,
+          ma_approval_chain: [],
+          ma_approval_requested_at: null,
+          ma_approval_sla_due_at: null,
+          ma_approved_at: null,
+          ma_approved_by: null,
+          ma_declined_at: null,
+          ma_declined_by: null,
+          ma_decline_reason: null,
+        }),
   }
 
   touchMultiAssignmentProgress(ma)
@@ -4546,7 +4940,27 @@ export async function acceptMaAssigneeAction(
   if (idx === -1) return { success: false, error: 'Assignee not found.' }
 
   const now = new Date().toISOString()
-  ma.assignees[idx] = { ...ma.assignees[idx], status: 'accepted', completed_at: now, accepted_at: now, accepted_by: user.username }
+  ma.assignees[idx] = {
+    ...ma.assignees[idx],
+    status: 'accepted',
+    completed_at: now,
+    accepted_at: now,
+    accepted_by: user.username,
+    hall_scheduler_state: ma.assignees[idx].hall_scheduler_state === 'waiting_review' ? 'completed' : ma.assignees[idx].hall_scheduler_state,
+    hall_remaining_minutes: 0,
+    hall_active_started_at: null,
+    hall_effective_due_at: null,
+    ma_approval_status: 'approved',
+    ma_pending_approver: null,
+    ma_approval_chain: [],
+    ma_approval_requested_at: null,
+    ma_approval_sla_due_at: null,
+    ma_approved_at: now,
+    ma_approved_by: user.username,
+    ma_declined_at: null,
+    ma_declined_by: null,
+    ma_decline_reason: null,
+  }
   touchMultiAssignmentProgress(ma)
   const allAccepted = ma.assignees.every((a) => a.status === 'accepted')
   const history = parseJson<HistoryEntry[]>(task.history, [])
@@ -4659,9 +5073,21 @@ export async function rejectMaAssigneeAction(
     status: 'in_progress',
     notes: reason.trim(),
     rejection_reason: reason.trim(),
+    hall_scheduler_state: ma.assignees[idx].hall_scheduler_state === 'waiting_review' ? 'paused' : ma.assignees[idx].hall_scheduler_state,
+    hall_active_started_at: null,
     completed_at: undefined,
     accepted_at: undefined,
     accepted_by: undefined,
+    ma_approval_status: 'declined',
+    ma_pending_approver: null,
+    ma_approval_chain: [],
+    ma_approval_requested_at: null,
+    ma_approval_sla_due_at: null,
+    ma_approved_at: null,
+    ma_approved_by: null,
+    ma_declined_at: now,
+    ma_declined_by: user.username,
+    ma_decline_reason: reason.trim(),
   }
   touchMultiAssignmentProgress(ma)
 
@@ -6948,6 +7374,37 @@ export async function assignHallInboxTaskMultiAction(
   return { success: true, assignedCount: assignments.length }
 }
 
+// ── MA-aware helper: load task and resolve per-user MA entry ─────────────────
+// Used by all hall scheduler actions to transparently handle both single-assign
+// and multi-assignment tasks.  Returns the MA entry + index when the task is MA,
+// or null when it's a regular single-assign task.
+async function loadMaEntryForUser(
+  supabase: ReturnType<typeof createServerClient>,
+  todoId: string,
+  username: string,
+): Promise<{
+  task: Record<string, unknown>
+  ma: MultiAssignment
+  idx: number
+  entry: MultiAssignmentEntry
+} | null> {
+  const { data: existing } = await supabase
+    .from('todos')
+    .select('multi_assignment, workflow_state, history, assignment_chain, cluster_id, completed, title, username')
+    .eq('id', todoId)
+    .single()
+  if (!existing) return null
+  const task = existing as Record<string, unknown>
+  if (task.workflow_state !== 'split_to_multi') return null
+  const ma = parseJson<MultiAssignment | null>(task.multi_assignment, null)
+  if (!ma?.enabled || !Array.isArray(ma.assignees)) return null
+  const idx = ma.assignees.findIndex(
+    (a) => (a.username || '').toLowerCase() === username.toLowerCase()
+  )
+  if (idx === -1) return null
+  return { task, ma, idx, entry: ma.assignees[idx] }
+}
+
 /**
  * Manually activate a task that is in user_queue or paused state.
  * Used when auto_start_next_task is OFF, or for manually resuming a paused task.
@@ -6958,6 +7415,78 @@ export async function activateHallTaskAction(todoId: string): Promise<{ success:
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path: activate this user's per-assignee hall_scheduler_state ────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot activate your assignment in state "${maState}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const effectiveDueAt = storedRemaining > 0
+      ? calculateEffectiveDueAt(now, storedRemaining, hallHours).toISOString()
+      : null
+
+    // Auto-pause any currently active single-assign task for this user
+    const { data: activeChecks } = await supabase
+      .from('todos')
+      .select('id, active_started_at, remaining_work_minutes, total_active_minutes, history')
+      .eq('assigned_to', user.username)
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .eq('scheduler_state', 'active')
+      .limit(1)
+    if (activeChecks && activeChecks.length > 0) {
+      const at = activeChecks[0] as Record<string, unknown>
+      const startedAt = at.active_started_at as string | null
+      const workedMinutes = startedAt ? getWorkMinutesInRange(startedAt, now, hallHours) : 0
+      const storedRem = (at.remaining_work_minutes as number | null) ?? 0
+      const totalAct = (at.total_active_minutes as number | null) ?? 0
+      const newRem = Math.max(0, storedRem - workedMinutes)
+      const apHistory = parseJson<HistoryEntry[]>(at.history, [])
+      apHistory.push({ type: 'status_change', user: user.username, details: `Auto-paused — ${user.username} started another queued task. Worked: ${workedMinutes}m. Remaining: ${newRem}m.`, timestamp: now, icon: '⏸️', title: 'Auto-Paused' })
+      await supabase.from('todos').update({ scheduler_state: 'paused', task_status: 'todo', active_started_at: null, remaining_work_minutes: newRem, total_active_minutes: totalAct + workedMinutes, history: JSON.stringify(apHistory), updated_at: now }).eq('id', at.id as string)
+      await writeHallWorkLog(supabase, { todoId: at.id as string, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: 'Auto-paused to start MA task' })
+    }
+
+    // Auto-pause any currently active MA entry for this user in any other task
+    const { data: allClusterMa } = await supabase
+      .from('todos').select('id, multi_assignment, history')
+      .eq('cluster_id', clusterId).eq('completed', false).eq('workflow_state', 'split_to_multi')
+    for (const row of ((allClusterMa ?? []) as Array<{ id: string; multi_assignment: unknown; history: unknown }>)) {
+      if (row.id === todoId) continue
+      const otherMa = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!otherMa?.assignees) continue
+      const otherIdx = otherMa.assignees.findIndex(
+        (a) => a.username.toLowerCase() === user.username.toLowerCase() && a.hall_scheduler_state === 'active'
+      )
+      if (otherIdx === -1) continue
+      const otherEntry = otherMa.assignees[otherIdx]
+      const otherStarted = otherEntry.hall_active_started_at ?? null
+      const otherWorked = otherStarted ? getWorkMinutesInRange(otherStarted, now, hallHours) : 0
+      const otherRem = Math.max(0, (otherEntry.hall_remaining_minutes ?? 0) - otherWorked)
+      otherMa.assignees[otherIdx] = { ...otherEntry, hall_scheduler_state: 'paused', hall_active_started_at: null, hall_remaining_minutes: otherRem, hall_effective_due_at: null }
+      const otherHistory = parseJson<HistoryEntry[]>(row.history, [])
+      otherHistory.push({ type: 'status_change', user: user.username, details: `Auto-paused ${user.username}'s part — started another task. Worked: ${otherWorked}m. Remaining: ${otherRem}m.`, timestamp: now, icon: '⏸️', title: 'Auto-Paused (MA)' })
+      await supabase.from('todos').update({ multi_assignment: JSON.stringify(otherMa), history: JSON.stringify(otherHistory), updated_at: now }).eq('id', row.id)
+    }
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'active', hall_active_started_at: now, hall_effective_due_at: effectiveDueAt, status: entry.status === 'pending' ? 'in_progress' : entry.status }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} activated their assignment`, timestamp: now, icon: '▶️', title: 'Assignment Activated' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: maState === 'paused' ? 'resumed' : 'started' })
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, remaining_work_minutes, queue_rank, history')
@@ -7111,6 +7640,62 @@ export async function pauseHallTaskAction(
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    if (entry.hall_scheduler_state !== 'active') {
+      return { success: false, error: 'Only active assignments can be paused.' }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+
+    // Check if user has other queued/paused tasks to hand off to
+    const { data: otherQueued } = await supabase.from('todos').select('id').eq('assigned_to', user.username).eq('cluster_id', clusterId).in('scheduler_state', ['user_queue', 'paused']).limit(1)
+    let hasOtherQueued = (otherQueued ?? []).length > 0
+    if (!hasOtherQueued) {
+      const { data: maTasks } = await supabase.from('todos').select('id, multi_assignment').eq('cluster_id', clusterId).eq('workflow_state', 'split_to_multi').eq('completed', false)
+      const uLower = user.username.toLowerCase()
+      hasOtherQueued = ((maTasks ?? []) as Array<{ id: string; multi_assignment: unknown }>).some((row) => {
+        if (row.id === todoId) {
+          // Check other assignees in the same task for this user (unlikely but safe)
+          return false
+        }
+        const otherMa = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+        return otherMa?.assignees?.some((a) => a.username.toLowerCase() === uLower && a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state)) ?? false
+      })
+      // Also check other entries in this same task's MA (user might have multiple entries — unlikely but safe)
+      if (!hasOtherQueued) {
+        hasOtherQueued = ma.assignees.some((a, i) => i !== idx && a.username.toLowerCase() === uLower && a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state))
+      }
+    }
+    if (!hasOtherQueued) {
+      return { success: false, error: 'No queued tasks to hand off to. Use "Mark as Blocked" with a reason instead.' }
+    }
+
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+    const activeStartedAt = entry.hall_active_started_at ?? null
+    const workedMinutes = activeStartedAt ? getWorkMinutesInRange(activeStartedAt, now, hallHours) : 0
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'paused', hall_active_started_at: null, hall_remaining_minutes: newRemaining, hall_effective_due_at: null }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} paused their assignment. Worked: ${workedMinutes}m. Remaining: ${newRemaining}m.${reason?.trim() ? ` Reason: ${reason.trim()}` : ''}`, timestamp: now, icon: '⏸️', title: 'Assignment Paused' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: reason?.trim() || undefined })
+
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history, queue_rank')
@@ -7138,7 +7723,6 @@ export async function pauseHallTaskAction(
   const settings = await getHallSettingsForTask(supabase, clusterId)
 
   // Check if there are other queued tasks — required for a simple pause
-  // 1. Single-assignment tasks with scheduler_state in [user_queue, paused]
   const { data: otherQueued } = await supabase
     .from('todos')
     .select('id')
@@ -7150,7 +7734,6 @@ export async function pauseHallTaskAction(
 
   let hasOtherQueued = (otherQueued ?? []).length > 0
 
-  // 2. Multi-assignment tasks: check per-user hall_scheduler_state in JSONB
   if (!hasOtherQueued) {
     const { data: maTasks } = await supabase
       .from('todos')
@@ -7161,9 +7744,9 @@ export async function pauseHallTaskAction(
       .neq('id', todoId)
     const assignedToLower = assignedTo.toLowerCase()
     hasOtherQueued = ((maTasks ?? []) as Array<{ id: string; multi_assignment: unknown }>).some((row) => {
-      const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
-      if (!ma?.enabled) return false
-      return ma.assignees.some(
+      const maTmp = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!maTmp?.enabled) return false
+      return maTmp.assignees.some(
         (a) => a.username.toLowerCase() === assignedToLower &&
           a.hall_scheduler_state && ['user_queue', 'paused'].includes(a.hall_scheduler_state)
       )
@@ -7177,7 +7760,6 @@ export async function pauseHallTaskAction(
     }
   }
 
-  // Calculate worked minutes since activation
   const activeStartedAt = task.active_started_at as string | null
   const hallHours = await getClusterOfficeHours(supabase, clusterId)
   const workedMinutes = activeStartedAt
@@ -7200,7 +7782,6 @@ export async function pauseHallTaskAction(
     title: 'Task Paused',
   })
 
-  // Pause the task, keeping its queue_rank intact
   await supabase.from('todos').update({
     scheduler_state: 'paused',
     active_started_at: null,
@@ -7220,7 +7801,6 @@ export async function pauseHallTaskAction(
     notes: reason?.trim() || undefined,
   })
 
-  // Auto-start the next candidate task (excludes the just-paused task)
   if (settings.auto_start_next_task) {
     await autoActivateNextTask(supabase, assignedTo, clusterId, todoId, hallHours)
   }
@@ -7250,6 +7830,44 @@ export async function blockHallTaskAction(
   if (!reason?.trim()) return { success: false, error: 'A blocked reason is required.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot block an assignment in state "${maState}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'blocked', hall_active_started_at: null, hall_remaining_minutes: newRemaining, hall_effective_due_at: null }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} blocked their assignment. Reason: ${reason.trim()}${workedMinutes > 0 ? `. Worked: ${workedMinutes}m` : ''}`, timestamp: now, icon: '🚫', title: 'Assignment Blocked' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'blocked', minutesDeducted: workedMinutes, notes: reason.trim() })
+
+    if (maState === 'active') {
+      const settings = await getHallSettingsForTask(supabase, clusterId)
+      if (settings.auto_start_next_task) {
+        await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+      }
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history')
@@ -7274,7 +7892,6 @@ export async function blockHallTaskAction(
   const clusterId = task.cluster_id as string | null
   const hallHours = clusterId ? await getClusterOfficeHours(supabase, clusterId) : DEFAULT_OFFICE_HOURS
 
-  // Deduct worked minutes if task was active
   let workedMinutes = 0
   if (state === 'active') {
     const activeStartedAt = task.active_started_at as string | null
@@ -7318,7 +7935,6 @@ export async function blockHallTaskAction(
     notes: reason.trim(),
   })
 
-  // Try to activate next queued task
   if (clusterId) {
     const settings = await getHallSettingsForTask(supabase, clusterId)
     if (settings.auto_start_next_task) {
@@ -7343,6 +7959,68 @@ export async function unblockHallTaskAction(todoId: string): Promise<{ success: 
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    if (entry.hall_scheduler_state !== 'blocked') {
+      return { success: false, error: 'Assignment is not blocked.' }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+
+    const isAdmin = user.role === 'Admin' || user.role === 'Super Manager'
+    if (!isAdmin) {
+      const { data: membership } = await supabase
+        .from('cluster_members').select('cluster_role')
+        .eq('cluster_id', clusterId).eq('username', user.username).single()
+      if (!membership || !['owner', 'manager', 'supervisor'].includes((membership as Record<string, string>).cluster_role)) {
+        // assignee can unblock themselves
+        if (user.username !== entry.username) {
+          return { success: false, error: 'Not authorised to unblock this assignment.' }
+        }
+      }
+    }
+
+    const now = new Date().toISOString()
+    ma.assignees[idx] = { ...entry, hall_scheduler_state: 'user_queue' }
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'status_change', user: user.username, details: `${user.username} unblocked their assignment.`, timestamp: now, icon: '✅', title: 'Assignment Unblocked' })
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'unblocked' })
+
+    // Auto-activate if no active task
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      // Check both single-assign active tasks AND active MA entries for this user
+      const { data: activeCheck } = await supabase
+        .from('todos').select('id')
+        .eq('assigned_to', user.username).eq('cluster_id', clusterId)
+        .eq('scheduler_state', 'active').limit(1)
+      const hasActiveSingle = activeCheck && activeCheck.length > 0
+      if (!hasActiveSingle) {
+        // Also check if user has any other active MA entry in this cluster
+        const { data: clusterTasks } = await supabase
+          .from('todos').select('id, multi_assignment')
+          .eq('cluster_id', clusterId)
+          .eq('workflow_state', 'split_to_multi')
+          .neq('id', todoId)
+        const hasActiveMa = (clusterTasks ?? []).some((t: Record<string, unknown>) => {
+          const m = parseJson<{ enabled: boolean; assignees: Array<{ username: string; hall_scheduler_state?: string }> }>(t.multi_assignment, { enabled: false, assignees: [] })
+          return m.enabled && m.assignees.some((a) => a.username === user.username && a.hall_scheduler_state === 'active')
+        })
+        if (!hasActiveMa) {
+          const hallHours = await getClusterOfficeHours(supabase, clusterId)
+          await autoActivateNextTask(supabase, user.username, clusterId, null, hallHours)
+        }
+      }
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, history, remaining_work_minutes')
@@ -7426,6 +8104,79 @@ export async function completeHallTaskAction(todoId: string): Promise<{ success:
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot complete an assignment in state "${maState ?? 'unknown'}".` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+
+    ma.assignees[idx] = {
+      ...entry,
+      hall_scheduler_state: 'completed',
+      hall_active_started_at: null,
+      hall_remaining_minutes: 0,
+      hall_effective_due_at: null,
+      status: 'accepted',
+      completed_at: now,
+    }
+
+    // Check if all assignees are now completed
+    const allCompleted = ma.assignees.every((a) => a.hall_scheduler_state === 'completed' || a.status === 'accepted')
+
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({ type: 'completed', user: user.username, details: `${user.username} completed their assignment. Worked: ${workedMinutes}m.${allCompleted ? ' All assignees are done.' : ''}`, timestamp: now, icon: '✅', title: 'Assignment Completed' })
+
+    const updatePayload: Record<string, unknown> = {
+      multi_assignment: JSON.stringify(ma),
+      history: JSON.stringify(history),
+      updated_at: now,
+    }
+    if (allCompleted) {
+      updatePayload.completed = true
+      updatePayload.completed_at = now
+      updatePayload.task_status = 'done'
+    }
+    await supabase.from('todos').update(updatePayload).eq('id', todoId)
+
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'completed', minutesDeducted: workedMinutes, notes: `Assignment completed` })
+
+    // Notify original creator if all done
+    if (allCompleted) {
+      const creatorUsername = maTask.username as string | null
+      if (creatorUsername) {
+        await createNotification(supabase, {
+          userId: creatorUsername,
+          type: 'task_approved',
+          title: 'All Group Members Completed',
+          body: `All assignees have completed their parts for the multi-assign task "${maTask.title as string}".`,
+          relatedId: todoId,
+        })
+      }
+    }
+
+    // Auto-start next
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, history, title, username, multi_assign_group_id')
@@ -7548,6 +8299,74 @@ export async function submitHallTaskForReviewAction(
   if (!user) return { success: false, error: 'Not authenticated.' }
 
   const supabase = createServerClient()
+
+  // ── MA path ───────────────────────────────────────────────────────────────
+  const maResult = await loadMaEntryForUser(supabase, todoId, user.username)
+  if (maResult) {
+    const { task: maTask, ma, idx, entry } = maResult
+    const maState = entry.hall_scheduler_state ?? null
+    if (!maState || !['active', 'user_queue', 'paused'].includes(maState)) {
+      return { success: false, error: `Cannot submit an assignment in state "${maState ?? 'unknown'}" for review.` }
+    }
+    const clusterId = maTask.cluster_id as string | null
+    if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
+    const hallHours = await getClusterOfficeHours(supabase, clusterId)
+    const now = new Date().toISOString()
+
+    let workedMinutes = 0
+    if (maState === 'active' && entry.hall_active_started_at) {
+      workedMinutes = getWorkMinutesInRange(entry.hall_active_started_at, now, hallHours)
+    }
+    const storedRemaining = entry.hall_remaining_minutes ?? 0
+    const newRemaining = Math.max(0, storedRemaining - workedMinutes)
+
+    // Build approval chain using the task-level data
+    const pendingChain = buildPendingApprovalChain(maTask as Record<string, unknown>, user.username, now)
+    const nextApprover = pendingChain[0]?.user || (maTask.username as string)
+
+    ma.assignees[idx] = {
+      ...entry,
+      hall_scheduler_state: 'waiting_review',
+      hall_active_started_at: null,
+      hall_remaining_minutes: newRemaining,
+      hall_effective_due_at: null,
+      status: 'pending_review',
+    }
+
+    const history = parseJson<HistoryEntry[]>(maTask.history, [])
+    history.push({
+      type: 'completion_submitted',
+      user: user.username,
+      details: submissionNote?.trim()
+        ? `${user.username} submitted their assignment for approval. Awaiting ${nextApprover}. Note: ${submissionNote.trim()}`
+        : `${user.username} submitted their assignment for approval. Awaiting ${nextApprover}.`,
+      timestamp: now,
+      icon: '⏳',
+      title: 'Assignment Submitted for Approval',
+    })
+
+    await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
+    await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: 'Submitted for approval' })
+
+    // Notify approver
+    await createNotification(supabase, {
+      userId: nextApprover,
+      type: 'task_assigned',
+      title: 'Hall Task Needs Approval',
+      body: `${user.username} submitted their assignment on "${maTask.title as string}" for your approval.`,
+      relatedId: todoId,
+    })
+
+    // Auto-start next
+    const settings = await getHallSettingsForTask(supabase, clusterId)
+    if (settings.auto_start_next_task) {
+      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
+    }
+    revalidateTasksData()
+    return { success: true }
+  }
+  // ── End MA path ───────────────────────────────────────────────────────────
+
   const { data: existing } = await supabase
     .from('todos')
     .select('assigned_to, cluster_id, scheduler_state, active_started_at, remaining_work_minutes, total_active_minutes, queue_rank, history, title, username, multi_assign_group_id, assignment_chain')
@@ -7714,28 +8533,75 @@ export async function reorderHallUserQueueAction(
     }
   }
 
-  // Verify all IDs belong to this user and cluster
-  const { data: queuedTasks } = await supabase
+  // Build queue map for this user across BOTH single-assign and MA entries.
+  const { data: clusterTasks } = await supabase
     .from('todos')
-    .select('id, scheduler_state, queue_rank')
-    .eq('assigned_to', targetUsername)
+    .select('id, assigned_to, scheduler_state, queue_rank, workflow_state, multi_assignment')
     .eq('cluster_id', clusterId)
-    .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
+    .eq('completed', false)
 
-  const ownedIds = new Set((queuedTasks ?? []).map((t: Record<string, unknown>) => t.id as string))
-  const invalid = orderedTodoIds.filter((id) => !ownedIds.has(id))
+  type QueueItem = {
+    kind: 'single' | 'ma'
+    state: string
+    row: Record<string, unknown>
+  }
+  const queueMap = new Map<string, QueueItem>()
+
+  ; (clusterTasks ?? []).forEach((row: Record<string, unknown>) => {
+    const id = row.id as string
+    if (!id) return
+
+    // Single-assignment queue item
+    if ((row.assigned_to as string | null) === targetUsername) {
+      const state = (row.scheduler_state as string | null) ?? ''
+      if (['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) {
+        queueMap.set(id, { kind: 'single', state, row })
+      }
+    }
+
+    // Multi-assignment queue item (per-user entry inside JSONB)
+    if ((row.workflow_state as string | null) === 'split_to_multi') {
+      const ma = parseJson<MultiAssignment | null>(row.multi_assignment, null)
+      if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+      const entry = ma.assignees.find((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+      if (!entry) return
+      const state = entry.hall_scheduler_state ?? ''
+      if (['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) {
+        queueMap.set(id, { kind: 'ma', state, row })
+      }
+    }
+  })
+
+  const invalid = orderedTodoIds.filter((id) => !queueMap.has(id))
   if (invalid.length > 0) {
     return { success: false, error: `Task IDs not found in this user's queue: ${invalid.join(', ')}` }
   }
 
-  // Apply new ranks; active task always stays at rank 1
-  const updates: Array<PromiseLike<unknown>> = []
+  // Apply new ranks; active task always stays rank 1.
+  const now = new Date().toISOString()
+  const updates: Array<Promise<unknown>> = []
   orderedTodoIds.forEach((id, index) => {
-    const task = (queuedTasks ?? []).find((t: Record<string, unknown>) => t.id === id) as Record<string, unknown> | undefined
-    // Active tasks cannot be reordered past rank 1
-    const newRank = task?.scheduler_state === 'active' ? 1 : index + 1
+    const item = queueMap.get(id)
+    if (!item) return
+    const newRank = item.state === 'active' ? 1 : index + 1
+
+    if (item.kind === 'single') {
+      updates.push(
+        supabase.from('todos').update({ queue_rank: newRank, updated_at: now }).eq('id', id) as unknown as Promise<unknown>
+      )
+      return
+    }
+
+    const ma = parseJson<MultiAssignment | null>(item.row.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) return
+    const idx = ma.assignees.findIndex((a) => (a.username || '').toLowerCase() === targetUsername.toLowerCase())
+    if (idx === -1) return
+    ma.assignees[idx] = {
+      ...ma.assignees[idx],
+      hall_queue_rank: newRank,
+    }
     updates.push(
-      supabase.from('todos').update({ queue_rank: newRank, updated_at: new Date().toISOString() }).eq('id', id) as unknown as PromiseLike<unknown>
+      supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), updated_at: now }).eq('id', id) as unknown as Promise<unknown>
     )
   })
 
@@ -8135,28 +9001,69 @@ export async function getHallTeamQueueAction(clusterId: string): Promise<Array<{
 
   const supabase = createServerClient()
 
-  const { data: tasks } = await supabase
-    .from('todos')
-    .select('*')
-    .eq('cluster_id', clusterId)
-    .eq('completed', false)
-    .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
-    .order('queue_rank', { ascending: true })
+  // Fetch single-assign scheduled tasks AND all MA (split_to_multi) tasks in this hall
+  const [singleRes, maRes] = await Promise.all([
+    supabase
+      .from('todos')
+      .select('*')
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'])
+      .order('queue_rank', { ascending: true }),
+    supabase
+      .from('todos')
+      .select('*')
+      .eq('cluster_id', clusterId)
+      .eq('completed', false)
+      .eq('workflow_state', 'split_to_multi'),
+  ])
 
-  if (!tasks || tasks.length === 0) return []
-
-  // Group by assignee
+  // Group by assignee — single-assign tasks use assigned_to directly
   const byUser: Record<string, Todo[]> = {}
-  for (const t of tasks as Todo[]) {
+  for (const t of (singleRes.data ?? []) as Todo[]) {
     const u = t.assigned_to ?? 'unassigned'
     if (!byUser[u]) byUser[u] = []
     byUser[u].push(t)
   }
 
+  // For MA tasks, project each assignee's per-user JSONB scheduler state
+  // and add the projected task to that user's queue bucket
+  const singleIds = new Set((singleRes.data ?? []).map((t: Record<string, unknown>) => t.id as string))
+  for (const rawTask of (maRes.data ?? []) as Todo[]) {
+    if (singleIds.has(rawTask.id)) continue // already in single-assign results
+    const raw = rawTask as unknown as Record<string, unknown>
+    const ma = parseJson<MultiAssignment | null>(raw.multi_assignment, null)
+    if (!ma?.enabled || !Array.isArray(ma.assignees)) continue
+    for (const entry of ma.assignees) {
+      const state = entry.hall_scheduler_state ?? 'user_queue'
+      if (!['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(state)) continue
+      const projected: Todo = {
+        ...rawTask,
+        scheduler_state: state,
+        queue_rank: entry.hall_queue_rank ?? 9999,
+        remaining_work_minutes: entry.hall_remaining_minutes ?? (
+          entry.hall_estimated_hours ? Math.round(entry.hall_estimated_hours * 60) : null
+        ),
+        active_started_at: entry.hall_active_started_at ?? null,
+        effective_due_at: entry.hall_effective_due_at ?? null,
+        assigned_to: entry.username, // virtual projection for display
+      } as Todo
+      if (!byUser[entry.username]) byUser[entry.username] = []
+      byUser[entry.username].push(projected)
+    }
+  }
+
+  if (Object.keys(byUser).length === 0) return []
+
+  // Sort each user's queue by rank
+  for (const u of Object.keys(byUser)) {
+    byUser[u].sort((a, b) => ((a.queue_rank as number | null) ?? 9999) - ((b.queue_rank as number | null) ?? 9999))
+  }
+
   // Fetch avatar data for each user
   const usernames = Object.keys(byUser).filter((u) => u !== 'unassigned')
   const { data: userRows } = await supabase
-    .from('users').select('username, avatar_data').in('username', usernames)
+    .from('users').select('username, avatar_data').in('username', usernames.length > 0 ? usernames : ['__none__'])
   const avatarMap: Record<string, string | null> = {}
   for (const row of (userRows ?? []) as Array<{ username: string; avatar_data: string | null }>) {
     avatarMap[row.username] = row.avatar_data
@@ -8825,6 +9732,8 @@ export async function getQueuePriorityAction(): Promise<QueuePriorityData | null
         remaining_work_minutes: projectedRemaining,
         active_started_at: myEntry.hall_active_started_at ?? null,
         effective_due_at: myEntry.hall_effective_due_at ?? null,
+        approval_status: myEntry.ma_approval_status ?? t.approval_status,
+        pending_approver: myEntry.ma_pending_approver ?? t.pending_approver,
       } as Todo
     })
 

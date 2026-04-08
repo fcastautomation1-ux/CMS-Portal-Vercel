@@ -626,10 +626,20 @@ export function TaskCard({
   // Hall-scheduled tasks auto-start when assigned (scheduler_state = 'active'), so no Start Work button needed.
   // For user_queue state they wait for auto-start — also no manual start button.
   const hallSchedulerState = (task as unknown as Record<string, unknown>).scheduler_state as string | null
+  const maHallState = myMaEntry
+    ? (
+        myMaEntry.hall_scheduler_state ||
+        (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null) ||
+        (myMaEntry.status === 'in_progress' ? 'active' : null) ||
+        ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null) ||
+        'user_queue'
+      )
+    : null
+  const effectiveHallState = (isAssignee ? hallSchedulerState : maHallState) as string | null
   // A task is hall-scheduled if it's assigned to me AND has a hall scheduler_state OR the cluster workflow_state.
-  const isHallScheduledTaskForMe = isAssignee && (
-    (!!task.cluster_id && task.workflow_state === 'claimed_by_department') ||
-    (!!hallSchedulerState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(hallSchedulerState))
+  const isHallScheduledTaskForMe = !!task.cluster_id && !task.cluster_inbox && (
+    (isAssignee && !!hallSchedulerState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(hallSchedulerState)) ||
+    (!!myMaEntry && !!maHallState && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review', 'completed'].includes(maHallState))
   )
   // Never show generic Start Task if task is under the hall scheduler (has any scheduler_state)
   const showStartBtn = isAssignee && task.task_status === 'todo' && !isCompleted && !isHallScheduledTaskForMe && !hallSchedulerState
@@ -643,12 +653,12 @@ export function TaskCard({
   
   // Hall queue task that is waiting or paused — user can activate only if at queue position #1
   // Clicking always auto-pauses any currently active task first (swap behaviour)
-  const showHallActivateBtn = isHallScheduledTaskForMe && (hallSchedulerState === 'user_queue' || hallSchedulerState === 'paused') && !isCompleted && isFirstInQueue
+  const showHallActivateBtn = isHallScheduledTaskForMe && (effectiveHallState === 'user_queue' || effectiveHallState === 'paused') && !isCompleted && isFirstInQueue
   // Hall active task — user can pause it only when they have other tasks waiting in the queue
-  const showHallPauseBtn = isHallScheduledTaskForMe && hallSchedulerState === 'active' && !isCompleted && hasOtherQueuedTasks
+  const showHallPauseBtn = isHallScheduledTaskForMe && effectiveHallState === 'active' && !isCompleted && hasOtherQueuedTasks
 
   // Hall active task submits for approval instead of directly completing
-  const showHallCompleteBtn = isHallScheduledTaskForMe && hallSchedulerState === 'active' && !isCompleted
+  const showHallCompleteBtn = isHallScheduledTaskForMe && effectiveHallState === 'active' && !isCompleted
   const showCompleteBtn = !task.completed && !isPendingApproval && (
     ((isAssignee && !maEnabled) && task.task_status === 'in_progress' && !showHallCompleteBtn) || 
     (isStepOwner && currentAssigneeApproved)
@@ -700,15 +710,26 @@ export function TaskCard({
   // For hall-scheduled MA tasks (cluster_id present), only allow Start when this user's entry is marked active.
   // For non-hall MA tasks, allow Start when status is pending (original behaviour).
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted &&
-    (task.cluster_id ? myMaEntry.hall_scheduler_state === 'active' : true)
-  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted
+    (task.cluster_id ? maHallState === 'active' : true)
+  const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted &&
+    (task.cluster_id ? maHallState === 'active' : true)
   const showMaDelegateBtn = false
   const showDelegatedStartBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'pending' && !isCompleted
   const showDelegatedSubmitBtn = !!myDelegatedEntry && myDelegatedEntry.status === 'in_progress' && !isCompleted
 
   const hasActions = ackNeeded || showStartBtn || showClaimBtn || showQueueAssignBtn || showHallClaimBtn || showHallAssignBtn || showReassignBtn || showHallMgrReassignBtn || showSingleDueDateBtn || showCompleteBtn || showHallCompleteBtn || showApproveBtn || showMaStartBtn || showMaSubmitBtn || showMaDelegateBtn || showDelegatedStartBtn || showDelegatedSubmitBtn || showHallActivateBtn || showHallPauseBtn
-    || (isHallScheduledTaskForMe && hallSchedulerState === 'waiting_review' && !isCompleted)
+    || (isHallScheduledTaskForMe && effectiveHallState === 'waiting_review' && !isCompleted)
     || (!!myMaEntry && myMaEntry.status === 'completed' && !isCompleted)
+
+  const renderedStatus = isCompleted
+    ? 'done'
+    : (myMaEntry
+        ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
+            ? 'in_progress'
+            : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
+                ? 'done'
+                : 'backlog'))
+        : task.task_status)
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -1120,7 +1141,7 @@ export function TaskCard({
       >
         <div className={cn('mb-3 -mx-3.5 -mt-3.5 h-0.5 rounded-t-xl', pCfg.stripe)} />
         <div className="mb-2 flex items-start justify-between gap-2">
-          <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+          <StatusDot status={renderedStatus} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
           <Badge label={pCfg.label} cls={pCfg.cls} />
         </div>
         {appNames.length > 0 && <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{appNames.join(', ')}</p>}
@@ -1231,7 +1252,7 @@ export function TaskCard({
 
           {/* Row 2: Status dot + Priority badge only */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <StatusDot status={isCompleted ? 'done' : (myMaEntry ? (myMaEntry.hall_scheduler_state === 'active' || myMaEntry.status === 'in_progress' ? 'in_progress' : myMaEntry.hall_scheduler_state === 'completed' || myMaEntry.status === 'completed' ? 'done' : 'backlog') : task.task_status)} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
+            <StatusDot status={renderedStatus} approvalStatus={task.approval_status} ackNeeded={ackNeeded} />
             <Badge label={pCfg.longLabel} cls={pCfg.cls} />
           </div>
 
@@ -1322,14 +1343,14 @@ export function TaskCard({
             <div className="mt-4 flex flex-wrap gap-2">
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id), { task_status: 'in_progress' })} color="blue" disabled={isPending}>Start Work</ActBtn>}
-              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>{hallSchedulerState === 'paused' ? 'Resume Task' : 'Start Task'}</ActBtn>}
+              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>{effectiveHallState === 'paused' ? 'Resume Task' : 'Start Task'}</ActBtn>}
               {/* Queue lock message — shown when task is waiting/paused but NOT at position #1 */}
-              {isHallScheduledTaskForMe && hallSchedulerState === 'user_queue' && !isCompleted && !isFirstInQueue && (
+              {isHallScheduledTaskForMe && effectiveHallState === 'user_queue' && !isCompleted && !isFirstInQueue && (
                 <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-500">
                   🔒 Queue #{hallQueueRank} — Complete the task ahead first
                 </span>
               )}
-              {isHallScheduledTaskForMe && hallSchedulerState === 'paused' && !isCompleted && !isFirstInQueue && (
+              {isHallScheduledTaskForMe && effectiveHallState === 'paused' && !isCompleted && !isFirstInQueue && (
                 <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-600">
                   ⏸ Queue #{hallQueueRank} — paused, waiting for tasks ahead
                 </span>
@@ -1337,7 +1358,7 @@ export function TaskCard({
               {showHallPauseBtn && <ActBtn onClick={() => doAction(() => pauseHallTaskAction(task.id), { scheduler_state: 'paused' })} color="amber" disabled={isPending}>Pause</ActBtn>}
               {showHallCompleteBtn && <ActBtn onClick={() => openTaskDialog({ type: 'hall-complete' })} color="green" disabled={isPending}>Complete Task</ActBtn>}
               {/* Waiting review lock message */}
-              {isHallScheduledTaskForMe && hallSchedulerState === 'waiting_review' && !isCompleted && !showCompleteBtn && !showApproveBtn && (
+              {isHallScheduledTaskForMe && effectiveHallState === 'waiting_review' && !isCompleted && !showCompleteBtn && !showApproveBtn && (
                 <span className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700">
                   ⏳ Awaiting approval — Queue #{hallQueueRank}
                 </span>

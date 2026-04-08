@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
@@ -39,6 +39,21 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
 type TeamScope = 'users' | 'tasks_all' | 'tasks_completed' | 'tasks_in_progress' | 'tasks_pending' | 'tasks_overdue' | 'tasks_queue'
 const PER_PAGE_OPTIONS = [5, 10, 15, 20, 25]
 
+function parseTeamScope(value: string | null): TeamScope {
+  switch (value) {
+    case 'tasks_all':
+    case 'tasks_completed':
+    case 'tasks_in_progress':
+    case 'tasks_pending':
+    case 'tasks_overdue':
+    case 'tasks_queue':
+    case 'users':
+      return value
+    default:
+      return 'users'
+  }
+}
+
 function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
 }
@@ -61,6 +76,10 @@ function isTaskCompletedForUsername(task: Todo, username: string): boolean {
   return task.completed || task.task_status === 'done'
 }
 
+function isTaskCompletedStrict(task: Todo): boolean {
+  return task.completed || task.task_status === 'done' || task.workflow_state === 'final_approved'
+}
+
 export function TeamPage({ members: initialMembers, tasks: initialTasks, user }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
@@ -73,12 +92,10 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   const [, startTransition] = useTransition()
   const router = useRouter()
   const searchParams = useSearchParams()
-  // Read initial scope from URL; change scope via local state + window.history (no Next.js navigation)
-  const [scope, setScope] = useState<TeamScope>(() => (searchParams.get('scope') as TeamScope | null) ?? 'users')
+  const scope = parseTeamScope(searchParams.get('scope'))
   const changeScope = useCallback((newScope: TeamScope) => {
-    setScope(newScope)
-    window.history.replaceState(null, '', `/dashboard/team?scope=${newScope}`)
-  }, [])
+    router.replace(`/dashboard/team?scope=${newScope}`, { scroll: false })
+  }, [router])
   const isTaskScope = scope !== 'users'
 
   const currentUsername = user?.username ?? ''
@@ -158,10 +175,16 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
       if (lowered.includes((task.assigned_to || '').toLowerCase())) return true
       if (lowered.includes((task.completed_by || '').toLowerCase())) return true
       const assignees = task.multi_assignment?.assignees ?? []
-      return assignees.some((entry) => {
+      if (assignees.some((entry) => {
         if (lowered.includes((entry.username || '').toLowerCase())) return true
         return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => lowered.includes((sub.username || '').toLowerCase()))
-      })
+      })) return true
+      // Also match tasks where user appears in the assignment chain (forwarded tasks)
+      const chain = task.assignment_chain ?? []
+      return chain.some((entry) =>
+        lowered.includes((entry.user || '').toLowerCase()) ||
+        lowered.includes(((entry as unknown as Record<string, unknown>).next_user as string || '').toLowerCase())
+      )
     }
   }, [memberFilter, teamMemberUsernames])
   const isTaskCompletedForCurrentTeamScope = useMemo(() => {
@@ -285,28 +308,35 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     }
 
     if (searchQuery) {
-      list = list.filter((task) =>
-        task.title.toLowerCase().includes(searchQuery) ||
-        (task.username || '').toLowerCase().includes(searchQuery) ||
-        (task.assigned_to || '').toLowerCase().includes(searchQuery) ||
-        (task.app_name || '').toLowerCase().includes(searchQuery) ||
-        (task.package_name || '').toLowerCase().includes(searchQuery)
-      )
+      list = list.filter((task) => {
+        if (task.title.toLowerCase().includes(searchQuery)) return true
+        if ((task.username || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.assigned_to || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.completed_by || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.app_name || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.package_name || '').toLowerCase().includes(searchQuery)) return true
+        // Also check multi-assignment assignee names
+        const assignees = task.multi_assignment?.assignees ?? []
+        return assignees.some((entry) => {
+          if ((entry.username || '').toLowerCase().includes(searchQuery)) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase().includes(searchQuery))
+        })
+      })
     }
 
     if (scope === 'tasks_completed') {
-      list = list.filter((task) => isTaskCompletedForCurrentTeamScope(task))
+      list = list.filter((task) => isTaskCompletedStrict(task))
     } else if (scope === 'tasks_in_progress') {
-      list = list.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && task.task_status === 'in_progress')
+      list = list.filter((task) => !isTaskCompletedStrict(task) && task.task_status === 'in_progress')
     } else if (scope === 'tasks_pending') {
       list = list.filter((task) => {
-        if (isTaskCompletedForCurrentTeamScope(task)) return false
+        if (isTaskCompletedStrict(task)) return false
         if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       })
     } else if (scope === 'tasks_overdue') {
-      list = list.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && !!task.due_date && new Date(task.due_date) < today)
+      list = list.filter((task) => !isTaskCompletedStrict(task) && !!task.due_date && new Date(task.due_date) < today)
     } else if (scope === 'tasks_queue') {
       list = list.filter((task) => task.cluster_inbox === true)
     }
@@ -315,7 +345,11 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
   }, [tasks, hallQueueTasks, search, deptFilter, memberFilter, scope, taskMatchesFocusedTeam, isTaskCompletedForCurrentTeamScope])
 
   const taskPaginationSignature = `${scope}|${search}|${deptFilter}|${memberFilter}|${perPage}`
-  const currentTaskPage = paginationState.signature === taskPaginationSignature ? paginationState.page : 1
+  const urlPage = (() => {
+    const raw = Number(searchParams.get('page') || '1')
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1
+  })()
+  const currentTaskPage = paginationState.signature === taskPaginationSignature ? paginationState.page : urlPage
   const totalTaskPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visibleTaskPage = Math.min(currentTaskPage, totalTaskPages)
   const paginatedTasks = useMemo(() => {
@@ -323,23 +357,62 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
     return filteredTasks.slice(start, start + perPage)
   }, [filteredTasks, visibleTaskPage, perPage])
 
+  useEffect(() => {
+    const focusTaskId = searchParams.get('focus')
+    if (!focusTaskId) return
+    const taskEl = document.querySelector(`[data-task-id="${focusTaskId}"]`) as HTMLElement | null
+    if (!taskEl) return
+    taskEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [searchParams, paginatedTasks])
+
   const taskKpis = useMemo(() => {
     const today = new Date()
-    const relevantTasks = tasks.filter((task) => taskMatchesFocusedTeam(task))
+    const searchQuery = search.trim().toLowerCase()
+    let relevantTasks = tasks.filter((task) => taskMatchesFocusedTeam(task))
+    // Apply the same member filter as filteredTasks
+    if (memberFilter && scope !== 'tasks_queue') {
+      const memberLower = memberFilter.toLowerCase()
+      relevantTasks = relevantTasks.filter((task) => {
+        if ((task.username || '').toLowerCase() === memberLower) return true
+        if ((task.assigned_to || '').toLowerCase() === memberLower) return true
+        if ((task.completed_by || '').toLowerCase() === memberLower) return true
+        const assignees = task.multi_assignment?.assignees ?? []
+        return assignees.some((entry) => {
+          if ((entry.username || '').toLowerCase() === memberLower) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase() === memberLower)
+        })
+      })
+    }
+    // Apply the same text search as filteredTasks so KPI numbers match the visible count
+    if (searchQuery) {
+      relevantTasks = relevantTasks.filter((task) => {
+        if (task.title.toLowerCase().includes(searchQuery)) return true
+        if ((task.username || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.assigned_to || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.completed_by || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.app_name || '').toLowerCase().includes(searchQuery)) return true
+        if ((task.package_name || '').toLowerCase().includes(searchQuery)) return true
+        const assignees = task.multi_assignment?.assignees ?? []
+        return assignees.some((entry) => {
+          if ((entry.username || '').toLowerCase().includes(searchQuery)) return true
+          return Array.isArray(entry.delegated_to) && entry.delegated_to.some((sub) => (sub.username || '').toLowerCase().includes(searchQuery))
+        })
+      })
+    }
     return {
       total: relevantTasks.length,
-      completed: relevantTasks.filter((task) => isTaskCompletedForCurrentTeamScope(task)).length,
-      in_progress: relevantTasks.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && task.task_status === 'in_progress').length,
+      completed: relevantTasks.filter((task) => isTaskCompletedStrict(task)).length,
+      in_progress: relevantTasks.filter((task) => !isTaskCompletedStrict(task) && task.task_status === 'in_progress').length,
       pending: relevantTasks.filter((task) => {
-        if (isTaskCompletedForCurrentTeamScope(task)) return false
+        if (isTaskCompletedStrict(task)) return false
         if (task.task_status === 'in_progress') return false
         if (task.due_date && new Date(task.due_date) < today) return false
         return true
       }).length,
-      overdue: relevantTasks.filter((task) => !isTaskCompletedForCurrentTeamScope(task) && !!task.due_date && new Date(task.due_date) < today).length,
+      overdue: relevantTasks.filter((task) => !isTaskCompletedStrict(task) && !!task.due_date && new Date(task.due_date) < today).length,
       queue: scope === 'tasks_queue' ? hallQueueTasks.length : tasks.filter((task) => task.cluster_inbox === true).length,
     }
-  }, [hallQueueTasks.length, isTaskCompletedForCurrentTeamScope, scope, taskMatchesFocusedTeam, tasks])
+  }, [hallQueueTasks.length, memberFilter, scope, search, taskMatchesFocusedTeam, tasks])
 
   const scopeLabel = useMemo(() => {
     if (scope === 'tasks_all') return 'Task'
@@ -623,27 +696,28 @@ export function TeamPage({ members: initialMembers, tasks: initialTasks, user }:
                   )}
 
                   {paginatedTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      currentUsername={user?.username ?? ''}
-                      currentUserRole={user?.role}
-                      currentUserDept={user?.department ?? null}
-                      currentUserTeamMembers={user?.teamMembers ?? []}
-                      currentUserTeamMemberDeptKeys={teamMemberDeptKeys}
-                      teamMemberTaskSummary={teamMemberTaskSummary}
-                      enableQueueAssign
-                      onEdit={(nextTask) => {
-                        sessionStorage.setItem('task-detail-back', '/dashboard/team?scope=tasks_queue')
-                        router.push(`/dashboard/tasks/${nextTask.id}`)
-                      }}
-                      onViewDetail={(nextTask) => {
-                        sessionStorage.setItem('task-detail-back', '/dashboard/team?scope=tasks_queue')
-                        router.push(`/dashboard/tasks/${nextTask.id}`)
-                      }}
-                      onShare={() => undefined}
-                      onRefresh={() => router.refresh()}
-                    />
+                    <div key={task.id} data-task-id={task.id}>
+                      <TaskCard
+                        task={task}
+                        currentUsername={user?.username ?? ''}
+                        currentUserRole={user?.role}
+                        currentUserDept={user?.department ?? null}
+                        currentUserTeamMembers={user?.teamMembers ?? []}
+                        currentUserTeamMemberDeptKeys={teamMemberDeptKeys}
+                        teamMemberTaskSummary={teamMemberTaskSummary}
+                        enableQueueAssign
+                        onEdit={(nextTask) => {
+                          sessionStorage.setItem('task-detail-back', `/dashboard/team?scope=${scope}&page=${visibleTaskPage}&focus=${nextTask.id}`)
+                          router.push(`/dashboard/tasks/${nextTask.id}`)
+                        }}
+                        onViewDetail={(nextTask) => {
+                          const backTo = `/dashboard/team?scope=${scope}&page=${visibleTaskPage}&focus=${nextTask.id}`
+                          window.open(`/dashboard/tasks/${nextTask.id}?from=${encodeURIComponent(backTo)}`, '_blank', 'noopener,noreferrer')
+                        }}
+                        onShare={() => undefined}
+                        onRefresh={() => router.refresh()}
+                      />
+                    </div>
                   ))}
 
                   {totalTaskPages > 1 && (
