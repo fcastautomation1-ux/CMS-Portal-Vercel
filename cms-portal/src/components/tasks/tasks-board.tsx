@@ -1046,13 +1046,6 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     overscan: 5,
   })
 
-  useEffect(() => {
-    // Prefetch likely detail routes to reduce perceived navigation delay.
-    displayTasks.slice(0, 20).forEach((task) => {
-      router.prefetch(`/dashboard/tasks/${task.id}`)
-    })
-  }, [displayTasks, router])
-
   return (
     <div className="flex h-full flex-col px-3 pb-4 sm:px-4">
       <div className="mb-5 relative z-0">
