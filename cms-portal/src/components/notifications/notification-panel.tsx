@@ -64,14 +64,40 @@ function groupByDate(notifications: Notification[]): Array<{ label: DateGroup; i
   return order.filter(g => groups[g].length > 0).map(label => ({ label, items: groups[label] }))
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function extractTaskUuid(notif: Notification): string | null {
+  const n = norm(notif)
+  // Prefix formats: todo:UUID or task:UUID
+  if (n.navLink) {
+    const prefixMatch = n.navLink.match(/^(?:todo|task):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i)
+    if (prefixMatch) return prefixMatch[1]
+    // Plain UUID in link field (legacy schema stores task id directly in link)
+    if (UUID_RE.test(n.navLink)) return n.navLink
+  }
+  // related_id may hold the task UUID (modern schema)
+  if (notif.related_id && UUID_RE.test(notif.related_id)) return notif.related_id
+  // Check metadata for task_id
+  try {
+    const meta = notif.metadata
+      ? (typeof notif.metadata === 'string' ? JSON.parse(notif.metadata) : notif.metadata)
+      : null
+    if (meta && typeof meta === 'object' && 'task_id' in meta && typeof (meta as Record<string, unknown>).task_id === 'string') {
+      const id = (meta as Record<string, unknown>).task_id as string
+      if (UUID_RE.test(id)) return id
+    }
+  } catch {}
+  return null
+}
+
 function resolveNavUrl(notif: Notification): string {
   const n = norm(notif)
+  const taskUuid = extractTaskUuid(notif)
+  if (taskUuid) return `/dashboard/tasks/${taskUuid}`
   if (n.navLink) {
-    if (n.navLink.startsWith('todo:') || n.navLink.startsWith('task:')) return '/dashboard/tasks'
     if (n.navLink.startsWith('account:')) return '/dashboard/accounts'
     if (n.navLink.startsWith('campaign:')) return '/dashboard/campaigns'
     if (n.navLink.startsWith('workflow:')) return '/dashboard/workflows'
-    if (/^[0-9a-f-]{36}$/.test(n.navLink)) return '/dashboard/tasks'
     return '/dashboard'
   }
   const text = `${notif.title} ${n.bodyText ?? ''}`.toLowerCase()
@@ -262,8 +288,14 @@ export function NotificationPanel({ initialCount = 0, currentUsername = '' }: No
         syncUnreadFromList(updated)
       }
     }
+    const url = resolveNavUrl(notif)
     setOpen(false)
-    router.push(resolveNavUrl(notif))
+    // Task detail pages open in a new tab (consistent with the tasks board UX)
+    if (extractTaskUuid(notif)) {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } else {
+      router.push(url)
+    }
   }
 
   async function handleMarkAllRead() {

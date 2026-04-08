@@ -35,6 +35,7 @@ import {
   Inbox,
   ListOrdered,
   Loader2,
+  Table2,
 } from 'lucide-react'
 
 interface PublicBranding {
@@ -77,6 +78,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Clusters', href: '/dashboard/clusters', icon: <Layers size={17} />, color: '#2B7FFF' },
       { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
       { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
+      { label: 'App Overview', href: '/dashboard/app-overview', icon: <Table2 size={17} />, color: '#0EA5E9' },
       { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
     ],
   },
@@ -149,6 +151,7 @@ function isNavItemVisible(href: string, user: SessionUser): boolean {
       return user.clusterIds.length > 0
 
     case '/dashboard/analytics':
+    case '/dashboard/app-overview':
       return isAdminOrSM
 
     case '/dashboard/settings':

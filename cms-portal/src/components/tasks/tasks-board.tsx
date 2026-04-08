@@ -840,7 +840,11 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
   }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
 
   const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}|${perPage}`
-  const currentPage = paginationState.signature === paginationSignature ? paginationState.page : 1
+  const urlPage = (() => {
+    const raw = Number(searchParams.get('page') || '1')
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1
+  })()
+  const currentPage = paginationState.signature === paginationSignature ? paginationState.page : urlPage
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / perPage))
   const visiblePage = Math.min(currentPage, totalPages)
   const paginatedTasks = useMemo(() => {
@@ -980,11 +984,15 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       isFirstInQueue,
       hasActiveHallTask,
       onEdit: (t: Todo) => setEditTask(t),
-      onViewDetail: (t: Todo) => router.push(`/dashboard/tasks/${t.id}`),
+      onViewDetail: (t: Todo) => {
+        const backTo = `/dashboard/tasks?scope=${quickFilter}&status=${statusFilter}&page=${visiblePage}&focus=${t.id}`
+        const detailUrl = `/dashboard/tasks/${t.id}?from=${encodeURIComponent(backTo)}`
+        window.open(detailUrl, '_blank', 'noopener,noreferrer')
+      },
       onShare: (t: Todo) => setShareTask(t),
       onRefresh: refresh,
     }
-  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, router])
+  }, [hallQueueState, currentUsername, currentUserRole, currentUserDept, currentUserTeamMembers, currentUserTeamMemberDeptKeys, enableQueueAssign, refresh, quickFilter, statusFilter, visiblePage])
 
   const displayTasks = useMemo(() => {
     const usernameLow = currentUsername.toLowerCase()
@@ -1038,6 +1046,14 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return 0
     })
   }, [paginatedTasks, currentUsername, hallQueueState])
+
+  useEffect(() => {
+    const focusTaskId = searchParams.get('focus')
+    if (!focusTaskId) return
+    const taskEl = document.querySelector(`[data-task-id="${focusTaskId}"]`) as HTMLElement | null
+    if (!taskEl) return
+    taskEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [searchParams, displayTasks])
 
   const virtualizer = useVirtualizer({
     count: displayTasks.length,
@@ -1364,7 +1380,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
                           <Square size={15} />
                         )}
                       </button>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1" data-task-id={task.id}>
                         <TaskCard {...cardProps(task)} />
                       </div>
                     </div>

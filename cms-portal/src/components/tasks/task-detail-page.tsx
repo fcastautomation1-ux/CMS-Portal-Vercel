@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -806,6 +806,7 @@ export function TaskDetailPage({
   currentUserRole: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [backHref, setBackHref] = useState('/dashboard/tasks')
   const [activeTab, setActiveTab] = useState<TabId>('info')
@@ -896,12 +897,18 @@ export function TaskDetailPage({
   }, [currentUsername, details.id, queryClient])
 
   useEffect(() => {
+    const fromQuery = searchParams.get('from')
+    if (fromQuery && fromQuery.startsWith('/dashboard/')) {
+      setBackHref(fromQuery)
+      return
+    }
+
     const stored = sessionStorage.getItem('task-detail-back')
     if (stored) {
       setBackHref(stored)
       sessionStorage.removeItem('task-detail-back')
     }
-  }, [])
+  }, [searchParams])
 
   useEffect(() => {
     if (activeTab !== 'share') return

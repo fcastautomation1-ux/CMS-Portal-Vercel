@@ -19,7 +19,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Simple cookie presence check — full JWT verification happens in server components
+  // Simple cookie presence check â€” full JWT verification happens in server components
   const token = request.cookies.get('cms_session')?.value
   if (!token) {
     return NextResponse.redirect(new URL('/login', request.url))
