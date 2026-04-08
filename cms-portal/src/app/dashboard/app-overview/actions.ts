@@ -12,8 +12,11 @@ export interface UserTaskSummary {
   in_progress_count: number
   pending_count: number
   estimated_minutes: number
+  total_minutes: number
   completed_before_deadline_count: number
   completed_after_deadline_count: number
+  before_deadline_minutes: number
+  after_deadline_minutes: number
 }
 
 export interface DepartmentSummary {
@@ -53,9 +56,16 @@ type RawTask = {
   due_date: string | null
   effective_due_at: string | null
   estimated_work_minutes: number | null
+  total_active_minutes: number | null
   multi_assignment: {
     enabled?: boolean
-    assignees?: Array<{ username?: string | null }> | null
+    assignees?: Array<{
+      username?: string | null
+      hall_estimated_hours?: number | null
+      hall_remaining_minutes?: number | null
+      hall_active_started_at?: string | null
+      hall_effective_due_at?: string | null
+    }> | null
   } | null
   created_at: string
 }
@@ -85,6 +95,51 @@ function getTaskDeadline(task: RawTask): string | null {
   return task.effective_due_at || task.due_date || null
 }
 
+function getAssignmentMinutes(task: RawTask, username: string): number {
+  const lowerUsername = username.trim().toLowerCase()
+
+  if (task.multi_assignment?.enabled && Array.isArray(task.multi_assignment.assignees)) {
+    const entry = task.multi_assignment.assignees.find(
+      (candidate) => String(candidate.username ?? '').trim().toLowerCase() === lowerUsername,
+    )
+
+    if (entry) {
+      const estHours = entry.hall_estimated_hours
+      if (typeof estHours === 'number' && Number.isFinite(estHours) && estHours > 0) {
+        return Math.round(estHours * 60)
+      }
+
+      const remMin = entry.hall_remaining_minutes
+      if (typeof remMin === 'number' && Number.isFinite(remMin) && remMin > 0) {
+        return remMin
+      }
+    }
+  }
+
+  if (typeof task.total_active_minutes === 'number' && task.total_active_minutes > 0) {
+    return task.total_active_minutes
+  }
+
+  if (typeof task.estimated_work_minutes === 'number' && task.estimated_work_minutes > 0) {
+    return task.estimated_work_minutes
+  }
+
+  return 0
+}
+
+/**
+ * Calendar elapsed minutes for a COMPLETED task: completed_at − created_at.
+ * Matches the "Time Xd Xh" shown on individual task cards.
+ * Only returns > 0 when the task is actually completed.
+ */
+function getCompletedTaskMinutes(task: RawTask): number {
+  if (!task.completed_at) return 0
+  const start = new Date(task.created_at).getTime()
+  const end = new Date(task.completed_at).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
+  return Math.round((end - start) / 60_000)
+}
+
 export async function getAppOverviewData(opts?: {
   year?: number
   quarter?: number
@@ -98,7 +153,7 @@ export async function getAppOverviewData(opts?: {
 
   let query = supabase
     .from('todos')
-    .select('id,app_name,username,assigned_to,manager_id,package_name,category,task_status,completed_at,due_date,effective_due_at,estimated_work_minutes,multi_assignment,created_at')
+    .select('id,app_name,username,assigned_to,manager_id,package_name,category,task_status,completed_at,due_date,effective_due_at,estimated_work_minutes,total_active_minutes,multi_assignment,created_at')
     .eq('archived', false)
     .not('app_name', 'is', null)
     .neq('app_name', '')
@@ -190,8 +245,11 @@ export async function getAppOverviewData(opts?: {
         in_progress_count: 0,
         pending_count: 0,
         estimated_minutes: 0,
+        total_minutes: 0,
         completed_before_deadline_count: 0,
         completed_after_deadline_count: 0,
+        before_deadline_minutes: 0,
+        after_deadline_minutes: 0,
       }
 
       existing.count += 1
@@ -201,17 +259,7 @@ export async function getAppOverviewData(opts?: {
       else if (progress === 'in_progress') existing.in_progress_count += 1
       else existing.pending_count += 1
 
-      existing.estimated_minutes += Math.max(0, Number(assignment.task.estimated_work_minutes ?? 0))
-
-      if (progress === 'completed') {
-        const completedAt = assignment.task.completed_at ? new Date(assignment.task.completed_at).getTime() : NaN
-        const deadline = getTaskDeadline(assignment.task)
-        const dueAt = deadline ? new Date(deadline).getTime() : NaN
-        if (Number.isFinite(completedAt) && Number.isFinite(dueAt)) {
-          if (completedAt <= dueAt) existing.completed_before_deadline_count += 1
-          else existing.completed_after_deadline_count += 1
-        }
-      }
+      // Time is loaded lazily via getAppBreakdownTimes — skip here
 
       taskByUserMap.set(userKey, existing)
 
@@ -273,5 +321,153 @@ export async function getAppOverviewData(opts?: {
     total_tasks: rows.reduce((s, r) => s + r.task_count, 0),
     total_apps: rows.length,
   }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ *  On-demand: fetch time breakdown per app (called lazily when user expands)
+ * ──────────────────────────────────────────────────────────────────────── */
+
+export interface UserBreakdownTime {
+  username: string
+  total_minutes: number
+  actual_minutes: number
+  before_deadline_minutes: number
+  after_deadline_minutes: number
+}
+
+export async function getAppBreakdownTimes(opts: {
+  appName: string
+  year?: number
+  quarter?: number
+}): Promise<UserBreakdownTime[]> {
+  const user = await getSession()
+  if (!user || (user.role !== 'Admin' && user.role !== 'Super Manager')) return []
+
+  const supabase = createServerClient()
+
+  let query = supabase
+    .from('todos')
+    .select('id,assigned_to,task_status,completed_at,created_at,due_date,effective_due_at,estimated_work_minutes,total_active_minutes,multi_assignment,history')
+    .eq('archived', false)
+    .eq('app_name', opts.appName)
+
+  if (opts.year && opts.quarter) {
+    const startMonth = (opts.quarter - 1) * 3 + 1
+    const endMonth = startMonth + 2
+    const fromDate = `${opts.year}-${String(startMonth).padStart(2, '0')}-01`
+    const lastDay = new Date(opts.year, endMonth, 0).getDate()
+    const toDate = `${opts.year}-${String(endMonth).padStart(2, '0')}-${lastDay}`
+    query = query.gte('created_at', fromDate).lte('created_at', toDate + 'T23:59:59.999Z')
+  } else if (opts.year) {
+    query = query
+      .gte('created_at', `${opts.year}-01-01`)
+      .lte('created_at', `${opts.year}-12-31T23:59:59.999Z`)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return []
+
+  type HistoryEventRaw = { type?: string; user?: string; title?: string; timestamp?: string }
+
+  type BreakdownTask = {
+    id: string
+    assigned_to: string | null
+    task_status: string | null
+    completed_at: string | null
+    created_at: string
+    due_date: string | null
+    effective_due_at: string | null
+    estimated_work_minutes: number | null
+    total_active_minutes: number | null
+    multi_assignment: RawTask['multi_assignment']
+    history: HistoryEventRaw[] | null
+  }
+
+  /**
+   * Returns the Unix ms timestamp when `assignee` first moved this task to in-progress.
+   * Parses history events:
+   *   - Regular tasks: type === 'started'
+   *   - MA tasks:      type === 'status_change' + title === 'Assignment Activated' + user === assignee
+   * Falls back to created_at if no event found.
+   */
+  function getInProgressTs(history: HistoryEventRaw[], assignee: string, isMA: boolean): number | null {
+    const lower = assignee.toLowerCase()
+    if (isMA) {
+      const entry = history.find(
+        (e) => e.type === 'status_change' && e.title === 'Assignment Activated' &&
+          String(e.user ?? '').toLowerCase() === lower && e.timestamp,
+      )
+      if (entry?.timestamp) {
+        const ts = new Date(entry.timestamp).getTime()
+        if (Number.isFinite(ts)) return ts
+      }
+    }
+    const entry = history.find((e) => e.type === 'started' && e.timestamp)
+    if (entry?.timestamp) {
+      const ts = new Date(entry.timestamp).getTime()
+      if (Number.isFinite(ts)) return ts
+    }
+    return null
+  }
+
+  const tasks = data as BreakdownTask[]
+  const userMap = new Map<string, UserBreakdownTime>()
+
+  for (const task of tasks) {
+    const rawTask = task as unknown as RawTask
+
+    // Only count completed tasks
+    const progress = getTaskProgress(rawTask)
+    if (progress !== 'completed') continue
+
+    // Total time = due_date − created_at (the allocated/planned window for the task)
+    const deadline = task.effective_due_at || task.due_date
+    const createdTs = new Date(task.created_at).getTime()
+    const dueTs = deadline ? new Date(deadline).getTime() : NaN
+    if (!Number.isFinite(dueTs) || !Number.isFinite(createdTs) || dueTs <= createdTs) continue
+    const allocatedMinutes = Math.round((dueTs - createdTs) / 60_000)
+
+    // Before/after deadline = how early or late the task was completed
+    const completedTs = task.completed_at ? new Date(task.completed_at).getTime() : NaN
+
+    const assignees = getDirectAssignees(rawTask)
+    const isMA = !!(rawTask.multi_assignment?.enabled)
+    const taskHistory: HistoryEventRaw[] = Array.isArray(task.history) ? task.history : []
+
+    for (const assignee of assignees) {
+      const key = assignee.toLowerCase()
+      const existing = userMap.get(key) ?? {
+        username: assignee,
+        total_minutes: 0,
+        actual_minutes: 0,
+        before_deadline_minutes: 0,
+        after_deadline_minutes: 0,
+      }
+
+      existing.total_minutes += allocatedMinutes
+
+      // Actual time = completed_at − in_progress_started_at
+      // Use history events to find when the task truly became in-progress for this assignee.
+      // Falls back to created_at if no history entry found.
+      if (Number.isFinite(completedTs)) {
+        const inProgressTs = getInProgressTs(taskHistory, assignee, isMA) ?? createdTs
+        existing.actual_minutes += Math.max(0, Math.round((completedTs - inProgressTs) / 60_000))
+      }
+
+      if (Number.isFinite(completedTs)) {
+        if (completedTs <= dueTs) {
+          // Completed early — time saved = due_date − completed_at
+          existing.before_deadline_minutes += Math.round((dueTs - completedTs) / 60_000)
+        } else {
+          // Completed late — overrun = completed_at − due_date
+          existing.after_deadline_minutes += Math.round((completedTs - dueTs) / 60_000)
+        }
+      }
+
+      userMap.set(key, existing)
+    }
+  }
+
+  return Array.from(userMap.values())
 }
 

@@ -32,4 +32,5 @@ export const queryKeys = {
   rules: () => ['rules'] as const,
   workflows: () => ['workflows'] as const,
   appOverview: (username: string, year?: number, quarter?: number) => ['app-overview', username, year, quarter] as const,
+  appBreakdownTimes: (appName: string, year?: number, quarter?: number) => ['app-breakdown-times', appName, year, quarter] as const,
 }

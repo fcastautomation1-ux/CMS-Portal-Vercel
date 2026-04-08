@@ -6,11 +6,11 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Search, ExternalLink, ChevronDown, ChevronRight, X, Layers,
-  Users, Zap, FolderOpen, RefreshCw, CheckCircle2, Clock3, Timer, CalendarCheck2, CalendarX2, Hourglass,
+  Users, Zap, FolderOpen, RefreshCw, Timer, CalendarCheck2, CalendarX2, Clock3, CheckCircle2, Hourglass, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
-import { getAppOverviewData, type AppOverviewData } from '@/app/dashboard/app-overview/actions'
+import { getAppOverviewData, getAppBreakdownTimes, type AppOverviewData, type UserBreakdownTime } from '@/app/dashboard/app-overview/actions'
 import {
   SearchableMultiSelectDropdown,
   SearchableSingleSelectDropdown,
@@ -58,12 +58,13 @@ function parseTimelineValue(value: string): { year?: number; quarter?: number } 
 
 function formatMinutes(totalMinutes: number): string {
   const safeMinutes = Math.max(0, Math.round(totalMinutes))
-  const hours = Math.floor(safeMinutes / 60)
-  const minutes = safeMinutes % 60
+  const totalHours = Math.floor(safeMinutes / 60)
+  const days = Math.floor(totalHours / 24)
+  const hours = totalHours % 24
 
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`
-  if (hours > 0) return `${hours}h`
-  return `${minutes}m`
+  if (days > 0 && hours > 0) return `${days}d ${hours}h`
+  if (days > 0) return `${days}d`
+  return `${hours}h`
 }
 
 function MetricBadge({
@@ -104,6 +105,119 @@ function MetricBadge({
           {value}
         </p>
       </div>
+    </div>
+  )
+}
+
+function CompactMetricChip({
+  icon: Icon,
+  value,
+  title,
+  tone,
+}: {
+  icon: React.ElementType
+  value: React.ReactNode
+  title: string
+  tone: 'blue' | 'green' | 'amber' | 'slate' | 'emerald' | 'rose'
+}) {
+  const toneStyles: Record<typeof tone, { bg: string; fg: string }> = {
+    blue: { bg: 'rgba(43,127,255,0.10)', fg: '#2B7FFF' },
+    green: { bg: 'rgba(16,185,129,0.10)', fg: '#059669' },
+    amber: { bg: 'rgba(245,158,11,0.12)', fg: '#D97706' },
+    slate: { bg: 'rgba(100,116,139,0.10)', fg: '#475569' },
+    emerald: { bg: 'rgba(34,197,94,0.10)', fg: '#16A34A' },
+    rose: { bg: 'rgba(244,63,94,0.10)', fg: '#E11D48' },
+  }
+
+  const colors = toneStyles[tone]
+
+  return (
+    <div
+      title={title}
+      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+    >
+      <span className="flex h-5 w-5 items-center justify-center rounded-full" style={{ background: colors.bg, color: colors.fg }}>
+        <Icon size={11} />
+      </span>
+      <span className="text-[11px] font-semibold tabular-nums" style={{ color: 'var(--color-text)' }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function ShimmerChip() {
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1" style={{ borderColor: 'var(--color-border)' }}>
+      <span className="h-5 w-5 rounded-full animate-pulse" style={{ background: 'rgba(100,116,139,0.12)' }} />
+      <span className="h-3 w-8 rounded animate-pulse" style={{ background: 'rgba(100,116,139,0.12)' }} />
+    </div>
+  )
+}
+
+/** Per-row time chips — fetches on mount (when user expands Task Breakdown) */
+function TaskBreakdownTimeChips({
+  username,
+  appName,
+  year,
+  quarter,
+}: {
+  username: string
+  appName: string
+  year?: number
+  quarter?: number
+}) {
+  const { data: times, isLoading } = useQuery<UserBreakdownTime[]>({
+    queryKey: queryKeys.appBreakdownTimes(appName, year, quarter),
+    queryFn: () => getAppBreakdownTimes({ appName, year, quarter }),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+  })
+
+  if (isLoading || !times) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <ShimmerChip />
+        <ShimmerChip />
+        <ShimmerChip />
+        <ShimmerChip />
+      </div>
+    )
+  }
+
+  const userTime = times.find((t) => t.username.toLowerCase() === username.toLowerCase())
+  const total = userTime?.total_minutes ?? 0
+  const actual = userTime?.actual_minutes ?? 0
+  const before = userTime?.before_deadline_minutes ?? 0
+  const after = userTime?.after_deadline_minutes ?? 0
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <CompactMetricChip
+        icon={Timer}
+        value={formatMinutes(total)}
+        title={`Total allocated time: ${formatMinutes(total)}`}
+        tone="slate"
+      />
+      <CompactMetricChip
+        icon={Hourglass}
+        value={formatMinutes(actual)}
+        title={`Actual time taken: ${formatMinutes(actual)}`}
+        tone="blue"
+      />
+      <CompactMetricChip
+        icon={CalendarCheck2}
+        value={formatMinutes(before)}
+        title={`Before deadline: ${formatMinutes(before)}`}
+        tone="emerald"
+      />
+      <CompactMetricChip
+        icon={CalendarX2}
+        value={formatMinutes(after)}
+        title={`After deadline: ${formatMinutes(after)}`}
+        tone="rose"
+      />
     </div>
   )
 }
@@ -607,18 +721,23 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                   {row.task_by_user.map((ut) => (
                                     <div
                                       key={ut.username}
-                                      className="flex items-center justify-between px-3 py-2 rounded-lg text-xs"
+                                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs"
                                       style={{ background: 'var(--color-surface)', borderLeft: '3px solid #10B981' }}
                                     >
-                                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>
-                                        {ut.username}
-                                      </span>
-                                      <span
-                                        className="px-2 py-0.5 rounded-md font-bold tabular-nums"
-                                        style={{ background: 'rgba(16,185,129,0.12)', color: '#059669' }}
-                                      >
-                                        {ut.count}
-                                      </span>
+                                      <div className="min-w-0 flex items-center gap-2 flex-1">
+                                        <span className="block truncate font-medium" style={{ color: 'var(--color-text)' }}>
+                                          {ut.username}
+                                        </span>
+                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700">
+                                          {ut.count}
+                                        </span>
+                                      </div>
+                                      <TaskBreakdownTimeChips
+                                        username={ut.username}
+                                        appName={row.app_name}
+                                        year={year}
+                                        quarter={quarter}
+                                      />
                                     </div>
                                   ))}
                                 </div>
