@@ -574,7 +574,7 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                             Total time
                                           </p>
                                           <p className="text-sm font-bold" style={{ color: '#2B7FFF' }}>
-                                            {formatMinutes(user.total_minutes)}
+                                            {formatMinutes(user.estimated_minutes)}
                                           </p>
                                         </div>
                                       </div>
@@ -583,7 +583,7 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                         <MetricBadge icon={CheckCircle2} label="Completed" value={user.completed_count} tone="green" />
                                         <MetricBadge icon={Clock3} label="In progress" value={user.in_progress_count} tone="blue" />
                                         <MetricBadge icon={Hourglass} label="Pending" value={user.pending_count} tone="amber" />
-                                        <MetricBadge icon={Timer} label="Total time" value={formatMinutes(user.total_minutes)} tone="slate" />
+                                        <MetricBadge icon={Timer} label="Total time" value={formatMinutes(user.estimated_minutes)} tone="slate" />
                                         <MetricBadge icon={CalendarCheck2} label="Before deadline" value={user.completed_before_deadline_count} tone="emerald" />
                                         <MetricBadge icon={CalendarX2} label="After deadline" value={user.completed_after_deadline_count} tone="rose" />
                                       </div>

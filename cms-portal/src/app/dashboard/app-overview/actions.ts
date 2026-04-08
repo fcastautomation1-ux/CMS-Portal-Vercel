@@ -11,7 +11,7 @@ export interface UserTaskSummary {
   completed_count: number
   in_progress_count: number
   pending_count: number
-  total_minutes: number
+  estimated_minutes: number
   completed_before_deadline_count: number
   completed_after_deadline_count: number
 }
@@ -53,7 +53,6 @@ type RawTask = {
   due_date: string | null
   effective_due_at: string | null
   estimated_work_minutes: number | null
-  total_active_minutes: number | null
   multi_assignment: {
     enabled?: boolean
     assignees?: Array<{ username?: string | null }> | null
@@ -99,7 +98,7 @@ export async function getAppOverviewData(opts?: {
 
   let query = supabase
     .from('todos')
-    .select('id,app_name,username,assigned_to,manager_id,package_name,category,task_status,completed_at,due_date,effective_due_at,estimated_work_minutes,total_active_minutes,multi_assignment,created_at')
+    .select('id,app_name,username,assigned_to,manager_id,package_name,category,task_status,completed_at,due_date,effective_due_at,estimated_work_minutes,multi_assignment,created_at')
     .eq('archived', false)
     .not('app_name', 'is', null)
     .neq('app_name', '')
@@ -190,7 +189,7 @@ export async function getAppOverviewData(opts?: {
         completed_count: 0,
         in_progress_count: 0,
         pending_count: 0,
-        total_minutes: 0,
+        estimated_minutes: 0,
         completed_before_deadline_count: 0,
         completed_after_deadline_count: 0,
       }
@@ -202,7 +201,7 @@ export async function getAppOverviewData(opts?: {
       else if (progress === 'in_progress') existing.in_progress_count += 1
       else existing.pending_count += 1
 
-      existing.total_minutes += Math.max(0, Number(assignment.task.total_active_minutes ?? assignment.task.estimated_work_minutes ?? 0))
+      existing.estimated_minutes += Math.max(0, Number(assignment.task.estimated_work_minutes ?? 0))
 
       if (progress === 'completed') {
         const completedAt = assignment.task.completed_at ? new Date(assignment.task.completed_at).getTime() : NaN
