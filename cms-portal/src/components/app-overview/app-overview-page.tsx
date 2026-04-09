@@ -11,6 +11,8 @@ import {
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getAppOverviewData, getAppBreakdownTimes, type AppOverviewData, type UserBreakdownTime } from '@/app/dashboard/app-overview/actions'
+import { splitDepartmentsCsv } from '@/lib/department-name'
+import { useQueries } from '@tanstack/react-query'
 import {
   SearchableMultiSelectDropdown,
   type DropdownOption,
@@ -50,6 +52,22 @@ function formatMinutes(totalMinutes: number): string {
   if (days > 0 && hours > 0) return `${days}d ${hours}h`
   if (days > 0) return `${days}d`
   return `${hours}h`
+}
+
+function formatSignedMinutes(totalMinutes: number): string {
+  const isNegative = totalMinutes < 0
+  const absMinutes = Math.abs(Math.round(totalMinutes))
+  const totalHours = Math.floor(absMinutes / 60)
+  const days = Math.floor(totalHours / 24)
+  const hours = totalHours % 24
+
+  let text = ''
+  if (days > 0 && hours > 0) text = `${days}d ${hours}h`
+  else if (days > 0) text = `${days}d`
+  else text = `${hours}h`
+
+  if (absMinutes === 0) return '0h'
+  return `${isNegative ? '-' : '+'}${text}`
 }
 
 function MetricBadge({
@@ -192,24 +210,111 @@ function TaskBreakdownTimeCells({
     }
   }
 
+  const report = before - after
+  const reportColor = report > 0 ? '#16A34A' : (report < 0 ? '#E11D48' : 'var(--color-text-muted)')
+
   return (
     <>
-      <td className="w-1/6 px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#475569' }} title={`Allocated task time: ${formatMinutes(allocated)}`}>
+      <td className="pl-6 px-3 py-2.5 text-center tabular-nums font-semibold border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }} title={`Allocated task time: ${formatMinutes(allocated)}`}>
         {formatMinutes(allocated)}
       </td>
-      <td className="w-1/6 px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#2B7FFF' }} title={`Actual taken time: ${formatMinutes(actual)}`}>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#2B7FFF' }} title={`Actual taken time: ${formatMinutes(actual)}`}>
         {formatMinutes(actual)}
       </td>
-      <td className="w-1/6 px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#16A34A' }} title={`Completion before deadline: ${formatMinutes(before)}`}>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#16A34A' }} title={`Completion before deadline: ${formatMinutes(before)}`}>
         {formatMinutes(before)}
       </td>
-      <td className="w-1/6 px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#E11D48' }} title={`Completion after deadline: ${formatMinutes(after)}`}>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#E11D48' }} title={`Completion after deadline: ${formatMinutes(after)}`}>
         {formatMinutes(after)}
       </td>
-      <td className="w-1/6 px-3 py-2.5 text-center tabular-nums font-bold" title="Percentage of completed time before deadline">
-        {perfNode}
+      <td className="px-3 py-2.5 text-center tabular-nums font-black border-l-2" style={{ color: reportColor, borderLeftColor: 'var(--color-border)' }} title={`Net efficiency report: ${formatSignedMinutes(report)}`}>
+        {formatSignedMinutes(report)}
       </td>
     </>
+  )
+}
+
+function TaskBreakdownFooter({ appName, from, to, label, utList, colSpanCount }: any) {
+  const { data: times } = useQuery<UserBreakdownTime[]>({
+    queryKey: queryKeys.appBreakdownTimes(appName, from, to),
+    queryFn: () => getAppBreakdownTimes({ appName, from, to }),
+    staleTime: 5 * 60_000,
+  })
+
+  // Basic totals from props
+  const totalTasks = utList.reduce((s: number, u: any) => s + u.count, 0)
+  const totalDone = utList.reduce((s: number, u: any) => s + u.completed_count, 0)
+  const totalActive = utList.reduce((s: number, u: any) => s + u.in_progress_count, 0)
+  const totalPending = utList.reduce((s: number, u: any) => s + u.pending_count, 0)
+  
+  // Time totals from query
+  const totalAllocated = times?.reduce((s, t) => s + t.total_minutes, 0) ?? 0
+  const totalActual = times?.reduce((s, t) => s + t.actual_minutes, 0) ?? 0
+  const totalBefore = times?.reduce((s, t) => s + t.before_deadline_minutes, 0) ?? 0
+  const totalAfter = times?.reduce((s, t) => s + t.after_deadline_minutes, 0) ?? 0
+
+  return (
+    <tr className="bg-slate-100 font-bold border-t-2" style={{ borderTopColor: 'var(--color-border)' }}>
+      <td className="px-3 py-3 font-black text-sm" style={{ color: 'var(--color-text)' }}>{label}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums">{totalTasks}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#059669' }}>{totalDone}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{totalActive}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#D97706' }}>{totalPending}</td>
+      <td className="pl-6 text-center font-black text-sm tabular-nums border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }}>{formatMinutes(totalAllocated)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{formatMinutes(totalActual)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#16A34A' }}>{formatMinutes(totalBefore)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#E11D48' }}>{formatMinutes(totalAfter)}</td>
+      <td className="text-center font-black text-sm tabular-nums border-l-2" style={{ color: (totalBefore - totalAfter) > 0 ? '#16A34A' : ((totalBefore - totalAfter) < 0 ? '#E11D48' : 'var(--color-text-muted)'), borderLeftColor: 'var(--color-border)' }}>
+        {formatSignedMinutes(totalBefore - totalAfter)}
+      </td>
+    </tr>
+  )
+}
+
+function TaskBreakdownFooterUserView({ user, from, to, label }: { user: any, from?: string, to?: string, label: string }) {
+  const apps: any[] = Array.from(user.apps || [])
+  const results = useQueries({
+    queries: apps.map((app: any) => ({
+      queryKey: queryKeys.appBreakdownTimes(app.appName, from, to),
+      queryFn: () => getAppBreakdownTimes({ appName: app.appName, from, to }),
+      staleTime: 5 * 60_000,
+    }))
+  })
+
+  // Robust summation using explicit types to satisfy strict TS
+  const totalTasks = apps.reduce((s: number, a: any) => s + (Number(a.count) || 0), 0)
+  const totalDone = apps.reduce((s: number, a: any) => s + (Number(a.completed_count) || 0), 0)
+  const totalActive = apps.reduce((s: number, a: any) => s + (Number(a.in_progress_count) || 0), 0)
+  const totalPending = apps.reduce((s: number, a: any) => s + (Number(a.pending_count) || 0), 0)
+
+  let tAllocated = 0, tActual = 0, tBefore = 0, tAfter = 0
+  results.forEach((res: any) => {
+    if (!res.data) return
+    // res.data is expected to be UserBreakdownTime[]
+    const utime = (res.data as any[]).find((t: any) => t.username.toLowerCase() === user.username.toLowerCase())
+    if (utime) {
+      tAllocated += Number(utime.total_minutes) || 0
+      tActual += Number(utime.actual_minutes) || 0
+      tBefore += Number(utime.before_deadline_minutes) || 0
+      tAfter += Number(utime.after_deadline_minutes) || 0
+    }
+  })
+
+  return (
+    <tr className="bg-slate-100 font-bold border-t-2" style={{ borderTopColor: 'var(--color-border)' }}>
+      <td className="px-3 py-3 font-black text-sm" style={{ color: 'var(--color-text)' }}>{label}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums">{totalTasks}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#059669' }}>{totalDone}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{totalActive}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#D97706' }}>{totalPending}</td>
+      <td className="pl-6 text-center font-black text-sm tabular-nums border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }}>{formatMinutes(tAllocated)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{formatMinutes(tActual)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#16A34A' }}>{formatMinutes(tBefore)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#E11D48' }}>{formatMinutes(tAfter)}</td>
+      <td className="text-center font-black text-sm tabular-nums border-l-2" style={{ color: (tBefore - tAfter) > 0 ? '#16A34A' : ((tBefore - tAfter) < 0 ? '#E11D48' : 'var(--color-text-muted)'), borderLeftColor: 'var(--color-border)' }}>
+        {formatSignedMinutes(tBefore - tAfter)}
+      </td>
+    </tr>
   )
 }
 
@@ -445,28 +550,34 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
 
       {/* ── Filters (Global) ──────────────────────────── */}
       <div className="rounded-2xl border bg-white p-3 shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_auto]">
-          <SearchableMultiSelectDropdown
-            label="Departments"
-            options={departmentOptions}
-            selectedValues={selectedDepartmentValues}
-            onChange={(next) => setMultiSelectParam('departments', next)}
-            placeholder="All departments"
-          />
-          <SearchableMultiSelectDropdown
-            label="Users"
-            options={userOptions}
-            selectedValues={selectedUserValues}
-            onChange={(next) => setMultiSelectParam('users', next)}
-            placeholder="All users"
-          />
-          <SearchableMultiSelectDropdown
-            label="Apps"
-            options={appOptions}
-            selectedValues={selectedAppValues}
-            onChange={(next) => setMultiSelectParam('apps', next)}
-            placeholder="All apps"
-          />
+        <div className="flex items-end justify-end gap-4 flex-wrap">
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Departments"
+              options={departmentOptions}
+              selectedValues={selectedDepartmentValues}
+              onChange={(next) => setMultiSelectParam('departments', next)}
+              placeholder="All departments"
+            />
+          </div>
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Users"
+              options={userOptions}
+              selectedValues={selectedUserValues}
+              onChange={(next) => setMultiSelectParam('users', next)}
+              placeholder="All users"
+            />
+          </div>
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Apps"
+              options={appOptions}
+              selectedValues={selectedAppValues}
+              onChange={(next) => setMultiSelectParam('apps', next)}
+              placeholder="All apps"
+            />
+          </div>
           {/* Date range filter */}
           <div className="flex flex-col gap-1.5 shrink-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-text-muted)' }}>Date Range</p>
@@ -511,7 +622,7 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
 
       {/* ── User Overview Tab ─────────────────────────── */}
       {activeTab === 'users' && (
-        <UserOverviewPanel periodLabel={periodLabel} rows={filtered} from={from} to={to} selectedUsers={selectedUserValues} />
+        <UserOverviewPanel periodLabel={periodLabel} rows={filtered} from={from} to={to} selectedUsers={selectedUserValues} selectedDepartments={selectedDepartmentValues} />
       )}
 
       {/* ── App Overview Tab ──────────────────────────── */}
@@ -731,27 +842,22 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
                                   <table className="w-full text-xs border-collapse">
                                     <thead>
                                       <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
-                                        <th className="px-3 py-2 text-left font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
-                                          User
+                                        <th colSpan={5} className="py-1"></th>
+                                        <th colSpan={5} className="px-3 py-1 text-center font-bold border-l-2 bg-blue-50/50" style={{ color: '#2B7FFF', borderLeftColor: 'var(--color-border)' }}>
+                                          Hours utilization
                                         </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
-                                          Tasks
-                                        </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)' }}>
-                                          Allocated Task Time
-                                        </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>
-                                          Actual Taken Time
-                                        </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>
-                                          Completion Before Deadline
-                                        </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>
-                                          Completion After Deadline
-                                        </th>
-                                        <th className="w-1/6 px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
-                                          Performance
-                                        </th>
+                                      </tr>
+                                      <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                        <th className="px-3 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>User</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
+                                        <th className="pl-6 px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Allocated</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Before</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>After</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Report</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -764,13 +870,14 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
                                           }}
                                         >
                                           <td className="px-3 py-2.5">
-                                            <span className="block truncate text-xs font-medium" style={{ color: 'var(--color-text)' }}>
+                                            <span className="block truncate text-xs font-bold" style={{ color: 'var(--color-text)' }}>
                                               {ut.username}
                                             </span>
                                           </td>
-                                          <td className="w-1/6 px-3 py-2.5 text-center tabular-nums text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
-                                            {ut.count}
-                                          </td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>{ut.count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#059669' }}>{ut.completed_count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#2B7FFF' }}>{ut.in_progress_count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#D97706' }}>{ut.pending_count}</td>
                                           <TaskBreakdownTimeCells
                                             username={ut.username}
                                             appName={row.app_name}
@@ -779,7 +886,10 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
                                           />
                                         </tr>
                                       ))}
-                                    </tbody>
+                                  </tbody>
+                                  <tfoot>
+                                    <TaskBreakdownFooter appName={row.app_name} from={from} to={to} label="Total" utList={row.task_by_user} colSpanCount={5} />
+                                  </tfoot>
                                   </table>
                                 </div>
                               </div>
@@ -857,12 +967,14 @@ function UserOverviewPanel({
   from,
   to,
   selectedUsers,
+  selectedDepartments,
 }: {
   periodLabel: string
   rows: AppOverviewData['rows']
   from?: string
   to?: string
   selectedUsers: string[]
+  selectedDepartments: string[]
 }) {
   const [search, setSearch] = useState('')
   const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({})
@@ -892,6 +1004,14 @@ function UserOverviewPanel({
     for (const row of rows) {
       for (const stat of row.user_stats) {
         if (selectedUsers.length > 0 && !selectedUsers.includes(stat.username)) continue
+        
+        // Fix: If departments are selected, only show users belonging to those departments
+        if (selectedDepartments.length > 0) {
+          const userDepts = splitDepartmentsCsv(stat.department)
+          const matchesDept = userDepts.some(d => selectedDepartments.includes(d))
+          if (!matchesDept) continue
+        }
+
         const key = stat.username.toLowerCase()
         const existing = map.get(key) ?? {
           username: stat.username,
@@ -917,7 +1037,7 @@ function UserOverviewPanel({
       }
     }
     return Array.from(map.values()).sort((a, b) => b.total_tasks - a.total_tasks)
-  }, [rows, selectedUsers])
+  }, [rows, selectedUsers, selectedDepartments])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -940,6 +1060,17 @@ function UserOverviewPanel({
         <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>
           {allUsers.length} user{allUsers.length !== 1 ? 's' : ''} · {totalTasks} tasks · {periodLabel}
         </p>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2" size={16} style={{ color: '#94A3B8' }} />
+          <input
+            type="text"
+            placeholder="Search users..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border transition-all focus:ring-2 focus:ring-blue-100 outline-none"
+            style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          />
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -1015,35 +1146,42 @@ function UserOverviewPanel({
                                 <table className="w-full text-xs border-collapse">
                                   <thead>
                                     <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
-                                      <th className="px-3 py-2 text-left font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>App</th>
-                                        <th className="w-[10%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
-                                        <th className="w-[8%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
-                                        <th className="w-[8%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
-                                        <th className="w-[8%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
-                                        <th className="w-[13%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)' }}>Allocated Task Time</th>
-                                        <th className="w-[13%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual Taken Time</th>
-                                        <th className="w-[13%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Completion Before Deadline</th>
-                                        <th className="w-[13%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>Completion After Deadline</th>
-                                        <th className="w-[10%] px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Performance</th>
-                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Link</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {[...user.apps].sort((a, b) => b.count - a.count).map((app, appIdx) => (
-                                        <tr
-                                          key={app.appName}
-                                          style={{
-                                            background: appIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
-                                            borderBottom: appIdx < user.apps.length - 1 ? '1px solid var(--color-border)' : 'none',
-                                          }}
-                                        >
-                                          <td className="px-3 py-2.5">
-                                            <span className="block truncate font-semibold" style={{ color: 'var(--color-text)' }}>{app.appName}</span>
-                                          </td>
-                                          <td className="px-3 py-2.5 text-center tabular-nums font-bold" style={{ color: 'var(--color-text-muted)' }}>{app.count}</td>
-                                          <td className="px-3 py-2.5 text-center tabular-nums font-bold" style={{ color: '#059669' }}>{app.completed_count}</td>
-                                          <td className="px-3 py-2.5 text-center tabular-nums font-bold" style={{ color: '#2B7FFF' }}>{app.in_progress_count}</td>
-                                          <td className="px-3 py-2.5 text-center tabular-nums font-bold" style={{ color: '#D97706' }}>{app.pending_count}</td>
+                                      <th colSpan={5} className="py-1"></th>
+                                      <th colSpan={5} className="px-3 py-1 text-center font-bold border-l-2 bg-blue-50/50" style={{ color: '#2B7FFF', borderLeftColor: 'var(--color-border)' }}>
+                                        Hours utilization
+                                      </th>
+                                      <th colSpan={1}></th>
+                                    </tr>
+                                    <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                      <th className="px-3 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>App</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
+                                      <th className="pl-6 px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Allocated</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Before</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>After</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Report</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Link</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...user.apps].sort((a, b) => b.count - a.count).map((app, appIdx) => (
+                                      <tr
+                                        key={app.appName}
+                                        style={{
+                                          background: appIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
+                                          borderBottom: appIdx < user.apps.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                        }}
+                                      >
+                                        <td className="px-3 py-2.5">
+                                          <span className="block truncate font-semibold" style={{ color: 'var(--color-text)' }}>{app.appName}</span>
+                                        </td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: 'var(--color-text-muted)' }}>{app.count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#059669' }}>{app.completed_count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#2B7FFF' }}>{app.in_progress_count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#D97706' }}>{app.pending_count}</td>
                                         <TaskBreakdownTimeCells
                                           username={user.username}
                                           appName={app.appName}
@@ -1068,6 +1206,9 @@ function UserOverviewPanel({
                                       </tr>
                                     ))}
                                   </tbody>
+                                  <tfoot>
+                                    <TaskBreakdownFooterUserView user={user} from={from} to={to} label="Total" />
+                                  </tfoot>
                                 </table>
                               </div>
                             </div>

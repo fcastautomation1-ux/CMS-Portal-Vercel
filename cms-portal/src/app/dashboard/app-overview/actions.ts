@@ -7,6 +7,7 @@ import { canonicalDepartmentKey, splitDepartmentsCsv } from '@/lib/department-na
 
 export interface UserTaskSummary {
   username: string
+  department: string
   count: number
   completed_count: number
   in_progress_count: number
@@ -230,6 +231,7 @@ export async function getAppOverviewData(opts?: {
       const userKey = username.toLowerCase()
       const existing = taskByUserMap.get(userKey) ?? {
         username,
+        department: userDeptMap.get(userKey) ?? '',
         count: 0,
         completed_count: 0,
         in_progress_count: 0,
