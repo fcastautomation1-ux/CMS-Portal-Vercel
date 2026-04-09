@@ -141,8 +141,8 @@ function getCompletedTaskMinutes(task: RawTask): number {
 }
 
 export async function getAppOverviewData(opts?: {
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }): Promise<AppOverviewData> {
   const user = await getSession()
   if (!user || (user.role !== 'Admin' && user.role !== 'Super Manager')) {
@@ -158,18 +158,8 @@ export async function getAppOverviewData(opts?: {
     .not('app_name', 'is', null)
     .neq('app_name', '')
 
-  if (opts?.year && opts?.quarter) {
-    const startMonth = (opts.quarter - 1) * 3 + 1
-    const endMonth = startMonth + 2
-    const fromDate = `${opts.year}-${String(startMonth).padStart(2, '0')}-01`
-    const lastDay = new Date(opts.year, endMonth, 0).getDate()
-    const toDate = `${opts.year}-${String(endMonth).padStart(2, '0')}-${lastDay}`
-    query = query.gte('created_at', fromDate).lte('created_at', toDate + 'T23:59:59.999Z')
-  } else if (opts?.year) {
-    query = query
-      .gte('created_at', `${opts.year}-01-01`)
-      .lte('created_at', `${opts.year}-12-31T23:59:59.999Z`)
-  }
+  if (opts?.from) query = query.gte('created_at', opts.from)
+  if (opts?.to) query = query.lte('created_at', opts.to + 'T23:59:59.999Z')
 
   const [tasksResult, pkgsResult, usersResult] = await Promise.all([
     query,
@@ -333,12 +323,14 @@ export interface UserBreakdownTime {
   actual_minutes: number
   before_deadline_minutes: number
   after_deadline_minutes: number
+  start_date: string | null   // earliest created_at among completed tasks
+  end_date: string | null     // latest due_date among completed tasks
 }
 
 export async function getAppBreakdownTimes(opts: {
   appName: string
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }): Promise<UserBreakdownTime[]> {
   const user = await getSession()
   if (!user || (user.role !== 'Admin' && user.role !== 'Super Manager')) return []
@@ -351,18 +343,8 @@ export async function getAppBreakdownTimes(opts: {
     .eq('archived', false)
     .eq('app_name', opts.appName)
 
-  if (opts.year && opts.quarter) {
-    const startMonth = (opts.quarter - 1) * 3 + 1
-    const endMonth = startMonth + 2
-    const fromDate = `${opts.year}-${String(startMonth).padStart(2, '0')}-01`
-    const lastDay = new Date(opts.year, endMonth, 0).getDate()
-    const toDate = `${opts.year}-${String(endMonth).padStart(2, '0')}-${lastDay}`
-    query = query.gte('created_at', fromDate).lte('created_at', toDate + 'T23:59:59.999Z')
-  } else if (opts.year) {
-    query = query
-      .gte('created_at', `${opts.year}-01-01`)
-      .lte('created_at', `${opts.year}-12-31T23:59:59.999Z`)
-  }
+  if (opts.from) query = query.gte('created_at', opts.from)
+  if (opts.to) query = query.lte('created_at', opts.to + 'T23:59:59.999Z')
 
   const { data, error } = await query
   if (error || !data) return []
@@ -442,7 +424,13 @@ export async function getAppBreakdownTimes(opts: {
         actual_minutes: 0,
         before_deadline_minutes: 0,
         after_deadline_minutes: 0,
+        start_date: null,
+        end_date: null,
       }
+
+      // Track date range
+      if (!existing.start_date || task.created_at < existing.start_date) existing.start_date = task.created_at
+      if (deadline && (!existing.end_date || deadline > existing.end_date)) existing.end_date = deadline
 
       existing.total_minutes += allocatedMinutes
 

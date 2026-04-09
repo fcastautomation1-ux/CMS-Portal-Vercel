@@ -6,28 +6,26 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Search, ExternalLink, ChevronDown, ChevronRight, X, Layers,
-  Users, Zap, FolderOpen, RefreshCw, Timer, CalendarCheck2, CalendarX2, Clock3, CheckCircle2, Hourglass, Loader2,
+  Users, Zap, FolderOpen, RefreshCw, Clock3, CheckCircle2, Hourglass, BarChart2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getAppOverviewData, getAppBreakdownTimes, type AppOverviewData, type UserBreakdownTime } from '@/app/dashboard/app-overview/actions'
 import {
   SearchableMultiSelectDropdown,
-  SearchableSingleSelectDropdown,
   type DropdownOption,
 } from './searchable-filter-dropdown'
 
 type SortKey = 'app_name' | 'task_count' | 'team' | 'developer' | 'day_span'
 type SortDir = 'asc' | 'desc'
 
-const QUARTERS = [1, 2, 3, 4] as const
 const PER_PAGE = 15
 const UNCATEGORIZED_VALUE = '__uncategorized__'
 
 interface Props {
   data: AppOverviewData
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }
 
 interface ExpandedRow {
@@ -35,25 +33,11 @@ interface ExpandedRow {
   tasks: boolean
 }
 
-function buildTimelineValue(year?: number, quarter?: number) {
-  if (!year) return 'all'
-  if (quarter) return `year:${year}:q${quarter}`
-  return `year:${year}`
-}
-
-function parseTimelineValue(value: string): { year?: number; quarter?: number } {
-  if (!value || value === 'all') return {}
-  const parts = value.split(':')
-  if (parts[0] !== 'year' || parts.length < 2) return {}
-  const year = Number(parts[1])
-  if (!Number.isFinite(year)) return {}
-  if (parts[2]) {
-    const quarter = Number(parts[2].replace(/^q/i, ''))
-    if (Number.isFinite(quarter) && quarter >= 1 && quarter <= 4) {
-      return { year, quarter }
-    }
-  }
-  return { year }
+function formatShortDate(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return '—'
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatMinutes(totalMinutes: number): string {
@@ -156,73 +140,65 @@ function ShimmerChip() {
   )
 }
 
-/** Per-row time chips — fetches on mount (when user expands Task Breakdown) */
-function TaskBreakdownTimeChips({
+/** Renders 4 <td> cells (tasks + allocated time + actual time + 2 deadline cols) for use inside a task breakdown table row */
+function TaskBreakdownTimeCells({
   username,
   appName,
-  year,
-  quarter,
+  from,
+  to,
 }: {
   username: string
   appName: string
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }) {
   const { data: times, isLoading } = useQuery<UserBreakdownTime[]>({
-    queryKey: queryKeys.appBreakdownTimes(appName, year, quarter),
-    queryFn: () => getAppBreakdownTimes({ appName, year, quarter }),
+    queryKey: queryKeys.appBreakdownTimes(appName, from, to),
+    queryFn: () => getAppBreakdownTimes({ appName, from, to }),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
   })
 
+  const shimmer = (
+    <span className="inline-block h-3 w-16 rounded animate-pulse" style={{ background: 'rgba(100,116,139,0.12)' }} />
+  )
+
   if (isLoading || !times) {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1.5">
-        <ShimmerChip />
-        <ShimmerChip />
-        <ShimmerChip />
-        <ShimmerChip />
-      </div>
+      <>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+      </>
     )
   }
 
   const userTime = times.find((t) => t.username.toLowerCase() === username.toLowerCase())
-  const total = userTime?.total_minutes ?? 0
+  const allocated = userTime?.total_minutes ?? 0
   const actual = userTime?.actual_minutes ?? 0
   const before = userTime?.before_deadline_minutes ?? 0
   const after = userTime?.after_deadline_minutes ?? 0
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      <CompactMetricChip
-        icon={Timer}
-        value={formatMinutes(total)}
-        title={`Total allocated time: ${formatMinutes(total)}`}
-        tone="slate"
-      />
-      <CompactMetricChip
-        icon={Hourglass}
-        value={formatMinutes(actual)}
-        title={`Actual time taken: ${formatMinutes(actual)}`}
-        tone="blue"
-      />
-      <CompactMetricChip
-        icon={CalendarCheck2}
-        value={formatMinutes(before)}
-        title={`Before deadline: ${formatMinutes(before)}`}
-        tone="emerald"
-      />
-      <CompactMetricChip
-        icon={CalendarX2}
-        value={formatMinutes(after)}
-        title={`After deadline: ${formatMinutes(after)}`}
-        tone="rose"
-      />
-    </div>
+    <>
+      <td className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ color: '#475569' }} title={`Allocated task time: ${formatMinutes(allocated)}`}>
+        {formatMinutes(allocated)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ color: '#2B7FFF' }} title={`Actual taken time: ${formatMinutes(actual)}`}>
+        {formatMinutes(actual)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ color: '#16A34A' }} title={`Completion before deadline: ${formatMinutes(before)}`}>
+        {formatMinutes(before)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ color: '#E11D48' }} title={`Completion after deadline: ${formatMinutes(after)}`}>
+        {formatMinutes(after)}
+      </td>
+    </>
   )
 }
 
-export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
+export function AppOverviewPage({ data: initialData, from, to }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -231,13 +207,14 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const [search, setSearch] = useState('')
   const [expandedIds, setExpandedIds] = useState<Record<string, ExpandedRow>>({})
   const [page, setPage] = useState(1)
+  const [activeTab, setActiveTab] = useState<'apps' | 'users'>('apps')
   const searchParamsString = searchParams.toString()
 
   // Use React Query to manage data with caching and refresh capability
   const currentUser = 'dashboard' // This would come from session in real app
   const { data = initialData } = useQuery({
-    queryKey: queryKeys.appOverview(currentUser, year, quarter),
-    queryFn: () => getAppOverviewData({ year, quarter }),
+    queryKey: queryKeys.appOverview(currentUser, from, to),
+    queryFn: () => getAppOverviewData({ from, to }),
     initialData,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
@@ -248,7 +225,7 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const handleRefresh = () => {
     startTransition(async () => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.appOverview(currentUser, year, quarter),
+        queryKey: queryKeys.appOverview(currentUser, from, to),
       })
     })
   }
@@ -267,9 +244,6 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   )
 
   const currentYear = new Date().getFullYear()
-  const yearOptions = [currentYear, currentYear - 1, currentYear - 2]
-
-  const timelineValue = buildTimelineValue(year, quarter)
 
   const updateQueryParams = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
@@ -292,19 +266,32 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
     [updateQueryParams],
   )
 
-  const handleTimelineChange = useCallback(
+  const handleFromChange = useCallback(
     (value: string) => {
       updateQueryParams((params) => {
-        const next = parseTimelineValue(value)
-        if (next.year) params.set('year', String(next.year))
-        else params.delete('year')
-
-        if (next.quarter) params.set('quarter', String(next.quarter))
-        else params.delete('quarter')
+        if (value) params.set('from', value)
+        else params.delete('from')
       })
     },
     [updateQueryParams],
   )
+
+  const handleToChange = useCallback(
+    (value: string) => {
+      updateQueryParams((params) => {
+        if (value) params.set('to', value)
+        else params.delete('to')
+      })
+    },
+    [updateQueryParams],
+  )
+
+  const clearDateRange = useCallback(() => {
+    updateQueryParams((params) => {
+      params.delete('from')
+      params.delete('to')
+    })
+  }, [updateQueryParams])
 
   const appOptions = useMemo<DropdownOption[]>(() => {
     return [...data.rows]
@@ -394,28 +381,16 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const safePage = Math.min(page, totalPages)
   const paginated = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
 
-  const periodLabel = year
-    ? quarter
-      ? `Q${quarter} ${year}`
-      : `${year}`
+  const periodLabel = (from || to)
+    ? `${from ? new Date(from).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Start'} → ${to ? new Date(to).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Now'}`
     : 'All Time'
-
-  const timelineOptions = useMemo<DropdownOption[]>(() => {
-    const options: DropdownOption[] = [{ value: 'all', label: 'All Time' }]
-    for (const y of yearOptions) {
-      options.push({ value: `year:${y}`, label: String(y) })
-      for (const q of QUARTERS) {
-        options.push({ value: `year:${y}:q${q}`, label: `Q${q} ${y}` })
-      }
-    }
-    return options
-  }, [yearOptions])
 
   const hasActiveFilters =
     search.trim().length > 0 ||
     selectedAppValues.length > 0 ||
     selectedDepartmentValues.length > 0 ||
-    selectedUserValues.length > 0
+    selectedUserValues.length > 0 ||
+    Boolean(from || to)
 
   return (
     <div className="space-y-5">
@@ -441,6 +416,34 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
         </button>
       </div>
 
+      {/* ── Tabs ──────────────────────────────────────── */}
+      <div className="flex items-center gap-1 rounded-xl border p-1" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', width: 'fit-content' }}>
+        {([
+          { key: 'apps', label: 'App Overview', icon: Layers },
+          { key: 'users', label: 'User Overview', icon: BarChart2 },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+            style={activeTab === key
+              ? { background: '#2B7FFF', color: '#fff', boxShadow: '0 1px 4px rgba(43,127,255,0.3)' }
+              : { color: 'var(--color-text-muted)' }}
+          >
+            <Icon size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── User Overview Tab ─────────────────────────── */}
+      {activeTab === 'users' && (
+        <UserOverviewPanel periodLabel={periodLabel} data={data} from={from} to={to} />
+      )}
+
+      {/* ── App Overview Tab ──────────────────────────── */}
+      {activeTab === 'apps' && (<>
+
       {/* ── Filters ───────────────────────────────────── */}
       <div className="rounded-2xl border bg-white p-3 shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
         <div className="grid gap-3 xl:grid-cols-4">
@@ -465,14 +468,51 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
             onChange={(next) => setMultiSelectParam('apps', next)}
             placeholder="All apps"
           />
-          <SearchableSingleSelectDropdown
-            label="Timeline"
-            options={timelineOptions}
-            selectedValue={timelineValue}
-            onChange={handleTimelineChange}
-            placeholder="All time"
-            panelAlign="right"
-          />
+          {/* Date range filter */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-text-muted)' }}>Date Range</p>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="date"
+                  value={from ?? ''}
+                  max={to ?? undefined}
+                  onChange={(e) => handleFromChange(e.target.value)}
+                  className="h-9 w-full rounded-lg px-3 text-xs outline-none"
+                  style={{
+                    border: `1.5px solid ${from ? '#2B7FFF' : 'var(--color-border)'}`,
+                    background: from ? 'rgba(43,127,255,0.04)' : 'var(--color-surface)',
+                    color: 'var(--color-text)',
+                  }}
+                />
+              </div>
+              <span className="text-xs font-bold shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>
+              <div className="relative flex-1">
+                <input
+                  type="date"
+                  value={to ?? ''}
+                  min={from ?? undefined}
+                  onChange={(e) => handleToChange(e.target.value)}
+                  className="h-9 w-full rounded-lg px-3 text-xs outline-none"
+                  style={{
+                    border: `1.5px solid ${to ? '#2B7FFF' : 'var(--color-border)'}`,
+                    background: to ? 'rgba(43,127,255,0.04)' : 'var(--color-surface)',
+                    color: 'var(--color-text)',
+                  }}
+                />
+              </div>
+              {(from || to) && (
+                <button
+                  onClick={clearDateRange}
+                  title="Clear date range"
+                  className="shrink-0 flex items-center justify-center h-9 w-9 rounded-lg border transition-colors hover:bg-red-50"
+                  style={{ borderColor: '#FCA5A5', color: '#E11D48', background: 'var(--color-surface)' }}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -666,40 +706,38 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                   {row.user_stats.map((user) => (
                                     <div
                                       key={user.username}
-                                      className="rounded-2xl border bg-white p-3 shadow-sm"
+                                      className="rounded-xl border bg-white p-3 shadow-sm"
                                       style={{ borderColor: 'var(--color-border)' }}
                                     >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="flex min-w-0 items-center gap-2">
-                                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ background: '#2B7FFF' }}>
-                                            {user.username.slice(0, 1).toUpperCase()}
-                                          </span>
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-bold" style={{ color: 'var(--color-text)' }}>
-                                              {user.username}
-                                            </p>
-                                            <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                                              {user.count} task{user.count !== 1 ? 's' : ''} assigned
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <div className="rounded-xl px-2.5 py-1.5 text-right" style={{ background: 'rgba(43,127,255,0.08)' }}>
-                                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--color-text-muted)' }}>
-                                            Total time
+                                      {/* Header */}
+                                      <div className="flex items-center gap-2.5 mb-3">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white" style={{ background: '#2B7FFF' }}>
+                                          {user.username.slice(0, 1).toUpperCase()}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-sm font-bold" style={{ color: 'var(--color-text)' }}>
+                                            {user.username}
                                           </p>
-                                          <p className="text-sm font-bold" style={{ color: '#2B7FFF' }}>
-                                            {formatMinutes(user.estimated_minutes)}
+                                          <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                                            {user.count} task{user.count !== 1 ? 's' : ''} assigned
                                           </p>
                                         </div>
                                       </div>
 
-                                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                        <MetricBadge icon={CheckCircle2} label="Completed" value={user.completed_count} tone="green" />
-                                        <MetricBadge icon={Clock3} label="In progress" value={user.in_progress_count} tone="blue" />
-                                        <MetricBadge icon={Hourglass} label="Pending" value={user.pending_count} tone="amber" />
-                                        <MetricBadge icon={Timer} label="Total time" value={formatMinutes(user.estimated_minutes)} tone="slate" />
-                                        <MetricBadge icon={CalendarCheck2} label="Before deadline" value={user.completed_before_deadline_count} tone="emerald" />
-                                        <MetricBadge icon={CalendarX2} label="After deadline" value={user.completed_after_deadline_count} tone="rose" />
+                                      {/* Stats row */}
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(16,185,129,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#059669' }}>Done</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#059669' }}>{user.completed_count}</p>
+                                        </div>
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(43,127,255,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#2B7FFF' }}>Active</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#2B7FFF' }}>{user.in_progress_count}</p>
+                                        </div>
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(245,158,11,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#D97706' }}>Pending</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#D97706' }}>{user.pending_count}</p>
+                                        </div>
                                       </div>
                                     </div>
                                   ))}
@@ -717,29 +755,57 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                 <p className="text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
                                   Task Breakdown ({row.task_count} Total)
                                 </p>
-                                <div className="space-y-1.5">
-                                  {row.task_by_user.map((ut) => (
-                                    <div
-                                      key={ut.username}
-                                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs"
-                                      style={{ background: 'var(--color-surface)', borderLeft: '3px solid #10B981' }}
-                                    >
-                                      <div className="min-w-0 flex items-center gap-2 flex-1">
-                                        <span className="block truncate font-medium" style={{ color: 'var(--color-text)' }}>
-                                          {ut.username}
-                                        </span>
-                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700">
-                                          {ut.count}
-                                        </span>
-                                      </div>
-                                      <TaskBreakdownTimeChips
-                                        username={ut.username}
-                                        appName={row.app_name}
-                                        year={year}
-                                        quarter={quarter}
-                                      />
-                                    </div>
-                                  ))}
+                                <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                        <th className="px-3 py-2 text-left font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
+                                          User
+                                        </th>
+                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
+                                          Tasks
+                                        </th>
+                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)' }}>
+                                          Allocated Task Time
+                                        </th>
+                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>
+                                          Actual Taken Time
+                                        </th>
+                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>
+                                          Completion Before Deadline
+                                        </th>
+                                        <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>
+                                          Completion After Deadline
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {row.task_by_user.map((ut, idx) => (
+                                        <tr
+                                          key={ut.username}
+                                          style={{
+                                            background: idx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
+                                            borderBottom: idx < row.task_by_user.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                          }}
+                                        >
+                                          <td className="px-3 py-2.5">
+                                            <span className="block truncate text-xs font-medium" style={{ color: 'var(--color-text)' }}>
+                                              {ut.username}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-2.5 text-right tabular-nums text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
+                                            {ut.count}
+                                          </td>
+                                          <TaskBreakdownTimeCells
+                                            username={ut.username}
+                                            appName={row.app_name}
+                                            from={from}
+                                            to={to}
+                                          />
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
                               </div>
                             </td>
@@ -802,6 +868,287 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
           </>
         )}
       </div>
+      </>)}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * User Overview Tab — table of users, each expandable to show per-app breakdown.
+ * ───────────────────────────────────────────────────────────────────────────── */
+function UserOverviewPanel({
+  periodLabel,
+  data,
+  from,
+  to,
+}: {
+  periodLabel: string
+  data: AppOverviewData
+  from?: string
+  to?: string
+}) {
+  const [search, setSearch] = useState('')
+  const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({})
+  const [page, setPage] = useState(1)
+  const PER_PAGE_USERS = 20
+
+  type UserAppEntry = {
+    appName: string
+    count: number
+    completed_count: number
+    in_progress_count: number
+    pending_count: number
+    play_store_url: string | null
+  }
+
+  type UserEntry = {
+    username: string
+    total_tasks: number
+    completed_count: number
+    in_progress_count: number
+    pending_count: number
+    apps: UserAppEntry[]
+  }
+
+  const allUsers = useMemo<UserEntry[]>(() => {
+    const map = new Map<string, UserEntry>()
+    for (const row of data.rows) {
+      for (const stat of row.user_stats) {
+        const key = stat.username.toLowerCase()
+        const existing = map.get(key) ?? {
+          username: stat.username,
+          total_tasks: 0,
+          completed_count: 0,
+          in_progress_count: 0,
+          pending_count: 0,
+          apps: [],
+        }
+        existing.total_tasks += stat.count
+        existing.completed_count += stat.completed_count
+        existing.in_progress_count += stat.in_progress_count
+        existing.pending_count += stat.pending_count
+        existing.apps.push({
+          appName: row.app_name,
+          count: stat.count,
+          completed_count: stat.completed_count,
+          in_progress_count: stat.in_progress_count,
+          pending_count: stat.pending_count,
+          play_store_url: row.play_store_url,
+        })
+        map.set(key, existing)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total_tasks - a.total_tasks)
+  }, [data.rows])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return allUsers
+    return allUsers.filter((u) => u.username.toLowerCase().includes(q))
+  }, [allUsers, search])
+
+  const totalTasks = allUsers.reduce((s, u) => s + u.total_tasks, 0)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE_USERS))
+  const safePage = Math.min(page, totalPages)
+  const paginated = filtered.slice((safePage - 1) * PER_PAGE_USERS, safePage * PER_PAGE_USERS)
+
+  const toggleUser = (username: string) =>
+    setExpandedUsers((prev) => ({ ...prev, [username]: !prev[username] }))
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-header + search */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>
+          {allUsers.length} user{allUsers.length !== 1 ? 's' : ''} · {totalTasks} tasks · {periodLabel}
+        </p>
+        <div className="relative w-56">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Search users…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            className="h-8 w-full rounded-lg pl-8 pr-7 text-xs outline-none"
+            style={{ border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2">
+              <X size={11} style={{ color: 'var(--color-text-muted)' }} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-16 rounded-xl border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+          <Users size={24} style={{ color: '#94A3B8' }} />
+          <p className="mt-2 text-sm font-semibold" style={{ color: 'var(--color-text-muted)' }}>No users found</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border overflow-hidden shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ background: 'var(--color-surface)', borderBottom: '2px solid var(--color-border)' }}>
+                  <th className="w-10 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>#</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>User</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Apps</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Tasks</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#059669' }}>Done</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#2B7FFF' }}>Active</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#D97706' }}>Pending</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((user, idx) => {
+                  const globalIdx = (safePage - 1) * PER_PAGE_USERS + idx + 1
+                  const isEven = idx % 2 === 1
+                  const isExpanded = expandedUsers[user.username] ?? false
+
+                  return (
+                    <React.Fragment key={user.username}>
+                      {/* ── Main User Row ── */}
+                      <tr style={{ background: isEven ? 'rgba(248,250,252,0.5)' : 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+                        <td className="w-10 px-4 py-3 text-center text-xs font-bold tabular-nums" style={{ color: '#94A3B8' }}>{globalIdx}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white" style={{ background: '#2B7FFF' }}>
+                              {user.username.slice(0, 1).toUpperCase()}
+                            </span>
+                            <span className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>{user.username}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => toggleUser(user.username)}
+                            className="inline-flex items-center gap-1.5 rounded-lg transition-colors hover:bg-slate-100 px-2 py-1"
+                            style={{ color: '#8B5CF6' }}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <Layers size={14} />
+                            <span className="text-xs font-bold">{user.apps.length}</span>
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(43,127,255,0.08)', color: '#2B7FFF' }}>
+                            <Zap size={13} />
+                            {user.total_tasks}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#059669' }}>{user.completed_count}</td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#2B7FFF' }}>{user.in_progress_count}</td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#D97706' }}>{user.pending_count}</td>
+                      </tr>
+
+                      {/* ── Expanded: Per-App Breakdown ── */}
+                      {isExpanded && (
+                        <tr style={{ background: 'rgba(139,92,246,0.02)', borderBottom: '1px solid var(--color-border)' }}>
+                          <td colSpan={7} className="px-4 py-4">
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
+                                App Breakdown for {user.username} ({user.apps.length} app{user.apps.length !== 1 ? 's' : ''})
+                              </p>
+                              <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+                                <table className="w-full text-xs border-collapse">
+                                  <thead>
+                                    <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                      <th className="px-3 py-2 text-left font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>App</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)' }}>Allocated Task Time</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual Taken Time</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Completion Before Deadline</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>Completion After Deadline</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Link</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...user.apps].sort((a, b) => b.count - a.count).map((app, appIdx) => (
+                                      <tr
+                                        key={app.appName}
+                                        style={{
+                                          background: appIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
+                                          borderBottom: appIdx < user.apps.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                        }}
+                                      >
+                                        <td className="px-3 py-2.5">
+                                          <span className="block truncate font-semibold" style={{ color: 'var(--color-text)' }}>{app.appName}</span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right tabular-nums font-bold" style={{ color: 'var(--color-text-muted)' }}>{app.count}</td>
+                                        <td className="px-3 py-2.5 text-right tabular-nums font-bold" style={{ color: '#059669' }}>{app.completed_count}</td>
+                                        <td className="px-3 py-2.5 text-right tabular-nums font-bold" style={{ color: '#2B7FFF' }}>{app.in_progress_count}</td>
+                                        <td className="px-3 py-2.5 text-right tabular-nums font-bold" style={{ color: '#D97706' }}>{app.pending_count}</td>
+                                        <TaskBreakdownTimeCells
+                                          username={user.username}
+                                          appName={app.appName}
+                                          from={from}
+                                          to={to}
+                                        />
+                                        <td className="px-3 py-2.5 text-right">
+                                          {app.play_store_url ? (
+                                            <a
+                                              href={app.play_store_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all hover:bg-blue-50"
+                                              style={{ background: 'rgba(43,127,255,0.08)', color: '#2B7FFF' }}
+                                            >
+                                              App <ExternalLink size={10} />
+                                            </a>
+                                          ) : (
+                                            <span style={{ color: '#CBD5E1' }}>—</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
+              <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                Showing {(safePage - 1) * PER_PAGE_USERS + 1}–{Math.min(safePage * PER_PAGE_USERS, filtered.length)} of {filtered.length} users
+              </p>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors disabled:opacity-40" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+                  <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => Math.abs(p - safePage) <= 1 || p === 1 || p === totalPages)
+                  .map((p, i, arr) => (
+                    <div key={p}>
+                      {i > 0 && arr[i - 1] !== p - 1 && <span className="px-1">…</span>}
+                      <button
+                        onClick={() => setPage(p)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold transition-colors border"
+                        style={p === safePage ? { background: '#2B7FFF', borderColor: '#2B7FFF', color: '#fff' } : { borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)' }}
+                      >
+                        {p}
+                      </button>
+                    </div>
+                  ))}
+                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors disabled:opacity-40" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -6,16 +6,16 @@ import { AppOverviewPage } from '@/components/app-overview/app-overview-page'
 export default async function Page({
   searchParams,
 }: {
-  searchParams: { year?: string; quarter?: string }
+  searchParams: { from?: string; to?: string }
 }) {
   const user = await getSession()
   if (!user) redirect('/login')
   if (user.role !== 'Admin' && user.role !== 'Super Manager') redirect('/dashboard')
 
-  const year = searchParams.year ? parseInt(searchParams.year, 10) : undefined
-  const quarter = searchParams.quarter ? parseInt(searchParams.quarter, 10) : undefined
+  const from = searchParams.from
+  const to = searchParams.to
 
-  const data = await getAppOverviewData({ year, quarter })
+  const data = await getAppOverviewData({ from, to })
 
-  return <AppOverviewPage data={data} year={year} quarter={quarter} />
+  return <AppOverviewPage data={data} from={from} to={to} />
 }

@@ -31,6 +31,6 @@ export const queryKeys = {
   campaignDefinitions: () => ['campaigns', 'definitions'] as const,
   rules: () => ['rules'] as const,
   workflows: () => ['workflows'] as const,
-  appOverview: (username: string, year?: number, quarter?: number) => ['app-overview', username, year, quarter] as const,
-  appBreakdownTimes: (appName: string, year?: number, quarter?: number) => ['app-breakdown-times', appName, year, quarter] as const,
+  appOverview: (username: string, from?: string, to?: string) => ['app-overview', username, from, to] as const,
+  appBreakdownTimes: (appName: string, from?: string, to?: string) => ['app-breakdown-times', appName, from, to] as const,
 }
