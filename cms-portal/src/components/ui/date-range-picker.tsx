@@ -11,8 +11,9 @@ import { cn } from '@/lib/cn'
 interface DateRangePickerProps {
   from?: string
   to?: string
-  onFromChange: (val: string) => void
-  onToChange: (val: string) => void
+  onFromChange?: (val: string) => void
+  onToChange?: (val: string) => void
+  onRangeChange?: (opts: { from?: string; to?: string }) => void
   onClear: () => void
 }
 
@@ -23,7 +24,7 @@ const PRESETS = [
   { label: 'Custom', getValue: () => undefined },
 ]
 
-export function DateRangePicker({ from, to, onFromChange, onToChange, onClear }: DateRangePickerProps) {
+export function DateRangePicker({ from, to, onFromChange, onToChange, onRangeChange, onClear }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
 
   // Internal state for range
@@ -48,10 +49,20 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, onClear }:
   }, [range])
 
   const handleApply = () => {
-    if (range?.from) onFromChange(format(range.from, 'yyyy-MM-dd'))
-    else onClear()
+    const fromStr = range?.from ? format(range.from, 'yyyy-MM-dd') : undefined
+    const toStr = range?.to ? format(range.to, 'yyyy-MM-dd') : undefined
 
-    if (range?.to) onToChange(format(range.to, 'yyyy-MM-dd'))
+    if (onRangeChange) {
+      if (fromStr || toStr) {
+        onRangeChange({ from: fromStr, to: toStr })
+      } else {
+        onClear()
+      }
+    } else {
+      if (fromStr) onFromChange?.(fromStr)
+      else onClear()
+      if (toStr) onToChange?.(toStr)
+    }
 
     setOpen(false)
   }

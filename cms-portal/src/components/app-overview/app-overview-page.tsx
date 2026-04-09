@@ -386,7 +386,7 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
     [updateQueryParams],
   )
 
-  const handleDateRangeChange = useCallback(
+  const handleRangeChange = useCallback(
     ({ from, to }: { from?: string; to?: string }) => {
       updateQueryParams((params) => {
         if (from) params.set('from', from)
@@ -584,7 +584,7 @@ export function AppOverviewPage({ data: initialData, from, to }: Props) {
             <DateRangePicker
               from={from}
               to={to}
-              onRangeChange={handleDateRangeChange}
+              onRangeChange={handleRangeChange}
               onClear={clearDateRange}
             />
           </div>
