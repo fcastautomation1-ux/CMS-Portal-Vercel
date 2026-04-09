@@ -1,0 +1,15 @@
+{
+  "people": [
+    "User"
+  ],
+  "projects": [
+    "Database",
+    "Event",
+    "Create",
+    "Service",
+    "Security",
+    "Prompt",
+    "Cost",
+    "Deployment"
+  ]
+}

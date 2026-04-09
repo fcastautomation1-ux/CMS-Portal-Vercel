@@ -6,28 +6,29 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Search, ExternalLink, ChevronDown, ChevronRight, X, Layers,
-  Users, Zap, FolderOpen, RefreshCw, Timer, CalendarCheck2, CalendarX2, Clock3, CheckCircle2, Hourglass, Loader2,
+  Users, Zap, FolderOpen, RefreshCw, Clock3, CheckCircle2, Hourglass, BarChart2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { queryKeys } from '@/lib/query-keys'
 import { getAppOverviewData, getAppBreakdownTimes, type AppOverviewData, type UserBreakdownTime } from '@/app/dashboard/app-overview/actions'
+import { splitDepartmentsCsv } from '@/lib/department-name'
+import { useQueries } from '@tanstack/react-query'
 import {
   SearchableMultiSelectDropdown,
-  SearchableSingleSelectDropdown,
   type DropdownOption,
 } from './searchable-filter-dropdown'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
 
 type SortKey = 'app_name' | 'task_count' | 'team' | 'developer' | 'day_span'
 type SortDir = 'asc' | 'desc'
 
-const QUARTERS = [1, 2, 3, 4] as const
 const PER_PAGE = 15
 const UNCATEGORIZED_VALUE = '__uncategorized__'
 
 interface Props {
   data: AppOverviewData
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }
 
 interface ExpandedRow {
@@ -35,25 +36,11 @@ interface ExpandedRow {
   tasks: boolean
 }
 
-function buildTimelineValue(year?: number, quarter?: number) {
-  if (!year) return 'all'
-  if (quarter) return `year:${year}:q${quarter}`
-  return `year:${year}`
-}
-
-function parseTimelineValue(value: string): { year?: number; quarter?: number } {
-  if (!value || value === 'all') return {}
-  const parts = value.split(':')
-  if (parts[0] !== 'year' || parts.length < 2) return {}
-  const year = Number(parts[1])
-  if (!Number.isFinite(year)) return {}
-  if (parts[2]) {
-    const quarter = Number(parts[2].replace(/^q/i, ''))
-    if (Number.isFinite(quarter) && quarter >= 1 && quarter <= 4) {
-      return { year, quarter }
-    }
-  }
-  return { year }
+function formatShortDate(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return '—'
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatMinutes(totalMinutes: number): string {
@@ -65,6 +52,22 @@ function formatMinutes(totalMinutes: number): string {
   if (days > 0 && hours > 0) return `${days}d ${hours}h`
   if (days > 0) return `${days}d`
   return `${hours}h`
+}
+
+function formatSignedMinutes(totalMinutes: number): string {
+  const isNegative = totalMinutes < 0
+  const absMinutes = Math.abs(Math.round(totalMinutes))
+  const totalHours = Math.floor(absMinutes / 60)
+  const days = Math.floor(totalHours / 24)
+  const hours = totalHours % 24
+
+  let text = ''
+  if (days > 0 && hours > 0) text = `${days}d ${hours}h`
+  else if (days > 0) text = `${days}d`
+  else text = `${hours}h`
+
+  if (absMinutes === 0) return '0h'
+  return `${isNegative ? '-' : '+'}${text}`
 }
 
 function MetricBadge({
@@ -156,73 +159,166 @@ function ShimmerChip() {
   )
 }
 
-/** Per-row time chips — fetches on mount (when user expands Task Breakdown) */
-function TaskBreakdownTimeChips({
+/** Renders 4 <td> cells (tasks + allocated time + actual time + 2 deadline cols) for use inside a task breakdown table row */
+function TaskBreakdownTimeCells({
   username,
   appName,
-  year,
-  quarter,
+  from,
+  to,
 }: {
   username: string
   appName: string
-  year?: number
-  quarter?: number
+  from?: string
+  to?: string
 }) {
   const { data: times, isLoading } = useQuery<UserBreakdownTime[]>({
-    queryKey: queryKeys.appBreakdownTimes(appName, year, quarter),
-    queryFn: () => getAppBreakdownTimes({ appName, year, quarter }),
+    queryKey: queryKeys.appBreakdownTimes(appName, from, to),
+    queryFn: () => getAppBreakdownTimes({ appName, from, to }),
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
   })
 
+  const shimmer = (
+    <span className="inline-block h-3 w-16 rounded animate-pulse" style={{ background: 'rgba(100,116,139,0.12)' }} />
+  )
+
   if (isLoading || !times) {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1.5">
-        <ShimmerChip />
-        <ShimmerChip />
-        <ShimmerChip />
-        <ShimmerChip />
-      </div>
+      <>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+        <td className="px-3 py-2.5 text-right">{shimmer}</td>
+      </>
     )
   }
 
   const userTime = times.find((t) => t.username.toLowerCase() === username.toLowerCase())
-  const total = userTime?.total_minutes ?? 0
+  const allocated = userTime?.total_minutes ?? 0
   const actual = userTime?.actual_minutes ?? 0
   const before = userTime?.before_deadline_minutes ?? 0
   const after = userTime?.after_deadline_minutes ?? 0
 
+  const totalCompleted = before + after
+  const effCalc = totalCompleted > 0 ? Math.round((before / totalCompleted) * 100) : 0
+  let perfNode = <span style={{ color: '#94A3B8' }}>—</span>
+  if (totalCompleted > 0) {
+    if (effCalc >= 50) { // >= 50% completed before deadline is GOOD
+       perfNode = <span style={{ color: '#10B981' }}>{effCalc}%</span>
+    } else {
+       perfNode = <span style={{ color: '#E11D48' }}>{effCalc}%</span>
+    }
+  }
+
+  const report = before - after
+  const reportColor = report > 0 ? '#16A34A' : (report < 0 ? '#E11D48' : 'var(--color-text-muted)')
+
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      <CompactMetricChip
-        icon={Timer}
-        value={formatMinutes(total)}
-        title={`Total allocated time: ${formatMinutes(total)}`}
-        tone="slate"
-      />
-      <CompactMetricChip
-        icon={Hourglass}
-        value={formatMinutes(actual)}
-        title={`Actual time taken: ${formatMinutes(actual)}`}
-        tone="blue"
-      />
-      <CompactMetricChip
-        icon={CalendarCheck2}
-        value={formatMinutes(before)}
-        title={`Before deadline: ${formatMinutes(before)}`}
-        tone="emerald"
-      />
-      <CompactMetricChip
-        icon={CalendarX2}
-        value={formatMinutes(after)}
-        title={`After deadline: ${formatMinutes(after)}`}
-        tone="rose"
-      />
-    </div>
+    <>
+      <td className="pl-6 px-3 py-2.5 text-center tabular-nums font-semibold border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }} title={`Allocated task time: ${formatMinutes(allocated)}`}>
+        {formatMinutes(allocated)}
+      </td>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#2B7FFF' }} title={`Actual taken time: ${formatMinutes(actual)}`}>
+        {formatMinutes(actual)}
+      </td>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#16A34A' }} title={`Completion before deadline: ${formatMinutes(before)}`}>
+        {formatMinutes(before)}
+      </td>
+      <td className="px-3 py-2.5 text-center tabular-nums font-semibold" style={{ color: '#E11D48' }} title={`Completion after deadline: ${formatMinutes(after)}`}>
+        {formatMinutes(after)}
+      </td>
+      <td className="px-3 py-2.5 text-center tabular-nums font-black border-l-2" style={{ color: reportColor, borderLeftColor: 'var(--color-border)' }} title={`Net efficiency report: ${formatSignedMinutes(report)}`}>
+        {formatSignedMinutes(report)}
+      </td>
+    </>
   )
 }
 
-export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
+function TaskBreakdownFooter({ appName, from, to, label, utList, colSpanCount }: any) {
+  const { data: times } = useQuery<UserBreakdownTime[]>({
+    queryKey: queryKeys.appBreakdownTimes(appName, from, to),
+    queryFn: () => getAppBreakdownTimes({ appName, from, to }),
+    staleTime: 5 * 60_000,
+  })
+
+  // Basic totals from props
+  const totalTasks = utList.reduce((s: number, u: any) => s + u.count, 0)
+  const totalDone = utList.reduce((s: number, u: any) => s + u.completed_count, 0)
+  const totalActive = utList.reduce((s: number, u: any) => s + u.in_progress_count, 0)
+  const totalPending = utList.reduce((s: number, u: any) => s + u.pending_count, 0)
+  
+  // Time totals from query
+  const totalAllocated = times?.reduce((s, t) => s + t.total_minutes, 0) ?? 0
+  const totalActual = times?.reduce((s, t) => s + t.actual_minutes, 0) ?? 0
+  const totalBefore = times?.reduce((s, t) => s + t.before_deadline_minutes, 0) ?? 0
+  const totalAfter = times?.reduce((s, t) => s + t.after_deadline_minutes, 0) ?? 0
+
+  return (
+    <tr className="bg-slate-100 font-bold border-t-2" style={{ borderTopColor: 'var(--color-border)' }}>
+      <td className="px-3 py-3 font-black text-sm" style={{ color: 'var(--color-text)' }}>{label}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums">{totalTasks}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#059669' }}>{totalDone}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{totalActive}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#D97706' }}>{totalPending}</td>
+      <td className="pl-6 text-center font-black text-sm tabular-nums border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }}>{formatMinutes(totalAllocated)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{formatMinutes(totalActual)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#16A34A' }}>{formatMinutes(totalBefore)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#E11D48' }}>{formatMinutes(totalAfter)}</td>
+      <td className="text-center font-black text-sm tabular-nums border-l-2" style={{ color: (totalBefore - totalAfter) > 0 ? '#16A34A' : ((totalBefore - totalAfter) < 0 ? '#E11D48' : 'var(--color-text-muted)'), borderLeftColor: 'var(--color-border)' }}>
+        {formatSignedMinutes(totalBefore - totalAfter)}
+      </td>
+    </tr>
+  )
+}
+
+function TaskBreakdownFooterUserView({ user, from, to, label }: { user: any, from?: string, to?: string, label: string }) {
+  const apps: any[] = Array.from(user.apps || [])
+  const results = useQueries({
+    queries: apps.map((app: any) => ({
+      queryKey: queryKeys.appBreakdownTimes(app.appName, from, to),
+      queryFn: () => getAppBreakdownTimes({ appName: app.appName, from, to }),
+      staleTime: 5 * 60_000,
+    }))
+  })
+
+  // Robust summation using explicit types to satisfy strict TS
+  const totalTasks = apps.reduce((s: number, a: any) => s + (Number(a.count) || 0), 0)
+  const totalDone = apps.reduce((s: number, a: any) => s + (Number(a.completed_count) || 0), 0)
+  const totalActive = apps.reduce((s: number, a: any) => s + (Number(a.in_progress_count) || 0), 0)
+  const totalPending = apps.reduce((s: number, a: any) => s + (Number(a.pending_count) || 0), 0)
+
+  let tAllocated = 0, tActual = 0, tBefore = 0, tAfter = 0
+  results.forEach((res: any) => {
+    if (!res.data) return
+    // res.data is expected to be UserBreakdownTime[]
+    const utime = (res.data as any[]).find((t: any) => t.username.toLowerCase() === user.username.toLowerCase())
+    if (utime) {
+      tAllocated += Number(utime.total_minutes) || 0
+      tActual += Number(utime.actual_minutes) || 0
+      tBefore += Number(utime.before_deadline_minutes) || 0
+      tAfter += Number(utime.after_deadline_minutes) || 0
+    }
+  })
+
+  return (
+    <tr className="bg-slate-100 font-bold border-t-2" style={{ borderTopColor: 'var(--color-border)' }}>
+      <td className="px-3 py-3 font-black text-sm" style={{ color: 'var(--color-text)' }}>{label}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums">{totalTasks}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#059669' }}>{totalDone}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{totalActive}</td>
+      <td className="px-2 text-left font-black text-sm tabular-nums" style={{ color: '#D97706' }}>{totalPending}</td>
+      <td className="pl-6 text-center font-black text-sm tabular-nums border-l-2" style={{ color: '#475569', borderLeftColor: 'var(--color-border)' }}>{formatMinutes(tAllocated)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#2B7FFF' }}>{formatMinutes(tActual)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#16A34A' }}>{formatMinutes(tBefore)}</td>
+      <td className="text-center font-black text-sm tabular-nums" style={{ color: '#E11D48' }}>{formatMinutes(tAfter)}</td>
+      <td className="text-center font-black text-sm tabular-nums border-l-2" style={{ color: (tBefore - tAfter) > 0 ? '#16A34A' : ((tBefore - tAfter) < 0 ? '#E11D48' : 'var(--color-text-muted)'), borderLeftColor: 'var(--color-border)' }}>
+        {formatSignedMinutes(tBefore - tAfter)}
+      </td>
+    </tr>
+  )
+}
+
+export function AppOverviewPage({ data: initialData, from, to }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -231,13 +327,14 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const [search, setSearch] = useState('')
   const [expandedIds, setExpandedIds] = useState<Record<string, ExpandedRow>>({})
   const [page, setPage] = useState(1)
+  const [activeTab, setActiveTab] = useState<'apps' | 'users'>('apps')
   const searchParamsString = searchParams.toString()
 
   // Use React Query to manage data with caching and refresh capability
   const currentUser = 'dashboard' // This would come from session in real app
   const { data = initialData } = useQuery({
-    queryKey: queryKeys.appOverview(currentUser, year, quarter),
-    queryFn: () => getAppOverviewData({ year, quarter }),
+    queryKey: queryKeys.appOverview(currentUser, from, to),
+    queryFn: () => getAppOverviewData({ from, to }),
     initialData,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
@@ -248,7 +345,7 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const handleRefresh = () => {
     startTransition(async () => {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.appOverview(currentUser, year, quarter),
+        queryKey: queryKeys.appOverview(currentUser, from, to),
       })
     })
   }
@@ -267,9 +364,6 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   )
 
   const currentYear = new Date().getFullYear()
-  const yearOptions = [currentYear, currentYear - 1, currentYear - 2]
-
-  const timelineValue = buildTimelineValue(year, quarter)
 
   const updateQueryParams = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
@@ -292,19 +386,24 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
     [updateQueryParams],
   )
 
-  const handleTimelineChange = useCallback(
-    (value: string) => {
+  const handleRangeChange = useCallback(
+    ({ from, to }: { from?: string; to?: string }) => {
       updateQueryParams((params) => {
-        const next = parseTimelineValue(value)
-        if (next.year) params.set('year', String(next.year))
-        else params.delete('year')
-
-        if (next.quarter) params.set('quarter', String(next.quarter))
-        else params.delete('quarter')
+        if (from) params.set('from', from)
+        else params.delete('from')
+        if (to) params.set('to', to)
+        else params.delete('to')
       })
     },
     [updateQueryParams],
   )
+
+  const clearDateRange = useCallback(() => {
+    updateQueryParams((params) => {
+      params.delete('from')
+      params.delete('to')
+    })
+  }, [updateQueryParams])
 
   const appOptions = useMemo<DropdownOption[]>(() => {
     return [...data.rows]
@@ -394,28 +493,16 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
   const safePage = Math.min(page, totalPages)
   const paginated = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
 
-  const periodLabel = year
-    ? quarter
-      ? `Q${quarter} ${year}`
-      : `${year}`
+  const periodLabel = (from || to)
+    ? `${from ? new Date(from).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Start'} → ${to ? new Date(to).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Now'}`
     : 'All Time'
-
-  const timelineOptions = useMemo<DropdownOption[]>(() => {
-    const options: DropdownOption[] = [{ value: 'all', label: 'All Time' }]
-    for (const y of yearOptions) {
-      options.push({ value: `year:${y}`, label: String(y) })
-      for (const q of QUARTERS) {
-        options.push({ value: `year:${y}:q${q}`, label: `Q${q} ${y}` })
-      }
-    }
-    return options
-  }, [yearOptions])
 
   const hasActiveFilters =
     search.trim().length > 0 ||
     selectedAppValues.length > 0 ||
     selectedDepartmentValues.length > 0 ||
-    selectedUserValues.length > 0
+    selectedUserValues.length > 0 ||
+    Boolean(from || to)
 
   return (
     <div className="space-y-5">
@@ -441,42 +528,70 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
         </button>
       </div>
 
-      {/* ── Filters ───────────────────────────────────── */}
+      {/* ── Tabs ──────────────────────────────────────── */}
+      <div className="flex items-center gap-1 rounded-xl border p-1" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', width: 'fit-content' }}>
+        {([
+          { key: 'apps', label: 'App Overview', icon: Layers },
+          { key: 'users', label: 'User Overview', icon: BarChart2 },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+            style={activeTab === key
+              ? { background: '#2B7FFF', color: '#fff', boxShadow: '0 1px 4px rgba(43,127,255,0.3)' }
+              : { color: 'var(--color-text-muted)' }}
+          >
+            <Icon size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Filters (Global) ──────────────────────────── */}
       <div className="rounded-2xl border bg-white p-3 shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="grid gap-3 xl:grid-cols-4">
-          <SearchableMultiSelectDropdown
-            label="Departments"
-            options={departmentOptions}
-            selectedValues={selectedDepartmentValues}
-            onChange={(next) => setMultiSelectParam('departments', next)}
-            placeholder="All departments"
-          />
-          <SearchableMultiSelectDropdown
-            label="Users"
-            options={userOptions}
-            selectedValues={selectedUserValues}
-            onChange={(next) => setMultiSelectParam('users', next)}
-            placeholder="All users"
-          />
-          <SearchableMultiSelectDropdown
-            label="Apps"
-            options={appOptions}
-            selectedValues={selectedAppValues}
-            onChange={(next) => setMultiSelectParam('apps', next)}
-            placeholder="All apps"
-          />
-          <SearchableSingleSelectDropdown
-            label="Timeline"
-            options={timelineOptions}
-            selectedValue={timelineValue}
-            onChange={handleTimelineChange}
-            placeholder="All time"
-            panelAlign="right"
-          />
+        <div className="flex items-end justify-end gap-4 flex-wrap">
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Departments"
+              options={departmentOptions}
+              selectedValues={selectedDepartmentValues}
+              onChange={(next) => setMultiSelectParam('departments', next)}
+              placeholder="All departments"
+            />
+          </div>
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Users"
+              options={userOptions}
+              selectedValues={selectedUserValues}
+              onChange={(next) => setMultiSelectParam('users', next)}
+              placeholder="All users"
+            />
+          </div>
+          <div className="min-w-[200px] flex-1">
+            <SearchableMultiSelectDropdown
+              label="Apps"
+              options={appOptions}
+              selectedValues={selectedAppValues}
+              onChange={(next) => setMultiSelectParam('apps', next)}
+              placeholder="All apps"
+            />
+          </div>
+          {/* Date range filter */}
+          <div className="flex flex-col gap-1.5 shrink-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-text-muted)' }}>Date Range</p>
+            <DateRangePicker
+              from={from}
+              to={to}
+              onRangeChange={handleRangeChange}
+              onClear={clearDateRange}
+            />
+          </div>
         </div>
       </div>
 
-      {/* ── Search ────────────────────────────────── */}
+      {/* ── Search (Global) ───────────────────────────── */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
@@ -504,6 +619,14 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
           </button>
         )}
       </div>
+
+      {/* ── User Overview Tab ─────────────────────────── */}
+      {activeTab === 'users' && (
+        <UserOverviewPanel periodLabel={periodLabel} rows={filtered} from={from} to={to} selectedUsers={selectedUserValues} selectedDepartments={selectedDepartmentValues} />
+      )}
+
+      {/* ── App Overview Tab ──────────────────────────── */}
+      {activeTab === 'apps' && (<>
 
       {/* ── Table ─────────────────────────────────── */}
       <div className="rounded-xl border overflow-hidden shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
@@ -666,40 +789,38 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                   {row.user_stats.map((user) => (
                                     <div
                                       key={user.username}
-                                      className="rounded-2xl border bg-white p-3 shadow-sm"
+                                      className="rounded-xl border bg-white p-3 shadow-sm"
                                       style={{ borderColor: 'var(--color-border)' }}
                                     >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="flex min-w-0 items-center gap-2">
-                                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ background: '#2B7FFF' }}>
-                                            {user.username.slice(0, 1).toUpperCase()}
-                                          </span>
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-bold" style={{ color: 'var(--color-text)' }}>
-                                              {user.username}
-                                            </p>
-                                            <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                                              {user.count} task{user.count !== 1 ? 's' : ''} assigned
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <div className="rounded-xl px-2.5 py-1.5 text-right" style={{ background: 'rgba(43,127,255,0.08)' }}>
-                                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--color-text-muted)' }}>
-                                            Total time
+                                      {/* Header */}
+                                      <div className="flex items-center gap-2.5 mb-3">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white" style={{ background: '#2B7FFF' }}>
+                                          {user.username.slice(0, 1).toUpperCase()}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-sm font-bold" style={{ color: 'var(--color-text)' }}>
+                                            {user.username}
                                           </p>
-                                          <p className="text-sm font-bold" style={{ color: '#2B7FFF' }}>
-                                            {formatMinutes(user.estimated_minutes)}
+                                          <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                                            {user.count} task{user.count !== 1 ? 's' : ''} assigned
                                           </p>
                                         </div>
                                       </div>
 
-                                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                        <MetricBadge icon={CheckCircle2} label="Completed" value={user.completed_count} tone="green" />
-                                        <MetricBadge icon={Clock3} label="In progress" value={user.in_progress_count} tone="blue" />
-                                        <MetricBadge icon={Hourglass} label="Pending" value={user.pending_count} tone="amber" />
-                                        <MetricBadge icon={Timer} label="Total time" value={formatMinutes(user.estimated_minutes)} tone="slate" />
-                                        <MetricBadge icon={CalendarCheck2} label="Before deadline" value={user.completed_before_deadline_count} tone="emerald" />
-                                        <MetricBadge icon={CalendarX2} label="After deadline" value={user.completed_after_deadline_count} tone="rose" />
+                                      {/* Stats row */}
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(16,185,129,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#059669' }}>Done</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#059669' }}>{user.completed_count}</p>
+                                        </div>
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(43,127,255,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#2B7FFF' }}>Active</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#2B7FFF' }}>{user.in_progress_count}</p>
+                                        </div>
+                                        <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(245,158,11,0.07)' }}>
+                                          <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: '#D97706' }}>Pending</p>
+                                          <p className="text-base font-bold tabular-nums" style={{ color: '#D97706' }}>{user.pending_count}</p>
+                                        </div>
                                       </div>
                                     </div>
                                   ))}
@@ -717,29 +838,59 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
                                 <p className="text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
                                   Task Breakdown ({row.task_count} Total)
                                 </p>
-                                <div className="space-y-1.5">
-                                  {row.task_by_user.map((ut) => (
-                                    <div
-                                      key={ut.username}
-                                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs"
-                                      style={{ background: 'var(--color-surface)', borderLeft: '3px solid #10B981' }}
-                                    >
-                                      <div className="min-w-0 flex items-center gap-2 flex-1">
-                                        <span className="block truncate font-medium" style={{ color: 'var(--color-text)' }}>
-                                          {ut.username}
-                                        </span>
-                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700">
-                                          {ut.count}
-                                        </span>
-                                      </div>
-                                      <TaskBreakdownTimeChips
-                                        username={ut.username}
-                                        appName={row.app_name}
-                                        year={year}
-                                        quarter={quarter}
-                                      />
-                                    </div>
-                                  ))}
+                                <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                        <th colSpan={5} className="py-1"></th>
+                                        <th colSpan={5} className="px-3 py-1 text-center font-bold border-l-2 bg-blue-50/50" style={{ color: '#2B7FFF', borderLeftColor: 'var(--color-border)' }}>
+                                          Hours utilization
+                                        </th>
+                                      </tr>
+                                      <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                        <th className="px-3 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>User</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
+                                        <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
+                                        <th className="pl-6 px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Allocated</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Before</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>After</th>
+                                        <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Report</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {row.task_by_user.map((ut, idx) => (
+                                        <tr
+                                          key={ut.username}
+                                          style={{
+                                            background: idx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
+                                            borderBottom: idx < row.task_by_user.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                          }}
+                                        >
+                                          <td className="px-3 py-2.5">
+                                            <span className="block truncate text-xs font-bold" style={{ color: 'var(--color-text)' }}>
+                                              {ut.username}
+                                            </span>
+                                          </td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>{ut.count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#059669' }}>{ut.completed_count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#2B7FFF' }}>{ut.in_progress_count}</td>
+                                          <td className="px-2 py-2.5 text-left tabular-nums text-xs font-bold" style={{ color: '#D97706' }}>{ut.pending_count}</td>
+                                          <TaskBreakdownTimeCells
+                                            username={ut.username}
+                                            appName={row.app_name}
+                                            from={from}
+                                            to={to}
+                                          />
+                                        </tr>
+                                      ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <TaskBreakdownFooter appName={row.app_name} from={from} to={to} label="Total" utList={row.task_by_user} colSpanCount={5} />
+                                  </tfoot>
+                                  </table>
                                 </div>
                               </div>
                             </td>
@@ -802,6 +953,306 @@ export function AppOverviewPage({ data: initialData, year, quarter }: Props) {
           </>
         )}
       </div>
+      </>)}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * User Overview Tab — table of users, each expandable to show per-app breakdown.
+ * ───────────────────────────────────────────────────────────────────────────── */
+function UserOverviewPanel({
+  periodLabel,
+  rows,
+  from,
+  to,
+  selectedUsers,
+  selectedDepartments,
+}: {
+  periodLabel: string
+  rows: AppOverviewData['rows']
+  from?: string
+  to?: string
+  selectedUsers: string[]
+  selectedDepartments: string[]
+}) {
+  const [search, setSearch] = useState('')
+  const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({})
+  const [page, setPage] = useState(1)
+  const PER_PAGE_USERS = 20
+
+  type UserAppEntry = {
+    appName: string
+    count: number
+    completed_count: number
+    in_progress_count: number
+    pending_count: number
+    play_store_url: string | null
+  }
+
+  type UserEntry = {
+    username: string
+    total_tasks: number
+    completed_count: number
+    in_progress_count: number
+    pending_count: number
+    apps: UserAppEntry[]
+  }
+
+  const allUsers = useMemo<UserEntry[]>(() => {
+    const map = new Map<string, UserEntry>()
+    for (const row of rows) {
+      for (const stat of row.user_stats) {
+        if (selectedUsers.length > 0 && !selectedUsers.includes(stat.username)) continue
+        
+        // Fix: If departments are selected, only show users belonging to those departments
+        if (selectedDepartments.length > 0) {
+          const userDepts = splitDepartmentsCsv(stat.department)
+          const matchesDept = userDepts.some(d => selectedDepartments.includes(d))
+          if (!matchesDept) continue
+        }
+
+        const key = stat.username.toLowerCase()
+        const existing = map.get(key) ?? {
+          username: stat.username,
+          total_tasks: 0,
+          completed_count: 0,
+          in_progress_count: 0,
+          pending_count: 0,
+          apps: [],
+        }
+        existing.total_tasks += stat.count
+        existing.completed_count += stat.completed_count
+        existing.in_progress_count += stat.in_progress_count
+        existing.pending_count += stat.pending_count
+        existing.apps.push({
+          appName: row.app_name,
+          count: stat.count,
+          completed_count: stat.completed_count,
+          in_progress_count: stat.in_progress_count,
+          pending_count: stat.pending_count,
+          play_store_url: row.play_store_url,
+        })
+        map.set(key, existing)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total_tasks - a.total_tasks)
+  }, [rows, selectedUsers, selectedDepartments])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return allUsers
+    return allUsers.filter((u) => u.username.toLowerCase().includes(q))
+  }, [allUsers, search])
+
+  const totalTasks = allUsers.reduce((s, u) => s + u.total_tasks, 0)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE_USERS))
+  const safePage = Math.min(page, totalPages)
+  const paginated = filtered.slice((safePage - 1) * PER_PAGE_USERS, safePage * PER_PAGE_USERS)
+
+  const toggleUser = (username: string) =>
+    setExpandedUsers((prev) => ({ ...prev, [username]: !prev[username] }))
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-header + search */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <p className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>
+          {allUsers.length} user{allUsers.length !== 1 ? 's' : ''} · {totalTasks} tasks · {periodLabel}
+        </p>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2" size={16} style={{ color: '#94A3B8' }} />
+          <input
+            type="text"
+            placeholder="Search users..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border transition-all focus:ring-2 focus:ring-blue-100 outline-none"
+            style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-16 rounded-xl border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+          <Users size={24} style={{ color: '#94A3B8' }} />
+          <p className="mt-2 text-sm font-semibold" style={{ color: 'var(--color-text-muted)' }}>No users found</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border overflow-hidden shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ background: 'var(--color-surface)', borderBottom: '2px solid var(--color-border)' }}>
+                  <th className="w-10 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>#</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>User</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Apps</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Tasks</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#059669' }}>Done</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#2B7FFF' }}>Active</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#D97706' }}>Pending</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((user, idx) => {
+                  const globalIdx = (safePage - 1) * PER_PAGE_USERS + idx + 1
+                  const isEven = idx % 2 === 1
+                  const isExpanded = expandedUsers[user.username] ?? false
+
+                  return (
+                    <React.Fragment key={user.username}>
+                      {/* ── Main User Row ── */}
+                      <tr style={{ background: isEven ? 'rgba(248,250,252,0.5)' : 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+                        <td className="w-10 px-4 py-3 text-center text-xs font-bold tabular-nums" style={{ color: '#94A3B8' }}>{globalIdx}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white" style={{ background: '#2B7FFF' }}>
+                              {user.username.slice(0, 1).toUpperCase()}
+                            </span>
+                            <span className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>{user.username}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => toggleUser(user.username)}
+                            className="inline-flex items-center gap-1.5 rounded-lg transition-colors hover:bg-slate-100 px-2 py-1"
+                            style={{ color: '#8B5CF6' }}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <Layers size={14} />
+                            <span className="text-xs font-bold">{user.apps.length}</span>
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(43,127,255,0.08)', color: '#2B7FFF' }}>
+                            <Zap size={13} />
+                            {user.total_tasks}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#059669' }}>{user.completed_count}</td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#2B7FFF' }}>{user.in_progress_count}</td>
+                        <td className="px-4 py-3 text-sm font-bold tabular-nums" style={{ color: '#D97706' }}>{user.pending_count}</td>
+                      </tr>
+
+                      {/* ── Expanded: Per-App Breakdown ── */}
+                      {isExpanded && (
+                        <tr style={{ background: 'rgba(139,92,246,0.02)', borderBottom: '1px solid var(--color-border)' }}>
+                          <td colSpan={7} className="px-4 py-4">
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold" style={{ color: 'var(--color-text-muted)' }}>
+                                App Breakdown for {user.username} ({user.apps.length} app{user.apps.length !== 1 ? 's' : ''})
+                              </p>
+                              <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+                                <table className="w-full text-xs border-collapse">
+                                  <thead>
+                                    <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                      <th colSpan={5} className="py-1"></th>
+                                      <th colSpan={5} className="px-3 py-1 text-center font-bold border-l-2 bg-blue-50/50" style={{ color: '#2B7FFF', borderLeftColor: 'var(--color-border)' }}>
+                                        Hours utilization
+                                      </th>
+                                      <th colSpan={1}></th>
+                                    </tr>
+                                    <tr style={{ background: 'var(--color-surface-raised, rgba(0,0,0,0.03))' }}>
+                                      <th className="px-3 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>App</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Tasks</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#059669', borderBottom: '1px solid var(--color-border)' }}>Done</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Active</th>
+                                      <th className="px-2 py-2 text-left font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#D97706', borderBottom: '1px solid var(--color-border)' }}>Pending</th>
+                                      <th className="pl-6 px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: '#475569', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Allocated</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#2B7FFF', borderBottom: '1px solid var(--color-border)' }}>Actual</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#16A34A', borderBottom: '1px solid var(--color-border)' }}>Before</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: '#E11D48', borderBottom: '1px solid var(--color-border)' }}>After</th>
+                                      <th className="px-3 py-2 text-center font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider border-l-2" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', borderLeftColor: 'var(--color-border)' }}>Report</th>
+                                      <th className="px-3 py-2 text-right font-semibold whitespace-nowrap text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>Link</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...user.apps].sort((a, b) => b.count - a.count).map((app, appIdx) => (
+                                      <tr
+                                        key={app.appName}
+                                        style={{
+                                          background: appIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-surface-raised, rgba(0,0,0,0.015))',
+                                          borderBottom: appIdx < user.apps.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                        }}
+                                      >
+                                        <td className="px-3 py-2.5">
+                                          <span className="block truncate font-semibold" style={{ color: 'var(--color-text)' }}>{app.appName}</span>
+                                        </td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: 'var(--color-text-muted)' }}>{app.count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#059669' }}>{app.completed_count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#2B7FFF' }}>{app.in_progress_count}</td>
+                                        <td className="px-2 py-2.5 text-left tabular-nums font-bold" style={{ color: '#D97706' }}>{app.pending_count}</td>
+                                        <TaskBreakdownTimeCells
+                                          username={user.username}
+                                          appName={app.appName}
+                                          from={from}
+                                          to={to}
+                                        />
+                                        <td className="px-3 py-2.5 text-right">
+                                          {app.play_store_url ? (
+                                            <a
+                                              href={app.play_store_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all hover:bg-blue-50"
+                                              style={{ background: 'rgba(43,127,255,0.08)', color: '#2B7FFF' }}
+                                            >
+                                              App <ExternalLink size={10} />
+                                            </a>
+                                          ) : (
+                                            <span style={{ color: '#CBD5E1' }}>—</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <TaskBreakdownFooterUserView user={user} from={from} to={to} label="Total" />
+                                  </tfoot>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
+              <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                Showing {(safePage - 1) * PER_PAGE_USERS + 1}–{Math.min(safePage * PER_PAGE_USERS, filtered.length)} of {filtered.length} users
+              </p>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1} className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors disabled:opacity-40" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+                  <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => Math.abs(p - safePage) <= 1 || p === 1 || p === totalPages)
+                  .map((p, i, arr) => (
+                    <div key={p}>
+                      {i > 0 && arr[i - 1] !== p - 1 && <span className="px-1">…</span>}
+                      <button
+                        onClick={() => setPage(p)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold transition-colors border"
+                        style={p === safePage ? { background: '#2B7FFF', borderColor: '#2B7FFF', color: '#fff' } : { borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-muted)' }}
+                      >
+                        {p}
+                      </button>
+                    </div>
+                  ))}
+                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors disabled:opacity-40" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,0 +1,14 @@
+wing: cms_portal
+rooms:
+- name: documentation
+  description: Files from docs/
+- name: public
+  description: Files from public/
+- name: src
+  description: Files from src/
+- name: frontend
+  description: Files from components/
+- name: testing
+  description: Files from test/
+- name: general
+  description: Files that don't fit other rooms

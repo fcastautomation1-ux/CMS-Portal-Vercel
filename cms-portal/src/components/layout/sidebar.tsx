@@ -63,6 +63,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Workspace',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: <Home size={17} />, color: '#2B7FFF' },
+      { label: 'App Overview', href: '/dashboard/app-overview', icon: <Table2 size={17} />, color: '#0EA5E9' },
       { label: 'Tasks', href: '/dashboard/tasks', icon: <CheckSquare size={17} />, color: '#10B981' },
       { label: 'Team', href: '/dashboard/team', icon: <UsersRound size={17} />, color: '#EC4899' },
       { label: 'Hall Queue', href: '/dashboard/team?scope=tasks_queue', icon: <Inbox size={17} />, color: '#7e5daa' },
@@ -78,7 +79,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Clusters', href: '/dashboard/clusters', icon: <Layers size={17} />, color: '#2B7FFF' },
       { label: 'Looker Reports', href: '/dashboard/looker', icon: <BarChart2 size={17} />, color: '#6366F1' },
       { label: 'Analytics', href: '/dashboard/analytics', icon: <PieChart size={17} />, color: '#8B5CF6' },
-      { label: 'App Overview', href: '/dashboard/app-overview', icon: <Table2 size={17} />, color: '#0EA5E9' },
+      
       { label: 'Packages', href: '/dashboard/packages', icon: <Package size={17} />, color: '#F59E0B' },
     ],
   },
