@@ -1,0 +1,72 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img [ref=e6]
+      - generic [ref=e9]:
+        - generic [ref=e10]: CMS Portal
+        - generic [ref=e11]: Operations Hub
+    - navigation [ref=e12]:
+      - generic [ref=e14]:
+        - button "Workspace" [ref=e15]:
+          - generic [ref=e16]: Workspace
+          - img [ref=e17]
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /dashboard
+              - img [ref=e24]
+              - generic [ref=e27]: Dashboard
+          - listitem [ref=e28]:
+            - button "Tasks" [ref=e29]:
+              - img [ref=e32]
+              - generic [ref=e35]: Tasks
+              - img [ref=e36]
+            - list [ref=e38]:
+              - listitem [ref=e39]:
+                - link "All task 0" [ref=e40] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=all
+                  - generic [ref=e41]: All task
+                  - generic [ref=e42]: "0"
+              - listitem [ref=e43]:
+                - link "Complete 0" [ref=e44] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=completed
+                  - generic [ref=e45]: Complete
+                  - generic [ref=e46]: "0"
+              - listitem [ref=e47]:
+                - link "In Progress 0" [ref=e48] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=in_progress
+                  - generic [ref=e49]: In Progress
+                  - generic [ref=e50]: "0"
+              - listitem [ref=e51]:
+                - link "Pending 0" [ref=e52] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=pending
+                  - generic [ref=e53]: Pending
+                  - generic [ref=e54]: "0"
+              - listitem [ref=e55]:
+                - link "Overdue 0" [ref=e56] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=overdue
+                  - generic [ref=e57]: Overdue
+                  - generic [ref=e58]: "0"
+          - listitem [ref=e59]:
+            - link "Task Priority" [ref=e60] [cursor=pointer]:
+              - /url: /dashboard/tasks/queue-priority
+              - img [ref=e63]
+              - generic [ref=e66]: Task Priority
+    - generic [ref=e67]:
+      - button "Collapse" [ref=e68]:
+        - img [ref=e69]
+        - generic [ref=e71]: Collapse
+      - button "Sign out" [ref=e72]:
+        - img [ref=e73]
+        - generic [ref=e76]: Sign out
+  - banner [ref=e77]:
+    - generic [ref=e78]:
+      - button "Toggle theme" [ref=e79]:
+        - img [ref=e80]
+      - link "S second depart user User" [ref=e82] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - generic [ref=e83]: S
+        - generic [ref=e84]:
+          - generic [ref=e85]: second depart user
+          - generic [ref=e86]: User
+  - main [ref=e87]

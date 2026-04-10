@@ -1140,6 +1140,8 @@ export function TaskDetailPage({
     !maEnabled &&
     !t.cluster_id
   const showHallMgrReassignBtn = !!t.cluster_id && !t.cluster_inbox && !isCompleted && isLeaderRole && !isCreator
+  const isHallDeptQueuedTask = !!t.cluster_id && !t.cluster_inbox && t.queue_status === 'queued' && !!t.queue_department
+  const showHallMgrRouteOtherDeptBtn = showHallMgrReassignBtn && !isHallDeptQueuedTask
   
   const showCompleteBtn = !t.completed && !isPendingApproval && (
     (isAssignee && !maEnabled && (t.task_status === 'in_progress' || (isHallScheduledForMe && effectiveHallState === 'active'))) || 
@@ -1692,12 +1694,14 @@ export function TaskDetailPage({
                   >
                     Assign to Team Member
                   </button>
+                  {showHallMgrRouteOtherDeptBtn && (
                   <button
                     onClick={() => router.push(`/dashboard/tasks/route-cluster/${t.id}`)}
                     className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100"
                   >
                     Assign to Other Department
                   </button>
+                  )}
                 </>
               )}
               {showSingleDueDateBtn && (

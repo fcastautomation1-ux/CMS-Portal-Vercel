@@ -31,8 +31,10 @@ import type { MultiAssignmentEntry, Todo } from '@/types'
 import { KPI_TYPES } from '@/types'
 import {
   getDepartmentsForTaskForm,
+  getDepartmentsForHall,
   getPackagesForTaskForm,
   getUsersForAssignment,
+  getUsersForHallAssignment,
   importGoogleSheetCsvAction,
   createTaskAttachmentUploadUrlAction,
   saveTodoAction,
@@ -107,6 +109,14 @@ interface CreateTaskModalProps {
   initialPackages?: Package[]
   initialUsers?: User[]
   initialDepartments?: string[]
+  userCurrentHall?: {
+    cluster_id: string
+    cluster_name: string
+    department_queue_enabled: boolean
+    department_queue_pick_allowed: boolean
+    enforce_single_task: boolean
+    user_department: string | null
+  } | null
   onClose: () => void
   onSaved: () => void
   asPage?: boolean
@@ -118,6 +128,7 @@ export function CreateTaskModal({
   initialPackages,
   initialUsers,
   initialDepartments,
+  userCurrentHall,
   onClose,
   onSaved,
   asPage = false,
@@ -196,6 +207,14 @@ export function CreateTaskModal({
   const [destClusterId, setDestClusterId] = useState('')
   const [clusters, setClusters] = useState<HallCluster[]>([])
 
+  // Hall user - days/hours for estimated work time
+  const [estimatedDays, setEstimatedDays] = useState(0)
+  const [estimatedHours, setEstimatedHours] = useState(0)
+
+  // Hall-specific filtered lists fetched from server
+  const [hallDeptsList, setHallDeptsList] = useState<string[]>([])
+  const [hallUsersList, setHallUsersList] = useState<User[]>([])
+
   // Hall-specific office hours for the currently selected destination cluster.
   const selectedHallHours: HallOfficeHours | undefined = (() => {
     if (taskMode !== 'crosshall' || !destClusterId) return undefined
@@ -239,6 +258,19 @@ export function CreateTaskModal({
       if (data && data.length > 0) setClusters(data)
     })
   }, [isEdit])
+
+  // Fetch hall-specific departments and users when userCurrentHall is set
+  useEffect(() => {
+    if (!userCurrentHall) return
+    const clusterId = userCurrentHall.cluster_id
+    Promise.all([
+      getDepartmentsForHall(clusterId),
+      getUsersForHallAssignment(clusterId),
+    ]).then(([depts, hallUsers]) => {
+      if (depts && depts.length > 0) setHallDeptsList(depts)
+      if (hallUsers && hallUsers.length > 0) setHallUsersList(hallUsers as User[])
+    })
+  }, [userCurrentHall])
 
   useEffect(() => {
     if (!isPending) return
@@ -335,6 +367,14 @@ export function CreateTaskModal({
     title,
   ])
 
+  // Load hall-specific data when user is in a hall
+  const hallDepartments = useMemo(() => {
+    if (!userCurrentHall) return departments
+    // Use hall-fetched departments if available, otherwise fall back to all
+    return hallDeptsList.length > 0 ? hallDeptsList : departments
+  }, [departments, userCurrentHall, hallDeptsList])
+
+  // Base manager users list
   const managerUsers = useMemo(
     () =>
       users.filter((user) =>
@@ -343,26 +383,62 @@ export function CreateTaskModal({
     [users]
   )
 
-  const availableApps = useMemo(() => {
-    const apps = [...new Set(packages.map((item) => item.app_name).filter(Boolean))].sort() as string[]
-    return apps.includes('Others') ? apps : [...apps, 'Others']
-  }, [packages])
+  // Filter manager list for hall - show all managers/supervisors within the hall
+  const hallManagerUsers = useMemo(() => {
+    if (!userCurrentHall) return managerUsers
+    // Use hall-fetched users filtered to managers/supervisors only
+    if (hallUsersList.length > 0) {
+      return hallUsersList.filter((u) =>
+        ['Admin', 'Super Manager', 'Manager', 'Supervisor'].includes(u.role)
+      )
+    }
+    return managerUsers
+  }, [managerUsers, userCurrentHall, hallUsersList])
+
+  // Filter multi-assignees for hall users: only show users from creator's own department
+  const hallMultiUsers = useMemo(() => {
+    if (!userCurrentHall) return users
+    const creatorDept = userCurrentHall.user_department
+    // If we have hall users, restrict to creator's own department only
+    if (hallUsersList.length > 0 && creatorDept) {
+      return hallUsersList.filter((u) => u.department === creatorDept)
+    }
+    // Fallback: filter all users by creator's dept
+    if (creatorDept) {
+      return users.filter((u) => u.department === creatorDept)
+    }
+    return hallUsersList.length > 0 ? hallUsersList : users
+  }, [users, userCurrentHall, hallUsersList])
+
+  const filteredUsersForMulti = useMemo(
+    () => {
+      const base = userCurrentHall ? hallMultiUsers : users
+      return base.filter((user) => {
+        const matchSearch =
+          !multiSearch || user.username.toLowerCase().includes(multiSearch.toLowerCase())
+        const matchDept = !multiDeptFilter || user.department === multiDeptFilter
+        return matchSearch && matchDept
+      })
+    },
+    [multiDeptFilter, multiSearch, users, userCurrentHall, hallMultiUsers]
+  )
 
   const filteredPackagesByApp = useMemo(() => {
     const list = appNames.length
       ? packages.filter((item) => item.app_name && appNames.includes(item.app_name))
       : packages
-
-    if (appNames.includes('Others') && !list.some((item) => item.name === 'Others')) {
+    if (!list.some((item) => item.name === 'Others')) {
       return [{ id: 'others', name: 'Others', app_name: 'Others' }, ...list]
     }
     return list
   }, [appNames, packages])
 
-  const filteredApps = useMemo(
-    () => availableApps.filter((app) => app.toLowerCase().includes(appSearch.toLowerCase())),
-    [appSearch, availableApps]
-  )
+  const filteredApps = useMemo(() => {
+    const availableApps = Array.from(
+      new Set(['Others', ...(packages.map((p) => p.app_name).filter(Boolean) as string[])])
+    )
+    return availableApps.filter((app) => app.toLowerCase().includes(appSearch.toLowerCase()))
+  }, [appSearch, packages])
 
   const filteredPackages = useMemo(() => {
     const list = filteredPackagesByApp.filter((pkg) =>
@@ -373,17 +449,6 @@ export function CreateTaskModal({
     }
     return list
   }, [filteredPackagesByApp, packageSearch])
-
-  const filteredUsersForMulti = useMemo(
-    () =>
-      users.filter((user) => {
-        const matchSearch =
-          !multiSearch || user.username.toLowerCase().includes(multiSearch.toLowerCase())
-        const matchDept = !multiDeptFilter || user.department === multiDeptFilter
-        return matchSearch && matchDept
-      }),
-    [multiDeptFilter, multiSearch, users]
-  )
 
   const syncDescription = () => {
     const next = normalizeEditorHtml(descriptionRef.current)
@@ -943,7 +1008,13 @@ export function CreateTaskModal({
     if (!title.trim()) return { message: 'Please enter a task title.', field: 'title' }
     if (title.trim().length < 3) return { message: 'Title must be at least 3 characters.', field: 'title' }
     if (packageNames.length === 0) return { message: 'Please select a package.', field: 'package' }
-    if (routing !== 'self' && routing !== 'multi' && !dueDate) {
+    
+    // Hall user validation - require days/hours instead of due date
+    if (userCurrentHall && routing !== 'self' && routing !== 'multi') {
+      if (!estimatedDays && !estimatedHours) {
+        return { message: 'Please enter estimated days or hours for this task.', field: 'estimatedTime' }
+      }
+    } else if (routing !== 'self' && routing !== 'multi' && !dueDate) {
       return { message: 'Please set a due date for this task.', field: 'dueDate' }
     }
     if (dueDate) {
@@ -1045,7 +1116,7 @@ export function CreateTaskModal({
         description: descriptionHtml || undefined,
         our_goal: ourGoalHtml,
         priority,
-        due_date: routing === 'multi' ? undefined : dueDate || undefined,
+        due_date: routing === 'multi' ? undefined : (userCurrentHall ? undefined : (dueDate || undefined)),
         notes,
         routing,
         queue_department: routing === 'department' ? deptRoutingDept : undefined,
@@ -1059,6 +1130,8 @@ export function CreateTaskModal({
                 assignees: multiAssignees,
               }
             : undefined,
+        estimated_days: userCurrentHall ? estimatedDays : undefined,
+        estimated_hours: userCurrentHall ? estimatedHours : undefined,
       })
 
       if (!result.success || !result.id) {
@@ -1476,20 +1549,54 @@ export function CreateTaskModal({
                   </select>
                 </Field>
 
-                {routing !== 'multi' && (
-                  <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
-                    <>
-                      <OfficeDateTimePicker
-                        value={dueDate}
-                        onChange={setDueDate}
-                        min={minTaskDueDate}
-                        className={inputCls}
-                      />
-                      {error && errorField === 'dueDate' && (
-                        <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
-                      )}
-                    </>
+                {routing !== 'multi' && userCurrentHall ? (
+                  <Field label="Estimated Time *">
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="30"
+                          value={estimatedDays}
+                          onChange={(e) => setEstimatedDays(Math.max(0, parseInt(e.target.value) || 0))}
+                          className={inputCls}
+                          placeholder="Days"
+                        />
+                        <span className="mt-1 block text-xs text-slate-500">Days</span>
+                      </div>
+                      <div className="flex-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="23"
+                          value={estimatedHours}
+                          onChange={(e) => setEstimatedHours(Math.max(0, parseInt(e.target.value) || 0))}
+                          className={inputCls}
+                          placeholder="Hours"
+                        />
+                        <span className="mt-1 block text-xs text-slate-500">Hours</span>
+                      </div>
+                    </div>
+                    {error && errorField === 'estimatedTime' && (
+                      <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                    )}
                   </Field>
+                ) : (
+                  routing !== 'multi' && (
+                    <Field label={`Due Date${routing === 'self' ? '' : ' *'}`}>
+                      <>
+                        <OfficeDateTimePicker
+                          value={dueDate}
+                          onChange={setDueDate}
+                          min={minTaskDueDate}
+                          className={inputCls}
+                        />
+                        {error && errorField === 'dueDate' && (
+                          <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>
+                        )}
+                      </>
+                    </Field>
+                  )
                 )}
               </div>
 
@@ -1546,7 +1653,7 @@ export function CreateTaskModal({
                           className={cn(selectCls, 'bg-white')}
                         >
                           <option value="">Choose department...</option>
-                          {departments.map((dept) => (
+                          {hallDepartments.map((dept) => (
                             <option key={dept} value={dept}>
                               {dept}
                             </option>
@@ -1570,7 +1677,7 @@ export function CreateTaskModal({
                           className={cn(selectCls, 'bg-white')}
                         >
                           <option value="">Select manager...</option>
-                          {managerUsers.map((user) => (
+                          {(userCurrentHall ? hallManagerUsers : managerUsers).map((user) => (
                             <option key={user.username} value={user.username}>
                               {user.username}
                               {user.department ? ` - ${user.department}` : ''}
@@ -1594,18 +1701,25 @@ export function CreateTaskModal({
                         placeholder="Search users..."
                         className={cn(inputCls, 'bg-white')}
                       />
-                      <select
-                        value={multiDeptFilter}
-                        onChange={(event) => setMultiDeptFilter(event.target.value)}
-                        className={cn(selectCls, 'bg-white md:w-56')}
-                      >
-                        <option value="">All Departments</option>
-                        {departments.map((dept) => (
-                          <option key={dept} value={dept}>
-                            {dept}
-                          </option>
-                        ))}
-                      </select>
+                      {!userCurrentHall && (
+                        <select
+                          value={multiDeptFilter}
+                          onChange={(event) => setMultiDeptFilter(event.target.value)}
+                          className={cn(selectCls, 'bg-white md:w-56')}
+                        >
+                          <option value="">All Departments</option>
+                          {departments.map((dept) => (
+                            <option key={dept} value={dept}>
+                              {dept}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {userCurrentHall?.user_department && (
+                        <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-500 md:w-56">
+                          {userCurrentHall.user_department}
+                        </span>
+                      )}
                     </div>
 
                     <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">

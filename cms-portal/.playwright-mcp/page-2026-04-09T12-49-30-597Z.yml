@@ -1,0 +1,304 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img [ref=e6]
+        - generic [ref=e9]:
+          - generic [ref=e10]: CMS Portal
+          - generic [ref=e11]: Operations Hub
+      - navigation [ref=e12]:
+        - generic [ref=e14]:
+          - button "Workspace" [ref=e15]:
+            - generic [ref=e16]: Workspace
+            - img [ref=e17]
+          - list [ref=e19]:
+            - listitem [ref=e20]:
+              - link "Dashboard" [ref=e21] [cursor=pointer]:
+                - /url: /dashboard
+                - img [ref=e24]
+                - generic [ref=e27]: Dashboard
+            - listitem [ref=e28]:
+              - button "Tasks" [ref=e29]:
+                - img [ref=e32]
+                - generic [ref=e35]: Tasks
+                - img [ref=e36]
+              - list [ref=e38]:
+                - listitem [ref=e39]:
+                  - link "All task 0" [ref=e40] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=all
+                    - generic [ref=e41]: All task
+                    - generic [ref=e42]: "0"
+                - listitem [ref=e43]:
+                  - link "Complete 0" [ref=e44] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=completed
+                    - generic [ref=e45]: Complete
+                    - generic [ref=e46]: "0"
+                - listitem [ref=e47]:
+                  - link "In Progress 0" [ref=e48] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=in_progress
+                    - generic [ref=e49]: In Progress
+                    - generic [ref=e50]: "0"
+                - listitem [ref=e51]:
+                  - link "Pending 0" [ref=e52] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=pending
+                    - generic [ref=e53]: Pending
+                    - generic [ref=e54]: "0"
+                - listitem [ref=e55]:
+                  - link "Overdue 0" [ref=e56] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=overdue
+                    - generic [ref=e57]: Overdue
+                    - generic [ref=e58]: "0"
+            - listitem [ref=e59]:
+              - link "Task Priority" [ref=e60] [cursor=pointer]:
+                - /url: /dashboard/tasks/queue-priority
+                - img [ref=e63]
+                - generic [ref=e66]: Task Priority
+      - generic [ref=e67]:
+        - button "Collapse" [ref=e68]:
+          - img [ref=e69]
+          - generic [ref=e71]: Collapse
+        - button "Sign out" [ref=e72]:
+          - img [ref=e73]
+          - generic [ref=e76]: Sign out
+    - banner [ref=e77]:
+      - generic [ref=e78]:
+        - button "Toggle theme" [ref=e79]:
+          - img [ref=e80]
+        - link "S second depart user User" [ref=e82] [cursor=pointer]:
+          - /url: /dashboard/profile
+          - generic [ref=e83]: S
+          - generic [ref=e84]:
+            - generic [ref=e85]: second depart user
+            - generic [ref=e86]: User
+    - main [ref=e87]:
+      - generic [ref=e90]:
+        - generic [ref=e92]:
+          - generic [ref=e93]:
+            - heading "Create New Task" [level=2] [ref=e94]
+            - paragraph [ref=e95]: Create work in the same routing flow used across the portal.
+          - button "Cancel" [ref=e96]
+        - generic [ref=e97]:
+          - generic [ref=e99]:
+            - generic [ref=e100]:
+              - paragraph [ref=e101]: Mode
+              - paragraph [ref=e102]: Create and route work inside your current flow.
+            - tablist "Task mode" [ref=e103]:
+              - tab "Local Task" [selected] [ref=e104]
+              - tab "Send to Hall" [ref=e105]
+          - generic [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - heading "Task Basics" [level=3] [ref=e109]
+                - paragraph [ref=e110]: Core task details, package binding, and the shared goal text.
+              - generic [ref=e111]:
+                - generic [ref=e112]:
+                  - generic [ref=e113]:
+                    - generic [ref=e114]: App Name
+                    - button "Select app" [ref=e116]:
+                      - generic [ref=e118]: Select app
+                      - img [ref=e119]
+                  - generic [ref=e121]:
+                    - generic [ref=e122]: Package Name*
+                    - button "Select package" [ref=e124]:
+                      - generic [ref=e126]: Select package
+                      - img [ref=e127]
+                - generic [ref=e129]:
+                  - generic [ref=e130]: KPI Type*
+                  - combobox [ref=e131]:
+                    - option "Select KPI Type" [selected]
+                    - option "Monitizations"
+                    - option "Store Graphics"
+                    - option "Creative Graphic"
+                    - option "Andriod Vitls"
+                    - option "Bugs"
+                    - option "New Feature"
+                    - option "SDK Updates"
+                    - option "Data Analysis"
+                    - option "Others"
+                - generic [ref=e132]:
+                  - generic [ref=e133]: Title (0/30)*
+                  - textbox "What needs to be done?" [ref=e134]
+                - generic [ref=e135]:
+                  - generic [ref=e136]: Description
+                  - generic [ref=e137]:
+                    - generic [ref=e138]:
+                      - button "Bold" [ref=e139]:
+                        - img [ref=e140]
+                      - button "Italic" [ref=e142]:
+                        - img [ref=e143]
+                      - button "Underline" [ref=e145]:
+                        - img [ref=e146]
+                      - button "Bullet List" [ref=e148]:
+                        - img [ref=e149]
+                      - button "Numbered List" [ref=e150]:
+                        - img [ref=e151]
+                      - button "Insert Table" [ref=e155]:
+                        - img [ref=e156]
+                      - button "Add Table Row" [ref=e158]:
+                        - img [ref=e159]
+                      - button "Col" [ref=e160]:
+                        - img [ref=e161]
+                        - generic [ref=e162]: Col
+                      - button "Remove Table Row" [ref=e163]:
+                        - img [ref=e164]
+                      - button "Col" [ref=e165]:
+                        - img [ref=e166]
+                        - generic [ref=e167]: Col
+                      - button "Excel/CSV" [ref=e169]:
+                        - img [ref=e170]
+                        - generic [ref=e173]: Excel/CSV
+                    - generic [ref=e174]:
+                      - generic [ref=e175]:
+                        - generic [ref=e176]:
+                          - img
+                          - textbox "Paste a public Google Sheet URL..." [ref=e177]
+                        - button "Import Sheet" [ref=e178]:
+                          - img [ref=e179]
+                          - text: Import Sheet
+                      - paragraph [ref=e182]: Supports bullet lists, manual tables, Excel, CSV, Word (.docx), PDF, pasted table text, and public Google Sheets.
+                - generic [ref=e184]:
+                  - generic [ref=e185]: Our Goal
+                  - generic [ref=e187]:
+                    - button "Bold" [ref=e188]:
+                      - img [ref=e189]
+                    - button "Italic" [ref=e191]:
+                      - img [ref=e192]
+                    - button "Underline" [ref=e194]:
+                      - img [ref=e195]
+                    - button "Bullet List" [ref=e197]:
+                      - img [ref=e198]
+                    - button "Numbered List" [ref=e199]:
+                      - img [ref=e200]
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - heading "Timing & Routing" [level=3] [ref=e207]
+                - paragraph [ref=e208]: Choose urgency and decide where the task should flow next.
+              - generic [ref=e209]:
+                - generic [ref=e210]:
+                  - generic [ref=e211]:
+                    - generic [ref=e212]: Priority
+                    - combobox [ref=e213]:
+                      - option "Low"
+                      - option "Medium" [selected]
+                      - option "High"
+                      - option "Urgent"
+                  - generic [ref=e214]:
+                    - generic [ref=e215]: Due Date
+                    - generic [ref=e216]:
+                      - textbox [ref=e217]
+                      - combobox [ref=e218]:
+                        - option "09" [selected]
+                        - option "10"
+                        - option "11"
+                        - option "12"
+                        - option "13"
+                        - option "14"
+                        - option "15"
+                        - option "16"
+                        - option "17"
+                      - generic [ref=e219]: ":"
+                      - combobox [ref=e220]:
+                        - option "00" [selected]
+                        - option "01"
+                        - option "02"
+                        - option "03"
+                        - option "04"
+                        - option "05"
+                        - option "06"
+                        - option "07"
+                        - option "08"
+                        - option "09"
+                        - option "10"
+                        - option "11"
+                        - option "12"
+                        - option "13"
+                        - option "14"
+                        - option "15"
+                        - option "16"
+                        - option "17"
+                        - option "18"
+                        - option "19"
+                        - option "20"
+                        - option "21"
+                        - option "22"
+                        - option "23"
+                        - option "24"
+                        - option "25"
+                        - option "26"
+                        - option "27"
+                        - option "28"
+                        - option "29"
+                        - option "30"
+                        - option "31"
+                        - option "32"
+                        - option "33"
+                        - option "34"
+                        - option "35"
+                        - option "36"
+                        - option "37"
+                        - option "38"
+                        - option "39"
+                        - option "40"
+                        - option "41"
+                        - option "42"
+                        - option "43"
+                        - option "44"
+                        - option "45"
+                        - option "46"
+                        - option "47"
+                        - option "48"
+                        - option "49"
+                        - option "50"
+                        - option "51"
+                        - option "52"
+                        - option "53"
+                        - option "54"
+                        - option "55"
+                        - option "56"
+                        - option "57"
+                        - option "58"
+                        - option "59"
+                - generic [ref=e221]:
+                  - generic [ref=e222]: Task Routing
+                  - generic [ref=e223]:
+                    - button "Self Self Todo Create this task for yourself" [ref=e224]:
+                      - generic [ref=e226]:
+                        - generic [ref=e227]: Self
+                        - generic [ref=e228]: Self Todo
+                        - generic [ref=e229]: Create this task for yourself
+                    - button "Dept Department Queue Route to a department queue" [ref=e231]:
+                      - generic [ref=e233]:
+                        - generic [ref=e234]: Dept
+                        - generic [ref=e235]: Department Queue
+                        - generic [ref=e236]: Route to a department queue
+                    - button "Mgr Send to Manager Assign directly to a manager" [ref=e237]:
+                      - generic [ref=e239]:
+                        - generic [ref=e240]: Mgr
+                        - generic [ref=e241]: Send to Manager
+                        - generic [ref=e242]: Assign directly to a manager
+                    - button "Team Multi-Assignment Assign to multiple users with individual deadlines" [ref=e243]:
+                      - generic [ref=e245]:
+                        - generic [ref=e246]: Team
+                        - generic [ref=e247]: Multi-Assignment
+                        - generic [ref=e248]: Assign to multiple users with individual deadlines
+            - generic [ref=e249]:
+              - generic [ref=e250]:
+                - heading "Notes & Files" [level=3] [ref=e251]
+                - paragraph [ref=e252]: Context, references, and upload items that should travel with the task.
+              - generic [ref=e253]:
+                - generic [ref=e254]:
+                  - generic [ref=e255]: Notes
+                  - textbox "Additional notes..." [ref=e256]
+                - generic [ref=e257]:
+                  - generic [ref=e258]:
+                    - generic [ref=e259]:
+                      - heading "Attachments" [level=3] [ref=e260]
+                      - paragraph [ref=e261]: Select files now. They will upload once the task is saved. Max 1 GB per file.
+                    - button "Add Files" [ref=e262]:
+                      - img [ref=e263]
+                      - text: Add Files
+                  - paragraph [ref=e266]: No attachments selected yet.
+          - generic [ref=e267]:
+            - button "Cancel" [ref=e268]
+            - button "Create Task" [ref=e269]
+  - alert [ref=e270]

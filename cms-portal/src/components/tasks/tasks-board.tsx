@@ -72,6 +72,7 @@ import {
   duplicateTodoAction,
   getSingleTaskLiveUpdateAction,
   updateTaskStatusAction,
+  getUserCurrentHall,
 } from '@/app/dashboard/tasks/actions'
 
 const CreateTaskModal = dynamic(
@@ -286,11 +287,27 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     refetchOnMount: false,
   })
 
+  // Get user's current hall for the create task modal
+  const userHallQuery = useQuery({
+    queryKey: ['user-current-hall'],
+    queryFn: async () => {
+      return await getUserCurrentHall()
+    },
+    enabled: true,
+    staleTime: 60 * 60_000, // Cache for 1 hour
+  })
+
   const { data: rawTasks = [], isLoading: queryLoading } = tasksQuery
   const loading = queryLoading || addTaskPending
   const tasks = rawTasks as Todo[]
   const overdueApprovals = overdueApprovalsQuery.data ?? []
   const effectiveUser = currentUsername
+  const currentHallClusterId = userHallQuery.data?.cluster_id ?? null
+
+  const isTaskOverdue = useCallback((task: Todo, now: Date = new Date()) => {
+    const dueIso = task.scheduler_state && task.effective_due_at ? task.effective_due_at : task.due_date
+    return !!dueIso && new Date(dueIso) < now
+  }, [])
 
   const isTaskAssignedToUser = useCallback((task: Todo, username: string) => {
     const userLower = username.toLowerCase()
@@ -571,12 +588,19 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     // Task creator/router always sees their own queued tasks regardless of dept
     if ((task.username || '').toLowerCase() === currentUsername.toLowerCase()) return true
 
+    // Hall leaders (Manager/Supervisor) may not always have a mapped department.
+    // In that case, restrict queue visibility to the user's current hall only.
+    if ((currentUserRole === 'Manager' || currentUserRole === 'Supervisor') && !currentUserDept) {
+      if (!currentHallClusterId) return false
+      return task.cluster_id === currentHallClusterId
+    }
+
     // All other roles (Manager, Supervisor, User) see only tasks for their own department
     const userDepts = splitDepartmentsCsv(currentUserDept || '')
     if (userDepts.length === 0) return false
     const taskDepts = splitDepartmentsCsv(task.queue_department)
     return taskDepts.some((td) => userDepts.some((ud) => canonicalDepartmentKey(ud) === canonicalDepartmentKey(td)))
-  }, [currentUserDept, currentUsername, currentUserRole])
+  }, [currentHallClusterId, currentUserDept, currentUsername, currentUserRole])
 
   const matchesPersonalScope = useCallback((task: Todo, scope: QuickFilter, username: string) => {
     const userLower = username.toLowerCase()
@@ -606,7 +630,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     const now = new Date()
     const completed = scopedTasksForKpis.filter((task) => isTaskCompletedForUser(task, effectiveUser)).length
     const overdue = scopedTasksForKpis.filter(
-      (task) => !isTaskCompletedForUser(task, effectiveUser) && !!task.due_date && new Date(task.due_date) < now,
+      (task) => !isTaskCompletedForUser(task, effectiveUser) && isTaskOverdue(task, now),
     ).length
     const userLowerKpi = effectiveUser.toLowerCase()
     const in_progress = scopedTasksForKpis.filter((task) => {
@@ -625,7 +649,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       if (hs && ['active', 'user_queue', 'paused', 'blocked', 'waiting_review'].includes(hs) && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
       // Exclude tasks currently assigned to another user
       if (task.assigned_to && (task.assigned_to || '').toLowerCase() !== userLowerKpi) return false
-      if (task.due_date && new Date(task.due_date) < now) return false
+      if (isTaskOverdue(task, now)) return false
       return true
     }).length
 
@@ -640,7 +664,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       overdue,
       queue,
     }
-  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser])
+  }, [scopedTasksForKpis, tasks, matchesQueueVisibility, isTaskCompletedForUser, effectiveUser, isTaskOverdue])
 
   const scopeLabel = useMemo(() => {
     if (quickFilter === 'created_by_me') return 'My Created task'
@@ -771,18 +795,18 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
 
     if (statusFilter !== 'all') {
       list = list.filter((t) => {
-        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !(t.due_date && new Date(t.due_date) < now) && !t.archived && t.task_status !== 'in_progress' && t.queue_status !== 'queued'
+        if (statusFilter === 'pending') return !isTaskCompletedForUser(t, effectiveUser) && !isTaskOverdue(t, now) && !t.archived && t.task_status !== 'in_progress' && t.queue_status !== 'queued'
         if (statusFilter === 'in_progress') return !isTaskCompletedForUser(t, effectiveUser) && t.task_status === 'in_progress' && !t.archived
         if (statusFilter === 'completed') return isTaskCompletedForUser(t, effectiveUser)
-        if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && !!t.due_date && new Date(t.due_date) < now
+        if (statusFilter === 'overdue') return !isTaskCompletedForUser(t, effectiveUser) && isTaskOverdue(t, now)
         if (statusFilter === 'queue') return !t.archived && matchesQueueVisibility(t)
         return true
       })
     }
 
     list.sort((a, b) => {
-      const aCompleted = a.completed ? 1 : 0
-      const bCompleted = b.completed ? 1 : 0
+      const aCompleted = isTaskCompletedForUser(a, effectiveUser) ? 1 : 0
+      const bCompleted = isTaskCompletedForUser(b, effectiveUser) ? 1 : 0
       if (aCompleted !== bCompleted) return aCompleted - bCompleted
 
       // Main list priority rule:
@@ -837,7 +861,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       return 0
     })
     return list
-  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility])
+  }, [tasks, effectiveUser, quickFilter, search, statusFilter, sortBy, sortDir, isQueuedTaskForDepartmentUser, isTaskAssignedByOthersToUser, isTaskAssignedToUser, matchesQueueVisibility, isTaskCompletedForUser])
 
   const paginationSignature = `${quickFilter}|${statusFilter}|${search}|${sortBy}|${sortDir}|${perPage}`
   const urlPage = (() => {
@@ -1010,6 +1034,8 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
     }
 
     const getPriority = (task: Todo) => {
+      if (isTaskCompletedForUser(task, currentUsername)) return 99
+
       const topState = ((task as unknown as Record<string, unknown>).scheduler_state as string | null) ?? null
       const maEntry = task.multi_assignment?.enabled
         ? task.multi_assignment.assignees.find((a) => (a.username || '').toLowerCase() === usernameLow)
@@ -1045,7 +1071,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
       if (pa !== pb) return pa - pb
       return 0
     })
-  }, [paginatedTasks, currentUsername, hallQueueState])
+  }, [paginatedTasks, currentUsername, hallQueueState, isTaskCompletedForUser])
 
   useEffect(() => {
     const focusTaskId = searchParams.get('focus')
@@ -1506,6 +1532,7 @@ export function TasksBoard({ currentUsername, currentUserRole, currentUserDept, 
           initialPackages={taskFormDataQuery.data?.packages}
           initialUsers={taskFormDataQuery.data?.users}
           initialDepartments={taskFormDataQuery.data?.departments}
+          userCurrentHall={userHallQuery.data ?? null}
           onClose={() => { setShowCreate(false); setEditTask(null) }}
           onSaved={refresh}
         />

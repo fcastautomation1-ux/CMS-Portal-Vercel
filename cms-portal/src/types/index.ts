@@ -166,6 +166,14 @@ export interface ClusterSettings {
   users_cannot_create_tasks: boolean
   /** When true, users must provide a reason when pausing a hall task. */
   require_pause_reason?: boolean
+  // ── Hall Queue settings ──────────────────────────────────────────────
+  /** When true, tasks created by hall users go to department queue instead of direct assignment. */
+  department_queue_enabled: boolean
+  /** When true (requires department_queue_enabled), regular department users can pick from queue.
+   *  When false, only managers/supervisors can assign. */
+  department_queue_pick_allowed: boolean
+  /** When true, users in this hall can only have ONE active task at a time. (Same as single_active_task_per_user but separate for clarity) */
+  enforce_single_task: boolean
   created_at?: string
   updated_at?: string
 }
@@ -566,6 +574,9 @@ export interface CreateTodoInput {
   queue_department?: string
   multi_assignment?: MultiAssignment
   cluster_id?: string             // destination cluster for cross-cluster routing
+  // Hall-specific: days and hours instead of due date
+  estimated_days?: number
+  estimated_hours?: number
 }
 
 // ─── Workflows ───────────────────────────────────────────────

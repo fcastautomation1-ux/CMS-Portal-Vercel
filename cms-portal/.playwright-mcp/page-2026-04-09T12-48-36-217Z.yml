@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img [ref=e6]
+        - generic [ref=e9]:
+          - generic [ref=e10]: CMS Portal
+          - generic [ref=e11]: Operations Hub
+      - navigation [ref=e12]:
+        - generic [ref=e14]:
+          - button "Workspace" [ref=e15]:
+            - generic [ref=e16]: Workspace
+            - img [ref=e17]
+          - list [ref=e19]:
+            - listitem [ref=e20]:
+              - link "Dashboard" [ref=e21] [cursor=pointer]:
+                - /url: /dashboard
+                - img [ref=e24]
+                - generic [ref=e27]: Dashboard
+            - listitem [ref=e28]:
+              - button "Tasks" [ref=e29]:
+                - img [ref=e31]
+                - generic [ref=e34]: Tasks
+                - img [ref=e35]
+              - list [ref=e37]:
+                - listitem [ref=e38]:
+                  - link "All task 0" [ref=e39] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=all
+                    - generic [ref=e40]: All task
+                    - generic [ref=e41]: "0"
+                - listitem [ref=e42]:
+                  - link "Complete 0" [ref=e43] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=completed
+                    - generic [ref=e44]: Complete
+                    - generic [ref=e45]: "0"
+                - listitem [ref=e46]:
+                  - link "In Progress 0" [ref=e47] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=in_progress
+                    - generic [ref=e48]: In Progress
+                    - generic [ref=e49]: "0"
+                - listitem [ref=e50]:
+                  - link "Pending 0" [ref=e51] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=pending
+                    - generic [ref=e52]: Pending
+                    - generic [ref=e53]: "0"
+                - listitem [ref=e54]:
+                  - link "Overdue 0" [ref=e55] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=overdue
+                    - generic [ref=e56]: Overdue
+                    - generic [ref=e57]: "0"
+            - listitem [ref=e58]:
+              - link "Task Priority" [ref=e59] [cursor=pointer]:
+                - /url: /dashboard/tasks/queue-priority
+                - img [ref=e62]
+                - generic [ref=e65]: Task Priority
+      - generic [ref=e66]:
+        - button "Collapse" [ref=e67]:
+          - img [ref=e68]
+          - generic [ref=e70]: Collapse
+        - button "Sign out" [ref=e71]:
+          - img [ref=e72]
+          - generic [ref=e75]: Sign out
+    - banner [ref=e76]:
+      - generic [ref=e77]:
+        - button "Toggle theme" [ref=e78]:
+          - img [ref=e79]
+        - link "S second depart user User" [ref=e81] [cursor=pointer]:
+          - /url: /dashboard/profile
+          - generic [ref=e82]: S
+          - generic [ref=e83]:
+            - generic [ref=e84]: second depart user
+            - generic [ref=e85]: User
+    - main [ref=e86]:
+      - generic [ref=e90]:
+        - generic [ref=e92]:
+          - generic [ref=e94] [cursor=pointer]:
+            - img [ref=e96]
+            - generic [ref=e99]:
+              - generic [ref=e100]: "0"
+              - generic [ref=e101]: Total Task
+          - generic [ref=e103] [cursor=pointer]:
+            - img [ref=e105]
+            - generic [ref=e108]:
+              - generic [ref=e109]: "0"
+              - generic [ref=e110]: Completed Task
+          - generic [ref=e112] [cursor=pointer]:
+            - img [ref=e114]
+            - generic [ref=e117]:
+              - generic [ref=e118]: "0"
+              - generic [ref=e119]: In Progress
+          - generic [ref=e121] [cursor=pointer]:
+            - img [ref=e123]
+            - generic [ref=e126]:
+              - generic [ref=e127]: "0"
+              - generic [ref=e128]: Pending
+          - generic [ref=e130] [cursor=pointer]:
+            - img [ref=e132]
+            - generic [ref=e134]:
+              - generic [ref=e135]: "0"
+              - generic [ref=e136]: Overdue
+          - generic [ref=e138] [cursor=pointer]:
+            - img [ref=e140]
+            - generic [ref=e143]:
+              - generic [ref=e144]: "0"
+              - generic [ref=e145]: Queue
+        - generic [ref=e146]:
+          - generic [ref=e148]:
+            - button "My Tasks" [ref=e151]:
+              - text: My Tasks
+              - img [ref=e152]
+            - generic [ref=e154]:
+              - button "List" [ref=e155]
+              - button "Kanban" [ref=e156]
+              - button "Calendar" [ref=e157]
+            - generic [ref=e158]:
+              - img [ref=e159]
+              - textbox "Search tasks..." [ref=e162]
+            - generic [ref=e163]:
+              - generic [ref=e164]:
+                - button "Refresh" [ref=e165]:
+                  - img [ref=e166]
+                  - generic [ref=e171]: Refresh
+                - button "Select All" [ref=e172]:
+                  - img [ref=e173]
+                  - generic [ref=e175]: Select All
+              - generic [ref=e176]:
+                - generic [ref=e177]: "Sort By:"
+                - generic [ref=e178]:
+                  - combobox [ref=e179]:
+                    - option "Custom Order"
+                    - option "Recently Created" [selected]
+                    - option "Oldest"
+                    - option "Due Soonest"
+                    - option "Highest Priority"
+                    - option "A-Z"
+                  - img
+                - generic [ref=e180]: 0 tasks
+                - button "Add Task" [ref=e181]:
+                  - img [ref=e182]
+                  - generic [ref=e183]: Add Task
+                - button "Export tasks" [ref=e184]:
+                  - img [ref=e185]
+          - generic [ref=e189]:
+            - img [ref=e190]
+            - paragraph [ref=e193]: No tasks found
+            - paragraph [ref=e194]: Create your first task to get started.
+  - alert [ref=e195]

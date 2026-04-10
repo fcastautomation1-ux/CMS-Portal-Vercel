@@ -1,0 +1,302 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img "Funsol Operations Console" [ref=e6]
+        - generic [ref=e7]:
+          - generic [ref=e8]: Funsol Operations Console
+          - generic [ref=e9]: Manage Everything in One Place
+      - navigation [ref=e10]:
+        - generic [ref=e12]:
+          - button "Workspace" [ref=e13]:
+            - generic [ref=e14]: Workspace
+            - img [ref=e15]
+          - list [ref=e17]:
+            - listitem [ref=e18]:
+              - link "Dashboard" [ref=e19] [cursor=pointer]:
+                - /url: /dashboard
+                - img [ref=e22]
+                - generic [ref=e25]: Dashboard
+            - listitem [ref=e26]:
+              - button "Tasks" [ref=e27]:
+                - img [ref=e29]
+                - generic [ref=e32]: Tasks
+                - img [ref=e33]
+              - list [ref=e35]:
+                - listitem [ref=e36]:
+                  - link "All task 0" [ref=e37] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=all
+                    - generic [ref=e38]: All task
+                    - generic [ref=e39]: "0"
+                - listitem [ref=e40]:
+                  - link "Complete 0" [ref=e41] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=completed
+                    - generic [ref=e42]: Complete
+                    - generic [ref=e43]: "0"
+                - listitem [ref=e44]:
+                  - link "In Progress 0" [ref=e45] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=in_progress
+                    - generic [ref=e46]: In Progress
+                    - generic [ref=e47]: "0"
+                - listitem [ref=e48]:
+                  - link "Pending 0" [ref=e49] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=pending
+                    - generic [ref=e50]: Pending
+                    - generic [ref=e51]: "0"
+                - listitem [ref=e52]:
+                  - link "Overdue 0" [ref=e53] [cursor=pointer]:
+                    - /url: /dashboard/tasks?scope=my_all&status=overdue
+                    - generic [ref=e54]: Overdue
+                    - generic [ref=e55]: "0"
+            - listitem [ref=e56]:
+              - link "Task Priority" [ref=e57] [cursor=pointer]:
+                - /url: /dashboard/tasks/queue-priority
+                - img [ref=e60]
+                - generic [ref=e63]: Task Priority
+      - generic [ref=e64]:
+        - button "Collapse" [ref=e65]:
+          - img [ref=e66]
+          - generic [ref=e68]: Collapse
+        - button "Sign out" [ref=e69]:
+          - img [ref=e70]
+          - generic [ref=e73]: Sign out
+    - banner [ref=e74]:
+      - generic [ref=e75]:
+        - button "Toggle theme" [ref=e76]:
+          - img [ref=e77]
+        - button "Notifications" [ref=e194]:
+          - img [ref=e195]
+          - generic [ref=e198]: "2"
+        - generic [ref=e199]:
+          - generic [ref=e200]:
+            - generic [ref=e201]:
+              - img [ref=e203]
+              - generic [ref=e206]:
+                - heading "Notifications" [level=2] [ref=e207]
+                - paragraph [ref=e208]: 2 unread
+            - generic [ref=e209]:
+              - button "Mark all read" [ref=e210] [cursor=pointer]:
+                - img [ref=e211]
+                - text: Mark all read
+              - button [ref=e214]:
+                - img [ref=e215]
+          - generic [ref=e219]:
+            - img [ref=e220]
+            - textbox "Search notifications..." [ref=e223]
+          - generic [ref=e224]:
+            - button "all" [ref=e225]
+            - button "unread2" [ref=e226]
+            - button "read" [ref=e227]
+          - generic [ref=e228]:
+            - generic [ref=e229]:
+              - generic [ref=e230]: This Week
+              - generic [ref=e232]:
+                - button "Dismiss" [ref=e234]:
+                  - img [ref=e235]
+                - 'button "Hall Task Assigned to You T Hall Task Assigned to You test ahsan user assigned you a task from the hall inbox: \"tesing cross hall with new rei\" (64h estimate) Time: 3d ago View" [ref=e238]':
+                  - generic [ref=e239]:
+                    - generic "Hall Task Assigned to You" [ref=e240]: HT
+                    - generic [ref=e241]: T
+                  - generic [ref=e242]:
+                    - paragraph [ref=e244]: Hall Task Assigned to You
+                    - paragraph [ref=e245]: "test ahsan user assigned you a task from the hall inbox: \"tesing cross hall with new rei\" (64h estimate)"
+                    - generic [ref=e246]:
+                      - generic [ref=e247]: "Time: 3d ago"
+                      - generic [ref=e248]:
+                        - text: View
+                        - img [ref=e249]
+            - generic [ref=e253]:
+              - generic [ref=e254]: Older
+              - generic [ref=e256]:
+                - button "Dismiss" [ref=e258]:
+                  - img [ref=e259]
+                - 'button "New Task in Your Department Queue T New Task in Your Department Queue test ahsan user added \"tests departmebnt\" to the second depart testing depertment queue. Time: Thu, Apr 2 View" [ref=e262]':
+                  - generic [ref=e263]:
+                    - generic "New Task in Your Department Queue" [ref=e264]: NT
+                    - generic [ref=e265]: T
+                  - generic [ref=e266]:
+                    - paragraph [ref=e268]: New Task in Your Department Queue
+                    - paragraph [ref=e269]: test ahsan user added "tests departmebnt" to the second depart testing depertment queue.
+                    - generic [ref=e270]:
+                      - generic [ref=e271]: "Time: Thu, Apr 2"
+                      - generic [ref=e272]:
+                        - text: View
+                        - img [ref=e273]
+          - paragraph [ref=e278]: Showing 2 of 2 notifications
+        - link "S second depart user User" [ref=e79] [cursor=pointer]:
+          - /url: /dashboard/profile
+          - generic [ref=e80]: S
+          - generic [ref=e81]:
+            - generic [ref=e82]: second depart user
+            - generic [ref=e83]: User
+    - main [ref=e84]:
+      - generic [ref=e281]:
+        - generic [ref=e283]:
+          - generic [ref=e284]:
+            - heading "Create New Task" [level=2] [ref=e285]
+            - paragraph [ref=e286]: Create work in the same routing flow used across the portal.
+          - button "Cancel" [ref=e287]
+        - generic [ref=e288]:
+          - generic [ref=e290]:
+            - generic [ref=e291]:
+              - paragraph [ref=e292]: Mode
+              - paragraph [ref=e293]: Create and route work inside your current flow.
+            - tablist "Task mode" [ref=e294]:
+              - tab "Local Task" [selected] [ref=e295]
+              - tab "Send to Hall" [ref=e296]
+          - generic [ref=e297]:
+            - generic [ref=e298]:
+              - generic [ref=e299]:
+                - heading "Task Basics" [level=3] [ref=e300]
+                - paragraph [ref=e301]: Core task details, package binding, and the shared goal text.
+              - generic [ref=e302]:
+                - generic [ref=e303]:
+                  - generic [ref=e304]:
+                    - generic [ref=e305]: App Name
+                    - button "Select app" [ref=e307]:
+                      - generic [ref=e309]: Select app
+                      - img [ref=e310]
+                  - generic [ref=e312]:
+                    - generic [ref=e313]: Package Name*
+                    - button "Select package" [ref=e315]:
+                      - generic [ref=e317]: Select package
+                      - img [ref=e318]
+                - generic [ref=e320]:
+                  - generic [ref=e321]: KPI Type*
+                  - combobox [ref=e322]:
+                    - option "Select KPI Type" [selected]
+                    - option "Monitizations"
+                    - option "Store Graphics"
+                    - option "Creative Graphic"
+                    - option "Andriod Vitls"
+                    - option "Bugs"
+                    - option "New Feature"
+                    - option "SDK Updates"
+                    - option "Data Analysis"
+                    - option "Others"
+                - generic [ref=e323]:
+                  - generic [ref=e324]: Title (0/30)*
+                  - textbox "What needs to be done?" [ref=e325]
+                - generic [ref=e326]:
+                  - generic [ref=e327]: Description
+                  - generic [ref=e328]:
+                    - generic [ref=e329]:
+                      - button "Bold" [ref=e330]:
+                        - img [ref=e331]
+                      - button "Italic" [ref=e333]:
+                        - img [ref=e334]
+                      - button "Underline" [ref=e336]:
+                        - img [ref=e337]
+                      - button "Bullet List" [ref=e339]:
+                        - img [ref=e340]
+                      - button "Numbered List" [ref=e341]:
+                        - img [ref=e342]
+                      - button "Insert Table" [ref=e346]:
+                        - img [ref=e347]
+                      - button "Add Table Row" [ref=e349]:
+                        - img [ref=e350]
+                      - button "Col" [ref=e351]:
+                        - img [ref=e352]
+                        - generic [ref=e353]: Col
+                      - button "Remove Table Row" [ref=e354]:
+                        - img [ref=e355]
+                      - button "Col" [ref=e356]:
+                        - img [ref=e357]
+                        - generic [ref=e358]: Col
+                      - button "Excel/CSV" [ref=e360]:
+                        - img [ref=e361]
+                        - generic [ref=e364]: Excel/CSV
+                    - generic [ref=e365]:
+                      - generic [ref=e366]:
+                        - generic [ref=e367]:
+                          - img
+                          - textbox "Paste a public Google Sheet URL..." [ref=e368]
+                        - button "Import Sheet" [ref=e369]:
+                          - img [ref=e370]
+                          - text: Import Sheet
+                      - paragraph [ref=e373]: Supports bullet lists, manual tables, Excel, CSV, Word (.docx), PDF, pasted table text, and public Google Sheets.
+                - generic [ref=e375]:
+                  - generic [ref=e376]: Our Goal
+                  - generic [ref=e378]:
+                    - button "Bold" [ref=e379]:
+                      - img [ref=e380]
+                    - button "Italic" [ref=e382]:
+                      - img [ref=e383]
+                    - button "Underline" [ref=e385]:
+                      - img [ref=e386]
+                    - button "Bullet List" [ref=e388]:
+                      - img [ref=e389]
+                    - button "Numbered List" [ref=e390]:
+                      - img [ref=e391]
+            - generic [ref=e396]:
+              - generic [ref=e397]:
+                - heading "Timing & Routing" [level=3] [ref=e398]
+                - paragraph [ref=e399]: Choose urgency and decide where the task should flow next.
+              - generic [ref=e400]:
+                - generic [ref=e401]:
+                  - generic [ref=e402]:
+                    - generic [ref=e403]: Priority
+                    - combobox [ref=e404]:
+                      - option "Low"
+                      - option "Medium" [selected]
+                      - option "High"
+                      - option "Urgent"
+                  - generic [ref=e405]:
+                    - generic [ref=e406]: Estimated Time *
+                    - generic [ref=e407]:
+                      - generic [ref=e408]:
+                        - spinbutton [ref=e409]: "0"
+                        - generic [ref=e410]: Days
+                      - generic [ref=e411]:
+                        - spinbutton [ref=e412]: "0"
+                        - generic [ref=e413]: Hours
+                - generic [ref=e414]:
+                  - generic [ref=e415]: Task Routing
+                  - generic [ref=e416]:
+                    - button "Self Self Todo Create this task for yourself" [ref=e417]:
+                      - generic [ref=e419]:
+                        - generic [ref=e420]: Self
+                        - generic [ref=e421]: Self Todo
+                        - generic [ref=e422]: Create this task for yourself
+                    - button "Dept Department Queue Route to a department queue" [ref=e423]:
+                      - generic [ref=e425]:
+                        - generic [ref=e426]: Dept
+                        - generic [ref=e427]: Department Queue
+                        - generic [ref=e428]: Route to a department queue
+                    - button "Mgr Send to Manager Assign directly to a manager" [active] [ref=e430]:
+                      - generic [ref=e432]:
+                        - generic [ref=e433]: Mgr
+                        - generic [ref=e434]: Send to Manager
+                        - generic [ref=e435]: Assign directly to a manager
+                    - button "Team Multi-Assignment Assign to multiple users with individual deadlines" [ref=e436]:
+                      - generic [ref=e438]:
+                        - generic [ref=e439]: Team
+                        - generic [ref=e440]: Multi-Assignment
+                        - generic [ref=e441]: Assign to multiple users with individual deadlines
+                  - generic [ref=e469]:
+                    - generic [ref=e470]: Assign To
+                    - combobox [ref=e471]:
+                      - option "Select manager..." [selected]
+                      - option "test ahsan user - teat 2F development"
+                      - option "test user superviser - teat 2F development"
+            - generic [ref=e446]:
+              - generic [ref=e447]:
+                - heading "Notes & Files" [level=3] [ref=e448]
+                - paragraph [ref=e449]: Context, references, and upload items that should travel with the task.
+              - generic [ref=e450]:
+                - generic [ref=e451]:
+                  - generic [ref=e452]: Notes
+                  - textbox "Additional notes..." [ref=e453]
+                - generic [ref=e454]:
+                  - generic [ref=e455]:
+                    - generic [ref=e456]:
+                      - heading "Attachments" [level=3] [ref=e457]
+                      - paragraph [ref=e458]: Select files now. They will upload once the task is saved. Max 1 GB per file.
+                    - button "Add Files" [ref=e459]:
+                      - img [ref=e460]
+                      - text: Add Files
+                  - paragraph [ref=e463]: No attachments selected yet.
+          - generic [ref=e464]:
+            - button "Cancel" [ref=e465]
+            - button "Create Task" [ref=e466]
+  - alert [ref=e193]: CMS Portal

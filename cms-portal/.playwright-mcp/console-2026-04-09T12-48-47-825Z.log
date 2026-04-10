@@ -1,0 +1,122 @@
+[     458ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:38559
+[     807ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[    1357ms] [ERROR] Warning: Text content did not match. Server: "%s" Client: "%s"%s Due Date Due Date * 
+    at label
+    at div
+    at Field (webpack-internal:///(app-pages-browser)/./src/components/tasks/create-task-modal.tsx:2913:11)
+    at div
+    at div
+    at section
+    at SectionCard (webpack-internal:///(app-pages-browser)/./src/components/tasks/create-task-modal.tsx:2944:11)
+    at section
+    at div
+    at form
+    at div
+    at div
+    at CreateTaskModal (webpack-internal:///(app-pages-browser)/./src/components/tasks/create-task-modal.tsx:52:11)
+    at NewTaskClient (webpack-internal:///(app-pages-browser)/./src/app/dashboard/tasks/new/client.tsx:14:78)
+    at NewTaskPage (Server)
+    at InnerLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:243:11)
+    at RedirectErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:74:9)
+    at RedirectBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:82:11)
+    at NotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:84:11)
+    at LoadingBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:349:11)
+    at ErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:160:11)
+    at InnerScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:153:9)
+    at ScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:228:11)
+    at RenderFromTemplateContext (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/render-from-template-context.js:16:44)
+    at OuterLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:370:11)
+    at InnerLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:243:11)
+    at RedirectErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:74:9)
+    at RedirectBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:82:11)
+    at NotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:84:11)
+    at Suspense
+    at LoadingBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:349:11)
+    at ErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:160:11)
+    at InnerScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:153:9)
+    at ScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:228:11)
+    at RenderFromTemplateContext (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/render-from-template-context.js:16:44)
+    at OuterLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:370:11)
+    at InnerLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:243:11)
+    at RedirectErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:74:9)
+    at RedirectBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:82:11)
+    at NotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:84:11)
+    at Suspense
+    at LoadingBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:349:11)
+    at ErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:160:11)
+    at InnerScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:153:9)
+    at ScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:228:11)
+    at RenderFromTemplateContext (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/render-from-template-context.js:16:44)
+    at OuterLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:370:11)
+    at div
+    at main
+    at div
+    at DashboardShell (webpack-internal:///(app-pages-browser)/./src/components/layout/dashboard-shell.tsx:60:11)
+    at Suspense
+    at DashboardLayout (Server)
+    at InnerLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:243:11)
+    at RedirectErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:74:9)
+    at RedirectBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:82:11)
+    at NotFoundErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:76:9)
+    at NotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:84:11)
+    at Suspense
+    at LoadingBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:349:11)
+    at ErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:160:11)
+    at InnerScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:153:9)
+    at ScrollAndFocusHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:228:11)
+    at RenderFromTemplateContext (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/render-from-template-context.js:16:44)
+    at OuterLayoutRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/layout-router.js:370:11)
+    at QueryClientProvider (webpack-internal:///(app-pages-browser)/./node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:27:11)
+    at QueryProvider (webpack-internal:///(app-pages-browser)/./src/components/providers/query-provider.tsx:15:11)
+    at body
+    at html
+    at RootLayout (Server)
+    at RedirectErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:74:9)
+    at RedirectBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/redirect-boundary.js:82:11)
+    at NotFoundErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:76:9)
+    at NotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/not-found-boundary.js:84:11)
+    at DevRootNotFoundBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/dev-root-not-found-boundary.js:33:11)
+    at ReactDevOverlay (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/ReactDevOverlay.js:87:9)
+    at HotReload (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:321:11)
+    at Router (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/app-router.js:207:11)
+    at ErrorBoundaryHandler (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:113:9)
+    at ErrorBoundary (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/error-boundary.js:160:11)
+    at AppRouter (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/app-router.js:585:13)
+    at ServerRoot (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:112:27)
+    at Root (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:117:11) @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/app-index.js:32
+[    1379ms] Error: Text content does not match server-rendered HTML.
+See more info here: https://nextjs.org/docs/messages/react-hydration-error
+    at checkForUnmatchedText (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:32797:11)
+    at didNotMatchHydratedTextInstance (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:36222:5)
+    at prepareToHydrateHostTextInstance (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:7288:13)
+    at completeWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:19821:17)
+    at completeUnitOfWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25963:14)
+    at performUnitOfWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25759:5)
+    at workLoopConcurrent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25734:5)
+    at renderRootConcurrent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25690:9)
+    at performConcurrentWorkOnRoot (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:24504:38)
+    at workLoop (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:256:34)
+    at flushWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:225:14)
+    at MessagePort.performWorkUntilDeadline (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:534:21)
+[    1379ms] Error: There was an error while hydrating this Suspense boundary. Switched to client rendering.
+See more info here: https://nextjs.org/docs/messages/react-hydration-error
+    at updateDehydratedSuspenseComponent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:17594:57)
+    at updateSuspenseComponent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:17193:16)
+    at beginWork$1 (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:18509:14)
+    at beginWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:26927:14)
+    at performUnitOfWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25748:12)
+    at workLoopConcurrent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25734:5)
+    at renderRootConcurrent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:25690:9)
+    at performConcurrentWorkOnRoot (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom.development.js:24504:38)
+    at workLoop (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:256:34)
+    at flushWork (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:225:14)
+    at MessagePort.performWorkUntilDeadline (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/scheduler/cjs/scheduler.development.js:534:21)
+[    1932ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[    4060ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[    4364ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[    9489ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[   19606ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[   29741ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107
+[   34626ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:186
+[   35564ms] [LOG] [Fast Refresh] done in 939ms @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:43
+[   35659ms] [ERROR] WebSocket connection to 'wss://nxvfotgayhxxmparvois.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZSI6Im54dmZvdGdheWh4eG1wYXJ2b2lzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczMTU1MTMsImV4cCI6MjA4Mjg5MTUxM30.O1NQk4b_AmEdUiKWK623EVF7QgVs64NlRtpodwtWdZM&vsn=2.0.0' failed: HTTP Authentication failed; no valid credentials available @ webpack-internal:///(app-pages-browser)/./node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js:107

@@ -1,0 +1,111 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img [ref=e6]
+      - generic [ref=e9]:
+        - generic [ref=e10]: CMS Portal
+        - generic [ref=e11]: Operations Hub
+    - navigation [ref=e12]:
+      - generic [ref=e14]:
+        - button "Workspace" [ref=e15]:
+          - generic [ref=e16]: Workspace
+          - img [ref=e17]
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /dashboard
+              - img [ref=e23]
+              - generic [ref=e26]: Dashboard
+              - img [ref=e27]
+          - listitem [ref=e29]:
+            - button "Tasks" [ref=e30]:
+              - img [ref=e33]
+              - generic [ref=e36]: Tasks
+              - img [ref=e37]
+            - list [ref=e39]:
+              - listitem [ref=e40]:
+                - link "All task 0" [ref=e41] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=all
+                  - generic [ref=e42]: All task
+                  - generic [ref=e43]: "0"
+              - listitem [ref=e44]:
+                - link "Complete 0" [ref=e45] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=completed
+                  - generic [ref=e46]: Complete
+                  - generic [ref=e47]: "0"
+              - listitem [ref=e48]:
+                - link "In Progress 0" [ref=e49] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=in_progress
+                  - generic [ref=e50]: In Progress
+                  - generic [ref=e51]: "0"
+              - listitem [ref=e52]:
+                - link "Pending 0" [ref=e53] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=pending
+                  - generic [ref=e54]: Pending
+                  - generic [ref=e55]: "0"
+              - listitem [ref=e56]:
+                - link "Overdue 0" [ref=e57] [cursor=pointer]:
+                  - /url: /dashboard/tasks?scope=my_all&status=overdue
+                  - generic [ref=e58]: Overdue
+                  - generic [ref=e59]: "0"
+          - listitem [ref=e60]:
+            - link "Task Priority" [ref=e61] [cursor=pointer]:
+              - /url: /dashboard/tasks/queue-priority
+              - img [ref=e64]
+              - generic [ref=e67]: Task Priority
+    - generic [ref=e68]:
+      - button "Collapse" [ref=e69]:
+        - img [ref=e70]
+        - generic [ref=e72]: Collapse
+      - button "Sign out" [ref=e73]:
+        - img [ref=e74]
+        - generic [ref=e77]: Sign out
+  - banner [ref=e78]:
+    - generic [ref=e79]:
+      - button "Toggle theme" [ref=e80]:
+        - img [ref=e81]
+      - link "S second depart user User" [ref=e83] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - generic [ref=e84]: S
+        - generic [ref=e85]:
+          - generic [ref=e86]: second depart user
+          - generic [ref=e87]: User
+  - main [ref=e88]:
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - generic [ref=e92]:
+          - heading "Good evening, second depart user 👋" [level=1] [ref=e93]
+          - paragraph [ref=e94]: Here's your personal task overview for today.
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - text: Thursday, April 9
+      - generic [ref=e98]:
+        - button "0 My Total Tasks 0% done" [ref=e99]:
+          - img [ref=e102]
+          - generic [ref=e105]: "0"
+          - generic [ref=e106]: My Total Tasks
+          - generic [ref=e107]: 0% done
+        - button "0 Completed" [ref=e108]:
+          - img [ref=e111]
+          - generic [ref=e114]: "0"
+          - generic [ref=e115]: Completed
+        - button "0 In Progress" [ref=e116]:
+          - img [ref=e119]
+          - generic [ref=e121]: "0"
+          - generic [ref=e122]: In Progress
+        - button "0 Overdue need attention" [ref=e123]:
+          - img [ref=e126]
+          - generic [ref=e128]: "0"
+          - generic [ref=e129]: Overdue
+          - generic [ref=e130]: need attention
+      - generic [ref=e131]:
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - img [ref=e134]
+            - heading "My Task Status" [level=3] [ref=e136]
+          - generic [ref=e137]: No tasks yet
+        - generic [ref=e138]:
+          - generic [ref=e139]:
+            - img [ref=e140]
+            - heading "My Recent Tasks" [level=3] [ref=e143]
+          - paragraph [ref=e144]: No tasks yet

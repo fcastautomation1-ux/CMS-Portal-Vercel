@@ -1,0 +1,28 @@
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img "Funsol Operations Console" [ref=e33]
+      - generic [ref=e12]:
+        - generic [ref=e13]: Funsol Operations Console
+        - text: Manage Everything in One Place
+    - generic [ref=e14]:
+      - heading "Holla, Welcome Back" [level=1] [ref=e15]:
+        - text: Holla,
+        - text: Welcome Back
+      - paragraph [ref=e16]: Hey, welcome back to your special place
+    - generic [ref=e34]:
+      - img [ref=e35]
+      - text: Invalid username or password.
+    - generic [ref=e17]:
+      - textbox "Username" [ref=e18]: admin test
+      - generic [ref=e19]:
+        - textbox "••••••••••••" [ref=e20]: admin test
+        - button "Hide password" [active] [ref=e37]:
+          - img [ref=e38]
+      - generic [ref=e25]:
+        - generic [ref=e26] [cursor=pointer]:
+          - checkbox "Remember me" [ref=e27]
+          - generic [ref=e28]: Remember me
+        - button "Forgot Password?" [ref=e29]
+      - button "Sign In" [ref=e31]
+  - alert [ref=e32]

@@ -155,6 +155,13 @@ function isOverdue(dateStr: string | null): boolean {
   return !!dateStr && new Date(dateStr).getTime() < Date.now()
 }
 
+function getEffectiveOverdue(task: Todo): boolean {
+  const anyTask = task as unknown as Record<string, unknown>
+  const schedulerState = (anyTask.scheduler_state as string | null) ?? null
+  const dueForOverdue = schedulerState && task.effective_due_at ? task.effective_due_at : task.due_date
+  return isOverdue(dueForOverdue)
+}
+
 function getAssignmentStepOwner(task: Todo, assigneeUsername: string): string | null {
   const target = String(assigneeUsername || '').trim().toLowerCase()
   if (!target) return null
@@ -212,7 +219,20 @@ const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   backlog: { label: 'Pending', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
   todo: { label: 'Pending', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
   in_progress: { label: 'In Progress', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+  paused: { label: 'Paused', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
   done: { label: 'Done', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+}
+
+function getTaskFlowStatusLabel(task: Todo): string {
+  const schedulerState = String(task.scheduler_state || '').toLowerCase()
+  if (schedulerState === 'paused') return 'Paused'
+  if (schedulerState === 'user_queue') return 'Queued'
+  if (schedulerState === 'waiting_review') return 'In Review'
+  if (schedulerState === 'active') return 'In Progress'
+  if (task.task_status === 'in_progress') return 'In Progress'
+  if (task.task_status === 'todo') return 'Acknowledged'
+  if (task.task_status === 'done') return 'Completed'
+  return 'Pending'
 }
 
 const PRIORITY_CFG: Record<string, { label: string; longLabel: string; cls: string; stripe: string }> = {
@@ -325,7 +345,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
     tone: 'user',
     avatarUrl: task.participant_avatars?.[creator] ?? null,
     title: `Created by ${creator}`,
-    subtitle: task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'backlog' ? 'Pending' : task.task_status === 'done' ? 'Completed' : 'Created here',
+    subtitle: getTaskFlowStatusLabel(task),
     focusTarget: creator,
     children: [],
   }
@@ -365,7 +385,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
         avatarUrl: task.participant_avatars?.[actor] ?? null,
         title: `Assigned to ${actor}`,
         subtitle: isCurrentOwner
-          ? (task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'done' ? 'Completed' : 'Active')
+          ? getTaskFlowStatusLabel(task)
           : `From ${creator}`,
         focusTarget: actor,
       }
@@ -395,7 +415,7 @@ function buildWorkflowRailNodes(task: Todo): WorkflowRailNode[] {
       tone: task.task_status === 'in_progress' ? 'active' : 'user',
       avatarUrl: task.participant_avatars?.[task.assigned_to] ?? null,
       title: `Currently assigned to ${task.assigned_to}`,
-      subtitle: task.task_status === 'in_progress' ? 'In Progress' : task.task_status === 'todo' ? 'Acknowledged' : task.task_status === 'done' ? 'Completed' : 'Active',
+      subtitle: getTaskFlowStatusLabel(task),
       focusTarget: task.assigned_to,
     })
   }
@@ -597,6 +617,7 @@ export function TaskCard({
   
   const isPendingApproval = task.approval_status === 'pending_approval'
   const pendingApprover = task.pending_approver || task.username
+  const isTaskOverdue = getEffectiveOverdue(task)
 
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
@@ -686,6 +707,7 @@ export function TaskCard({
   const isHallScheduledTask = !task.cluster_inbox && !!task.cluster_id && task.workflow_state === 'claimed_by_department'
   const showHallClaimBtn = isHallQueueTask && isLeaderRole && !isCreator
   const showHallAssignBtn = isHallQueueTask && isLeaderRole && !isCreator && queueAssignableTeamMembers.length > 0
+  const isHallDeptQueuedTask = !!task.cluster_id && !task.cluster_inbox && task.queue_status === 'queued' && !!task.queue_department
 
   // ANY user in the chain can "Assign/Reassign" if they are the current assignee
   // (e.g., User 2 assigned to User 3. User 3 can now assign to User 4).
@@ -695,6 +717,7 @@ export function TaskCard({
   // Do NOT show for the direct assignee (they were assigned this task to work on, not to re-route)
   // and do NOT show for MA assignees (they are one of the workers, not the manager).
   const showHallMgrReassignBtn = !!task.cluster_id && !task.cluster_inbox && !isGloballyDone && isLeaderRole && !isCreator && !isAssignee && !myMaEntry
+  const showHallMgrRouteOtherDeptBtn = showHallMgrReassignBtn && !isHallDeptQueuedTask
 
   const singleStepOwner = !maEnabled && task.assigned_to ? getAssignmentStepOwner(task, task.assigned_to) : null
   const hasSingleStepChain = !maEnabled && !!task.assigned_to && (task.assignment_chain || []).some((entry) => (entry.next_user || '').toLowerCase() === task.assigned_to!.toLowerCase())
@@ -723,13 +746,17 @@ export function TaskCard({
 
   const renderedStatus = isCompleted
     ? 'done'
-    : (myMaEntry
-        ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
-            ? 'in_progress'
-            : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
-                ? 'done'
-                : 'backlog'))
-        : task.task_status)
+    : (isHallScheduledTaskForMe && effectiveHallState === 'paused')
+      ? 'paused'
+      : (isHallScheduledTaskForMe && effectiveHallState === 'user_queue')
+        ? 'backlog'
+        : (myMaEntry
+            ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
+                ? 'in_progress'
+                : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
+                    ? 'done'
+                    : 'backlog'))
+            : task.task_status)
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -740,8 +767,9 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
-  const completionLabel = task.completed_at && task.due_date 
-    ? `Completed ${getCompletionStatusText(task.due_date, task.completed_at)}` 
+  const displayDueDate = (task.scheduler_state && task.effective_due_at) ? task.effective_due_at : task.due_date
+  const completionLabel = task.completed_at && displayDueDate 
+    ? `Completed ${getCompletionStatusText(displayDueDate, task.completed_at)}` 
     : task.completed_at 
       ? `Completed ${fmtDate(task.completed_at)}` 
       : 'Completed'
@@ -1156,9 +1184,9 @@ export function TaskCard({
             <span className="truncate text-[11px] text-slate-500">{task.assigned_to}</span>
           </div>
         )}
-        {task.due_date && (
-          <p className={cn('mt-1.5 flex items-center gap-1 text-[11px]', isOverdue(task.due_date) && !isCompleted ? 'font-semibold text-red-500' : 'text-slate-400')}>
-            <Calendar size={10} /> {fmtShort(task.due_date)}
+        {displayDueDate && (
+          <p className={cn('mt-1.5 flex items-center gap-1 text-[11px]', isTaskOverdue && !isCompleted ? 'font-semibold text-red-500' : 'text-slate-400')}>
+            <Calendar size={10} /> {fmtShort(displayDueDate)}
           </p>
         )}
         {isCompleted && (
@@ -1343,7 +1371,7 @@ export function TaskCard({
             <div className="mt-4 flex flex-wrap gap-2">
               {ackNeeded && <ActBtn onClick={() => doAction(() => acknowledgeTaskAction(task.id), { task_status: 'todo' })} color="amber" disabled={isPending}>Acknowledge</ActBtn>}
               {showStartBtn && <ActBtn onClick={() => doAction(() => startTaskAction(task.id), { task_status: 'in_progress' })} color="blue" disabled={isPending}>Start Work</ActBtn>}
-              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id), { task_status: 'in_progress', scheduler_state: 'active' })} color="blue" disabled={isPending}>{effectiveHallState === 'paused' ? 'Resume Task' : 'Start Task'}</ActBtn>}
+              {showHallActivateBtn && <ActBtn onClick={() => doAction(() => activateHallTaskAction(task.id))} color="blue" disabled={isPending}>{effectiveHallState === 'paused' ? 'Resume Task' : 'Start Task'}</ActBtn>}
               {/* Queue lock message — shown when task is waiting/paused but NOT at position #1 */}
               {isHallScheduledTaskForMe && effectiveHallState === 'user_queue' && !isCompleted && !isFirstInQueue && (
                 <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-500">
@@ -1355,7 +1383,7 @@ export function TaskCard({
                   ⏸ Queue #{hallQueueRank} — paused, waiting for tasks ahead
                 </span>
               )}
-              {showHallPauseBtn && <ActBtn onClick={() => doAction(() => pauseHallTaskAction(task.id), { scheduler_state: 'paused' })} color="amber" disabled={isPending}>Pause</ActBtn>}
+              {showHallPauseBtn && <ActBtn onClick={() => doAction(() => pauseHallTaskAction(task.id))} color="amber" disabled={isPending}>Pause</ActBtn>}
               {showHallCompleteBtn && <ActBtn onClick={() => openTaskDialog({ type: 'hall-complete' })} color="green" disabled={isPending}>Complete Task</ActBtn>}
               {/* Waiting review lock message */}
               {isHallScheduledTaskForMe && effectiveHallState === 'waiting_review' && !isCompleted && !showCompleteBtn && !showApproveBtn && (
@@ -1393,7 +1421,7 @@ export function TaskCard({
                   Assign to Team Member
                 </ActBtn>
               )}
-              {showHallMgrReassignBtn && (
+              {showHallMgrRouteOtherDeptBtn && (
                 <ActBtn
                   onClick={() => router.push(`/dashboard/tasks/route-cluster/${task.id}`)}
                   color="violet"
@@ -1657,10 +1685,10 @@ export function TaskCard({
                 {task.assignee_department && <span> ({task.assignee_department})</span>}
               </span>
             )}
-            {task.due_date && (
-              <span className={cn('flex items-center gap-1', isOverdue(task.due_date) && !isCompleted ? 'font-semibold text-red-500' : '')}>
+            {displayDueDate && (
+              <span className={cn('flex items-center gap-1', isTaskOverdue && !isCompleted ? 'font-semibold text-red-500' : '')}>
                 <Calendar size={10} className="shrink-0" />
-                Expected: {fmtShort(task.due_date)}
+                Expected: {fmtShort(displayDueDate)}
               </span>
             )}
           </div>
@@ -1675,26 +1703,20 @@ export function TaskCard({
               <div className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', isCompleted ? 'text-green-700' : 'text-slate-400')}>
                 {isCompleted ? 'Finished' : 'Expected'}
               </div>
-              {(() => {
-                // For hall-scheduled tasks, prefer effective_due_at (computed within office hours)
-                const displayDate = (task.scheduler_state && task.effective_due_at) ? task.effective_due_at : task.due_date
-                return (
-                  <>
-                    <div className={cn('mt-1 text-base font-bold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-700')}>
-                      {displayDate ? fmtShort(displayDate) : 'No date'}
-                    </div>
-                    {displayDate && (
-                      <div className={cn('mt-1 text-xs font-semibold', isOverdue(task.due_date) && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
-                        {isCompleted && task.completed_at ? (
-                          getCompletionStatusText(displayDate, task.completed_at)
-                        ) : (
-                          fmtTime(displayDate)
-                        )}
-                      </div>
+              <>
+                <div className={cn('mt-1 text-base font-bold', isTaskOverdue && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-700')}>
+                  {displayDueDate ? fmtShort(displayDueDate) : 'No date'}
+                </div>
+                {displayDueDate && (
+                  <div className={cn('mt-1 text-xs font-semibold', isTaskOverdue && !isCompleted ? 'text-[#e6555f]' : isCompleted ? 'text-green-700' : 'text-slate-400')}>
+                    {isCompleted && task.completed_at ? (
+                      getCompletionStatusText(displayDueDate, task.completed_at)
+                    ) : (
+                      fmtTime(displayDueDate)
                     )}
-                  </>
-                )
-              })()}
+                  </div>
+                )}
+              </>
             </div>
           )}
 

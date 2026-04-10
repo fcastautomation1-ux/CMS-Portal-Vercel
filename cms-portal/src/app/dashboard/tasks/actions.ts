@@ -1390,6 +1390,22 @@ export async function saveTodoAction(
     }
   }
 
+  // ── Hall User: Handle days/hours input and department queue ───────────
+  let userHall: { cluster_id: string; cluster_name: string; department_queue_enabled: boolean; department_queue_pick_allowed: boolean; enforce_single_task: boolean } | null = null
+  let estimatedWorkMinutes: number | null = null
+  
+  if (!isEdit) {
+    userHall = await getUserCurrentHall()
+    
+    // If user is in a hall, calculate estimated work minutes from days/hours
+    if (userHall && (input.estimated_days || input.estimated_hours)) {
+      const days = input.estimated_days ?? 0
+      const hours = input.estimated_hours ?? 0
+      // Assume 8 hours per working day
+      estimatedWorkMinutes = (days * 8 * 60) + (hours * 60)
+    }
+  }
+
   // Fetch hall-specific office hours (if this task belongs to a cluster)
   const hallHours = await getClusterOfficeHours(supabase, input.cluster_id ?? null)
 
@@ -1858,6 +1874,29 @@ export async function saveTodoAction(
       history: JSON.stringify(history),
       created_at: now,
       updated_at: now,
+    }
+
+    // ── Add Hall-specific fields if user is in a hall ────────────────────────
+    if (userHall) {
+      payload.cluster_id = userHall.cluster_id
+
+      // All hall tasks enter the scheduler queue
+      payload.scheduler_state = 'user_queue'
+
+      // If dept queue is disabled and task was dept-routed with an auto-assignment,
+      // clear it so a manager/supervisor manually assigns from the queue instead
+      if (input.routing === 'department' && !userHall.department_queue_enabled && assignedTo) {
+        payload.assigned_to = null
+        payload.queue_status = 'queued'
+      }
+      
+      // Add estimated work minutes from days/hours
+      if (estimatedWorkMinutes && estimatedWorkMinutes > 0) {
+        payload.estimated_work_minutes = estimatedWorkMinutes
+        payload.remaining_work_minutes = estimatedWorkMinutes
+        // Calculate effective due date based on work minutes and office hours
+        payload.effective_due_at = calculateEffectiveDueAt(now, estimatedWorkMinutes, hallHours).toISOString()
+      }
     }
 
     if (rolledMaDue) {
@@ -3636,7 +3675,7 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
   const supabase = createServerClient()
   const { data: existing } = await supabase
     .from('todos')
-    .select('username,assigned_to,queue_status,queue_department,task_status,history,title,assignment_chain')
+    .select('username,assigned_to,queue_status,queue_department,task_status,history,title,assignment_chain,cluster_id,estimated_work_minutes,remaining_work_minutes')
     .eq('id', todoId)
     .single()
   if (!existing) return { success: false, error: 'Task not found.' }
@@ -3652,6 +3691,70 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
   const userDepts = splitDepartmentsCsv(user.department).map((d) => canonicalDepartmentKey(d)).filter(Boolean)
   if (taskDept && userDepts.length > 0 && !userDepts.includes(taskDept))
     return { success: false, error: 'This task is for a different department.' }
+
+  // ── Hall queue enforcement checks + scheduler transition ──────────────────
+  const taskClusterId = task.cluster_id as string | null
+  let hasActiveInHall = false
+  let queuedInsertRank: number | null = null
+  if (taskClusterId) {
+    const { data: clusterSettings } = await supabase
+      .from('cluster_settings')
+      .select('department_queue_pick_allowed, enforce_single_task')
+      .eq('cluster_id', taskClusterId)
+      .single()
+
+    if (clusterSettings) {
+      const settings = clusterSettings as Record<string, unknown>
+      const pickAllowed = settings.department_queue_pick_allowed !== false // default true
+      const enforceSingle = settings.enforce_single_task !== false // default true
+
+      // If department_queue_pick_allowed is false, only managers/supervisors can claim
+      if (!pickAllowed) {
+        const isLeader = ['Admin', 'Super Manager', 'Manager', 'Supervisor'].includes(user.role)
+        if (!isLeader) {
+          // Also check cluster membership role
+          const { data: membership } = await supabase
+            .from('cluster_members')
+            .select('cluster_role')
+            .eq('cluster_id', taskClusterId)
+            .eq('username', user.username)
+            .single()
+          const clusterRole = (membership as Record<string, string> | null)?.cluster_role ?? ''
+          if (!['owner', 'manager', 'supervisor'].includes(clusterRole)) {
+            return { success: false, error: 'Task picking from queue is restricted to managers and supervisors in this hall.' }
+          }
+        }
+      }
+
+      // If enforce_single_task is true, keep only one active task.
+      // Additional claimed tasks are queued automatically for the user.
+      if (enforceSingle) {
+        const { data: activeTask } = await supabase
+          .from('todos')
+          .select('id, title, queue_rank')
+          .eq('assigned_to', user.username)
+          .eq('cluster_id', taskClusterId)
+          .eq('completed', false)
+          .eq('scheduler_state', 'active')
+          .limit(1)
+        hasActiveInHall = !!(activeTask && activeTask.length > 0)
+        if (hasActiveInHall) {
+          const { data: existingQueueRows } = await supabase
+            .from('todos')
+            .select('queue_rank')
+            .eq('assigned_to', user.username)
+            .eq('cluster_id', taskClusterId)
+            .eq('completed', false)
+            .in('scheduler_state', ['active', 'user_queue', 'paused', 'blocked'])
+          const maxRank = ((existingQueueRows ?? []) as Array<{ queue_rank: number | null }>).reduce(
+            (mx, row) => Math.max(mx, row.queue_rank ?? 0),
+            0,
+          )
+          queuedInsertRank = maxRank + 1
+        }
+      }
+    }
+  }
 
   const now = new Date().toISOString()
   const history = parseJson<HistoryEntry[]>(task.history, [])
@@ -3670,7 +3773,7 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
     assignedAt: now,
   })
 
-  await supabase.from('todos').update({
+  const updatePayload: Record<string, unknown> = {
     assigned_to: user.username,
     queue_status: 'claimed',
     task_status: 'todo',
@@ -3679,7 +3782,36 @@ export async function claimQueuedTaskAction(todoId: string): Promise<{ success: 
     last_handoff_at: now,
     history: JSON.stringify(history),
     updated_at: now,
-  }).eq('id', todoId)
+  }
+
+  // For hall-created queue tasks: auto-start immediately when user has no active hall task.
+  // Timer begins only in active state and pauses stop the timer via pauseHallTaskAction.
+  if (taskClusterId) {
+    const hallHours = await getClusterOfficeHours(supabase, taskClusterId)
+    const baseRemaining =
+      (task.remaining_work_minutes as number | null) ??
+      (task.estimated_work_minutes as number | null) ??
+      null
+
+    if (!hasActiveInHall) {
+      updatePayload.scheduler_state = 'active'
+      updatePayload.task_status = 'in_progress'
+      updatePayload.queue_rank = null
+      updatePayload.active_started_at = now
+      updatePayload.effective_due_at =
+        baseRemaining && baseRemaining > 0
+          ? calculateEffectiveDueAt(now, baseRemaining, hallHours).toISOString()
+          : null
+    } else {
+      updatePayload.scheduler_state = 'user_queue'
+      updatePayload.task_status = 'todo'
+      updatePayload.queue_rank = queuedInsertRank ?? 1
+      updatePayload.active_started_at = null
+      updatePayload.effective_due_at = null
+    }
+  }
+
+  await supabase.from('todos').update(updatePayload).eq('id', todoId)
 
   if ((task.username as string) && (task.username as string) !== user.username) {
     await createNotification(supabase, {
@@ -6021,6 +6153,70 @@ export async function getClustersForHallSend(): Promise<Array<{
   }>).filter((c) => !myClusterIds.has(c.id))
 }
 
+/**
+ * Returns the Hall (cluster) that the current user belongs to based on their department.
+ * Returns null if user is not in any hall.
+ */
+export async function getUserCurrentHall(): Promise<{
+  cluster_id: string
+  cluster_name: string
+  department_queue_enabled: boolean
+  department_queue_pick_allowed: boolean
+  enforce_single_task: boolean
+  user_department: string | null
+} | null> {
+  const user = await getSession()
+  if (!user || !user.department) return null
+  
+  const supabase = createServerClient()
+  const userDepts = splitDepartmentsCsv(user.department).filter(Boolean)
+  if (userDepts.length === 0) return null
+
+  // First, find department IDs from user's departments
+  const { data: deptRows } = await supabase
+    .from('departments')
+    .select('id, name')
+    .in('name', userDepts)
+  
+  if (!deptRows || deptRows.length === 0) return null
+  
+  const deptIds = deptRows.map(d => d.id)
+  
+  // Find which cluster these departments belong to
+  const { data: clusterDepts } = await supabase
+    .from('cluster_departments')
+    .select('cluster_id')
+    .in('department_id', deptIds)
+    .limit(1)
+  
+  if (!clusterDepts || clusterDepts.length === 0) return null
+  
+  const clusterId = clusterDepts[0].cluster_id as string
+  
+  // Get cluster settings
+  const { data: settings } = await supabase
+    .from('cluster_settings')
+    .select('department_queue_enabled, department_queue_pick_allowed, enforce_single_task')
+    .eq('cluster_id', clusterId)
+    .single()
+  
+  // Get cluster name
+  const { data: cluster } = await supabase
+    .from('clusters')
+    .select('name')
+    .eq('id', clusterId)
+    .single()
+  
+  return {
+    cluster_id: clusterId,
+    cluster_name: (cluster?.name as string) ?? 'Unknown Hall',
+    department_queue_enabled: (settings?.department_queue_enabled as boolean) ?? false,
+    department_queue_pick_allowed: (settings?.department_queue_pick_allowed as boolean) ?? true,
+    enforce_single_task: (settings?.enforce_single_task as boolean) ?? true,
+    user_department: userDepts[0] ?? null,
+  }
+}
+
 /** Fetches the office-hours config for a single cluster (server-side). */
 async function getClusterOfficeHours(supabase: ReturnType<typeof createServerClient>, clusterId: string | null | undefined): Promise<HallOfficeHours> {
   if (!clusterId) return DEFAULT_OFFICE_HOURS
@@ -6275,6 +6471,9 @@ export async function getClusterSettingsAction(clusterId: string): Promise<Clust
     single_active_task_per_user: (row.single_active_task_per_user as boolean) ?? false,
     auto_start_next_task: (row.auto_start_next_task as boolean) ?? true,
     users_cannot_create_tasks: (row.users_cannot_create_tasks as boolean) ?? false,
+    department_queue_enabled: (row.department_queue_enabled as boolean) ?? false,
+    department_queue_pick_allowed: (row.department_queue_pick_allowed as boolean) ?? true,
+    enforce_single_task: (row.enforce_single_task as boolean) ?? true,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   }
@@ -6292,6 +6491,9 @@ export async function saveClusterSettingsAction(
     single_active_task_per_user?: boolean
     auto_start_next_task?: boolean
     users_cannot_create_tasks?: boolean
+    department_queue_enabled?: boolean
+    department_queue_pick_allowed?: boolean
+    enforce_single_task?: boolean
   }
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getSession()
@@ -6323,6 +6525,9 @@ export async function saveClusterSettingsAction(
   if (settings.single_active_task_per_user !== undefined) payload.single_active_task_per_user = settings.single_active_task_per_user
   if (settings.auto_start_next_task !== undefined) payload.auto_start_next_task = settings.auto_start_next_task
   if (settings.users_cannot_create_tasks !== undefined) payload.users_cannot_create_tasks = settings.users_cannot_create_tasks
+  if (settings.department_queue_enabled !== undefined) payload.department_queue_enabled = settings.department_queue_enabled
+  if (settings.department_queue_pick_allowed !== undefined) payload.department_queue_pick_allowed = settings.department_queue_pick_allowed
+  if (settings.enforce_single_task !== undefined) payload.enforce_single_task = settings.enforce_single_task
 
   const { error } = await supabase
     .from('cluster_settings')
@@ -7687,10 +7892,9 @@ export async function pauseHallTaskAction(
     await supabase.from('todos').update({ multi_assignment: JSON.stringify(ma), history: JSON.stringify(history), updated_at: now }).eq('id', todoId)
     await writeHallWorkLog(supabase, { todoId, username: user.username, event: 'paused', minutesDeducted: workedMinutes, notes: reason?.trim() || undefined })
 
-    const settings = await getHallSettingsForTask(supabase, clusterId)
-    if (settings.auto_start_next_task) {
-      await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
-    }
+    // Pausing is an explicit handoff: immediately auto-activate the next queued
+    // task in this hall for this user (if any).
+    await autoActivateNextTask(supabase, user.username, clusterId, todoId, hallHours)
     revalidateTasksData()
     return { success: true }
   }
@@ -7719,8 +7923,6 @@ export async function pauseHallTaskAction(
 
   const clusterId = task.cluster_id as string | null
   if (!clusterId) return { success: false, error: 'Task has no cluster context.' }
-
-  const settings = await getHallSettingsForTask(supabase, clusterId)
 
   // Check if there are other queued tasks — required for a simple pause
   const { data: otherQueued } = await supabase
@@ -7801,9 +8003,9 @@ export async function pauseHallTaskAction(
     notes: reason?.trim() || undefined,
   })
 
-  if (settings.auto_start_next_task) {
-    await autoActivateNextTask(supabase, assignedTo, clusterId, todoId, hallHours)
-  }
+  // Pausing is an explicit handoff: immediately auto-activate the next queued
+  // task in this hall for this user (if any).
+  await autoActivateNextTask(supabase, assignedTo, clusterId, todoId, hallHours)
 
   revalidateTasksData()
   return { success: true }

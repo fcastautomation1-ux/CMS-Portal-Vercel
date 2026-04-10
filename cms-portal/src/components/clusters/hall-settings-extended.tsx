@@ -128,6 +128,9 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
     single_active_task_per_user: false,
     auto_start_next_task: true,
     users_cannot_create_tasks: false,
+    department_queue_enabled: false,
+    department_queue_pick_allowed: true,
+    enforce_single_task: true,
   }
 
   const [allowDeptSeeQueue, setAllowDeptSeeQueue] = useState(defaults.allow_dept_users_see_queue)
@@ -135,6 +138,10 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
   const [singleActive, setSingleActive] = useState(defaults.single_active_task_per_user)
   const [autoStart, setAutoStart] = useState(defaults.auto_start_next_task)
   const [usersCannotCreateTasks, setUsersCannotCreateTasks] = useState(defaults.users_cannot_create_tasks ?? false)
+  // New hall queue settings
+  const [deptQueueEnabled, setDeptQueueEnabled] = useState(defaults.department_queue_enabled ?? false)
+  const [deptQueuePickAllowed, setDeptQueuePickAllowed] = useState(defaults.department_queue_pick_allowed ?? true)
+  const [enforceSingleTask, setEnforceSingleTask] = useState(defaults.enforce_single_task ?? true)
 
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
@@ -146,7 +153,10 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
     allowNormalUsersSeeQueue !== (defaults.allow_normal_users_see_queue ?? true) ||
     singleActive !== defaults.single_active_task_per_user ||
     autoStart !== defaults.auto_start_next_task ||
-    usersCannotCreateTasks !== (defaults.users_cannot_create_tasks ?? false)
+    usersCannotCreateTasks !== (defaults.users_cannot_create_tasks ?? false) ||
+    deptQueueEnabled !== (defaults.department_queue_enabled ?? false) ||
+    deptQueuePickAllowed !== (defaults.department_queue_pick_allowed ?? true) ||
+    enforceSingleTask !== (defaults.enforce_single_task ?? true)
 
   function handleSingleActiveChange(v: boolean) {
     setSingleActive(v)
@@ -164,6 +174,9 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
         single_active_task_per_user: singleActive,
         auto_start_next_task: autoStart,
         users_cannot_create_tasks: usersCannotCreateTasks,
+        department_queue_enabled: deptQueueEnabled,
+        department_queue_pick_allowed: deptQueuePickAllowed,
+        enforce_single_task: enforceSingleTask,
       })
       if (result.success) {
         setSaved(true)
@@ -240,6 +253,42 @@ export default function HallSettingsExtended({ clusterId, initialSettings, canEd
           onChange={canEdit && singleActive ? setAutoStart : () => {}}
           disabled={!canEdit || !singleActive}
           indent
+        />
+
+        {/* ── Hall Queue Settings ─────────────────────────────────── */}
+        <p className="px-1 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
+          Department Queue
+        </p>
+
+        <SettingRow
+          id="department_queue_enabled"
+          icon={<Layers size={14} />}
+          label="Enable department queue"
+          description="When enabled, tasks created by hall users go to the department queue instead of direct assignment. Department users can pick tasks or managers can assign them."
+          checked={deptQueueEnabled}
+          onChange={canEdit ? setDeptQueueEnabled : () => {}}
+          disabled={!canEdit}
+        />
+
+        <SettingRow
+          id="department_queue_pick_allowed"
+          icon={<Users size={14} />}
+          label="Users can pick from queue"
+          description="When enabled, regular department users can pick tasks from the queue. When disabled, only managers/supervisors can assign tasks."
+          checked={deptQueuePickAllowed}
+          onChange={canEdit && deptQueueEnabled ? setDeptQueuePickAllowed : () => {}}
+          disabled={!canEdit || !deptQueueEnabled}
+          indent
+        />
+
+        <SettingRow
+          id="enforce_single_task"
+          icon={<Layers size={14} />}
+          label="Enforce single active task"
+          description="When enabled, users can only work on ONE task at a time. All additional tasks go to their personal queue."
+          checked={enforceSingleTask}
+          onChange={canEdit ? setEnforceSingleTask : () => {}}
+          disabled={!canEdit}
         />
 
         {/* ── Task Creation ───────────────────────────────────── */}
