@@ -608,12 +608,14 @@ export function CreateTaskModal({
       if (exists) {
         return current.filter((entry) => entry.username !== user.username)
       }
+      const defaultHours = Math.max(0, (estimatedDays || 0) * 8 + (estimatedHours || 0))
       return [
         ...current,
         {
           username: user.username,
           status: 'pending',
-          actual_due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
+          actual_due_date: userCurrentHall ? undefined : (dueDate || undefined),
+          hall_estimated_hours: userCurrentHall && defaultHours > 0 ? defaultHours : undefined,
         },
       ]
     })
@@ -625,10 +627,29 @@ export function CreateTaskModal({
         entry.username === username
           ? {
               ...entry,
-              actual_due_date: value ? new Date(value).toISOString() : undefined,
+              actual_due_date: value || undefined,
             }
           : entry
       )
+    )
+  }
+
+  const setMultiAssigneeEstimate = (username: string, field: 'days' | 'hours', value: string) => {
+    const parsed = Math.max(0, Number.parseInt(value || '0', 10) || 0)
+    setMultiAssignees((current) =>
+      current.map((entry) => {
+        if (entry.username !== username) return entry
+        const total = Math.max(0, Number(entry.hall_estimated_hours || 0))
+        const curDays = Math.floor(total / 8)
+        const curHours = Math.max(0, total % 8)
+        const nextDays = field === 'days' ? Math.min(parsed, 30) : curDays
+        const nextHours = field === 'hours' ? Math.min(parsed, 23) : curHours
+        const nextTotal = (nextDays * 8) + nextHours
+        return {
+          ...entry,
+          hall_estimated_hours: nextTotal > 0 ? nextTotal : undefined,
+        }
+      })
     )
   }
 
@@ -1036,20 +1057,30 @@ export function CreateTaskModal({
       return { message: 'Please select at least one user for multi-assignment.', field: 'multi' }
     }
     if (routing === 'multi') {
-      const missing = multiAssignees.filter((entry) => !entry.actual_due_date)
-      if (missing.length) {
-        return {
-          message: `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`,
-          field: 'multi',
+      if (userCurrentHall) {
+        const missingEstimate = multiAssignees.filter((entry) => !entry.hall_estimated_hours || entry.hall_estimated_hours <= 0)
+        if (missingEstimate.length) {
+          return {
+            message: `Please set estimated days/hours for: ${missingEstimate.map((entry) => entry.username).join(', ')}`,
+            field: 'multi',
+          }
         }
-      }
-      const invalid = multiAssignees.find((entry) =>
-        entry.actual_due_date && Boolean(validatePakistanOfficeDueDate(entry.actual_due_date, selectedHallHours))
-      )
-      if (invalid) {
-        return {
-          message: `Deadline for ${invalid.username} is outside this hall's office hours.`,
-          field: 'multi',
+      } else {
+        const missing = multiAssignees.filter((entry) => !entry.actual_due_date)
+        if (missing.length) {
+          return {
+            message: `Please set an individual deadline for: ${missing.map((entry) => entry.username).join(', ')}`,
+            field: 'multi',
+          }
+        }
+        const invalid = multiAssignees.find((entry) =>
+          entry.actual_due_date && Boolean(validatePakistanOfficeDueDate(entry.actual_due_date, selectedHallHours))
+        )
+        if (invalid) {
+          return {
+            message: `Deadline for ${invalid.username} is outside this hall's office hours.`,
+            field: 'multi',
+          }
         }
       }
     }
@@ -1750,21 +1781,50 @@ export function CreateTaskModal({
                     {multiAssignees.length > 0 && (
                       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
                         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                          Individual Deadlines
+                          {userCurrentHall ? 'Individual Estimates' : 'Individual Deadlines'}
                         </p>
                         <div className="space-y-2">
                           {multiAssignees.map((entry) => (
                             <div
                               key={entry.username}
-                              className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px]"
+                              className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_360px]"
                             >
                               <div className="text-sm font-semibold text-slate-800">{entry.username}</div>
-                              <OfficeDateTimePicker
-                                value={toInputDate(entry.actual_due_date)}
-                                onChange={(v) => setMultiAssigneeDueDate(entry.username, v)}
-                                min={minTaskDueDate}
-                                className={inputCls}
-                              />
+                              {userCurrentHall ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="30"
+                                      value={Math.floor((entry.hall_estimated_hours || 0) / 8)}
+                                      onChange={(e) => setMultiAssigneeEstimate(entry.username, 'days', e.target.value)}
+                                      className={inputCls}
+                                      placeholder="Days"
+                                    />
+                                    <span className="mt-1 block text-xs text-slate-500">Days</span>
+                                  </div>
+                                  <div>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="23"
+                                      value={Math.max(0, (entry.hall_estimated_hours || 0) % 8)}
+                                      onChange={(e) => setMultiAssigneeEstimate(entry.username, 'hours', e.target.value)}
+                                      className={inputCls}
+                                      placeholder="Hours"
+                                    />
+                                    <span className="mt-1 block text-xs text-slate-500">Hours</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <OfficeDateTimePicker
+                                  value={toInputDate(entry.actual_due_date)}
+                                  onChange={(v) => setMultiAssigneeDueDate(entry.username, v)}
+                                  min={minTaskDueDate}
+                                  className="w-full"
+                                />
+                              )}
                             </div>
                           ))}
                         </div>

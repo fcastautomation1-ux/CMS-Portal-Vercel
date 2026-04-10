@@ -220,6 +220,7 @@ const STATUS_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   todo: { label: 'Pending', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
   in_progress: { label: 'In Progress', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
   paused: { label: 'Paused', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  blocked: { label: 'Blocked', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
   done: { label: 'Done', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
 }
 
@@ -617,7 +618,6 @@ export function TaskCard({
   
   const isPendingApproval = task.approval_status === 'pending_approval'
   const pendingApprover = task.pending_approver || task.username
-  const isTaskOverdue = getEffectiveOverdue(task)
 
   const ma = task.multi_assignment
   const maEnabled = ma?.enabled && Array.isArray(ma.assignees) && ma.assignees.length > 0
@@ -647,15 +647,7 @@ export function TaskCard({
   // Hall-scheduled tasks auto-start when assigned (scheduler_state = 'active'), so no Start Work button needed.
   // For user_queue state they wait for auto-start — also no manual start button.
   const hallSchedulerState = (task as unknown as Record<string, unknown>).scheduler_state as string | null
-  const maHallState = myMaEntry
-    ? (
-        myMaEntry.hall_scheduler_state ||
-        (myMaEntry.ma_approval_status === 'pending_approval' ? 'waiting_review' : null) ||
-        (myMaEntry.status === 'in_progress' ? 'active' : null) ||
-        ((myMaEntry.status === 'completed' || myMaEntry.status === 'accepted') ? 'completed' : null) ||
-        'user_queue'
-      )
-    : null
+  const maHallState = myMaEntry?.hall_scheduler_state ?? null
   const effectiveHallState = (isAssignee ? hallSchedulerState : maHallState) as string | null
   // A task is hall-scheduled if it's assigned to me AND has a hall scheduler_state OR the cluster workflow_state.
   const isHallScheduledTaskForMe = !!task.cluster_id && !task.cluster_inbox && (
@@ -679,9 +671,11 @@ export function TaskCard({
   const showHallPauseBtn = isHallScheduledTaskForMe && effectiveHallState === 'active' && !isCompleted && hasOtherQueuedTasks
 
   // Hall active task submits for approval instead of directly completing
-  const showHallCompleteBtn = isHallScheduledTaskForMe && effectiveHallState === 'active' && !isCompleted
+  const showHallCompleteBtn = isHallScheduledTaskForMe && (
+    (myMaEntry ? maHallState === 'active' : hallSchedulerState === 'active') && !isCompleted
+  )
   const showCompleteBtn = !task.completed && !isPendingApproval && (
-    ((isAssignee && !maEnabled) && task.task_status === 'in_progress' && !showHallCompleteBtn) || 
+    ((isAssignee && !maEnabled && !isHallScheduledTaskForMe) && task.task_status === 'in_progress') || 
     (isStepOwner && currentAssigneeApproved)
   )
 
@@ -730,10 +724,10 @@ export function TaskCard({
     (singleStepOwner || '').toLowerCase() === currentUsername.toLowerCase() &&
     (singleStepOwner || '').toLowerCase() !== task.assigned_to.toLowerCase()
   const showSingleDueDateBtn = canEditSingleDueDate
-  // For hall-scheduled MA tasks (cluster_id present), only allow Start when this user's entry is marked active.
+  // For hall-scheduled MA tasks (cluster_id present), only allow Start when this user's entry is queued/paused (not already active).
   // For non-hall MA tasks, allow Start when status is pending (original behaviour).
   const showMaStartBtn = !!myMaEntry && myMaEntry.status === 'pending' && !isCompleted &&
-    (task.cluster_id ? maHallState === 'active' : true)
+    (!task.cluster_id || (maHallState === 'user_queue' || maHallState === 'paused'))
   const showMaSubmitBtn = !!myMaEntry && myMaEntry.status === 'in_progress' && !isCompleted &&
     (task.cluster_id ? maHallState === 'active' : true)
   const showMaDelegateBtn = false
@@ -746,17 +740,21 @@ export function TaskCard({
 
   const renderedStatus = isCompleted
     ? 'done'
-    : (isHallScheduledTaskForMe && effectiveHallState === 'paused')
+    : (effectiveHallState === 'paused' || hallSchedulerState === 'paused')
       ? 'paused'
-      : (isHallScheduledTaskForMe && effectiveHallState === 'user_queue')
-        ? 'backlog'
-        : (myMaEntry
-            ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
-                ? 'in_progress'
-                : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
-                    ? 'done'
-                    : 'backlog'))
-            : task.task_status)
+      : (effectiveHallState === 'blocked' || hallSchedulerState === 'blocked')
+        ? 'blocked'
+        : (effectiveHallState === 'active' || hallSchedulerState === 'active')
+          ? 'in_progress'
+          : (effectiveHallState === 'user_queue' || hallSchedulerState === 'user_queue')
+            ? 'backlog'
+            : (myMaEntry
+                ? ((maHallState === 'active' || myMaEntry.status === 'in_progress')
+                    ? 'in_progress'
+                    : ((maHallState === 'completed' || myMaEntry.status === 'completed' || myMaEntry.status === 'accepted')
+                        ? 'done'
+                        : 'backlog'))
+                : task.task_status)
 
   const completionTime = isCompleted && task.completed_at && task.created_at ? formatDuration(task.created_at, task.completed_at) : null
   // unread_comment_count is computed server-side in getTodos() to avoid sending full history to client
@@ -767,7 +765,11 @@ export function TaskCard({
   const pCfg = PRIORITY_CFG[task.priority] ?? PRIORITY_CFG.medium
   const summaryText = task.notes || taskDescriptionToPlainText(task.description)
   const workflowNodes = buildWorkflowRailNodes(task)
-  const displayDueDate = (task.scheduler_state && task.effective_due_at) ? task.effective_due_at : task.due_date
+  const displayDueDate =
+    myMaEntry?.actual_due_date
+    ?? myMaEntry?.hall_effective_due_at
+    ?? ((task.scheduler_state && task.effective_due_at) ? task.effective_due_at : task.due_date)
+  const isTaskOverdue = displayDueDate ? isOverdue(displayDueDate) : getEffectiveOverdue(task)
   const completionLabel = task.completed_at && displayDueDate 
     ? `Completed ${getCompletionStatusText(displayDueDate, task.completed_at)}` 
     : task.completed_at 

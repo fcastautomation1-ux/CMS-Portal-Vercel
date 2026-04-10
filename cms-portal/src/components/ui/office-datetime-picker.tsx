@@ -9,6 +9,7 @@ interface OfficeDateTimePickerProps {
   min?: string                         // "YYYY-MM-DDTHH:MM"
   disabled?: boolean
   className?: string
+  variant?: 'default' | 'compact'
 }
 
 // Office hours: 09 – 17 (18:00 is the exclusive end so last valid hour is 17)
@@ -50,6 +51,7 @@ export function OfficeDateTimePicker({
   min,
   disabled,
   className,
+  variant = 'default',
 }: OfficeDateTimePickerProps) {
   const { datePart, hour, minute } = parseDT(value)
   const { datePart: minDate, hour: minHour, minute: minMinute } = parseDT(min || '')
@@ -80,8 +82,11 @@ export function OfficeDateTimePicker({
     emit(datePart, hour, Number(e.target.value))
   }
 
+  const isCompact = variant === 'compact'
+
   const selectCls = cn(
-    'rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm text-slate-700',
+    'rounded-xl border border-slate-200 bg-white text-sm text-slate-700',
+    isCompact ? 'px-2 py-2' : 'px-2 py-2.5',
     'outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100',
     'disabled:opacity-50 disabled:cursor-not-allowed',
   )
@@ -96,7 +101,8 @@ export function OfficeDateTimePicker({
         onChange={handleDateChange}
         disabled={disabled}
         className={cn(
-          'flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700',
+          'flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700',
+          isCompact ? 'py-2' : 'py-2.5',
           'outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100',
           'disabled:opacity-50 disabled:cursor-not-allowed',
         )}
@@ -107,7 +113,7 @@ export function OfficeDateTimePicker({
         value={hour}
         onChange={handleHourChange}
         disabled={disabled}
-        className={cn(selectCls, 'w-16')}
+        className={cn(selectCls, isCompact ? 'w-14' : 'w-16')}
       >
         {OFFICE_HOURS.map((h) => {
           const tooEarly = datePart === minDate && h < minHour
@@ -126,7 +132,7 @@ export function OfficeDateTimePicker({
         value={minute}
         onChange={handleMinuteChange}
         disabled={disabled}
-        className={cn(selectCls, 'w-16')}
+        className={cn(selectCls, isCompact ? 'w-14' : 'w-16')}
       >
         {MINUTES.map((m) => {
           const tooEarly = datePart === minDate && hour === minHour && m < minMinute
